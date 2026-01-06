@@ -266,6 +266,12 @@ export class Logger {
     return this.jsonlPath;
   }
 
+  /**
+   * Export Logs のマスキング (設計書 15.8):
+   * - パスは workspace 相対またはハッシュ化
+   * - 内容は原則含めない（debug.logContent の許可が必要）
+   * - docUri は file:///... を含むため、ワークスペース相対パスに変換
+   */
   async exportLogs(): Promise<string | undefined> {
     if (!this.globalStorageUri) {return undefined;}
 
@@ -286,7 +292,9 @@ export class Logger {
       let combinedContent = '';
       for (const file of jsonlFiles) {
         const content = await fs.promises.readFile(path.join(logsDir.fsPath, file), 'utf-8');
-        combinedContent += content;
+        // 設計書 15.8: Export 時にパスをマスキング
+        const maskedContent = this.maskExportContent(content);
+        combinedContent += maskedContent;
       }
 
       await fs.promises.writeFile(exportPath.fsPath, combinedContent);
@@ -295,6 +303,121 @@ export class Logger {
       this.error('Failed to export logs', { details: { error: String(error) } });
       return undefined;
     }
+  }
+
+  /**
+   * Export 用のマスキング処理 (設計書 15.8)
+   * - docUri を workspace 相対パスに変換
+   * - errorStack 内のパスもマスキング
+   * - details 内の content/fullContent は既にマスキング済み
+   */
+  private maskExportContent(content: string): string {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const lines = content.split('\n');
+    const maskedLines: string[] = [];
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        maskedLines.push(line);
+        continue;
+      }
+
+      try {
+        const entry = JSON.parse(line) as LogEntry;
+        
+        // docUri をワークスペース相対パスに変換
+        if (entry.docUri) {
+          entry.docUri = this.maskPath(entry.docUri, workspaceFolders);
+        }
+
+        // errorStack 内のパスをマスキング
+        if (entry.errorStack) {
+          entry.errorStack = this.maskPathsInString(entry.errorStack, workspaceFolders);
+        }
+
+        // details 内の url や path をマスキング
+        if (entry.details) {
+          entry.details = this.maskDetailsForExport(entry.details, workspaceFolders);
+        }
+
+        maskedLines.push(JSON.stringify(entry));
+      } catch {
+        // JSON パースに失敗した行はそのまま出力（ただしパスをマスキング）
+        maskedLines.push(this.maskPathsInString(line, workspaceFolders));
+      }
+    }
+
+    return maskedLines.join('\n');
+  }
+
+  /**
+   * パスをワークスペース相対パスに変換
+   * file:///path/to/workspace/file.md → workspace://file.md
+   */
+  private maskPath(
+    uriString: string,
+    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined
+  ): string {
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      // ワークスペースがない場合はファイル名のみを残す
+      const match = uriString.match(/[/\\]([^/\\]+)$/);
+      return match ? `[file]/${match[1]}` : '[masked-path]';
+    }
+
+    for (const folder of workspaceFolders) {
+      const folderUri = folder.uri.toString();
+      if (uriString.startsWith(folderUri)) {
+        const relativePath = uriString.slice(folderUri.length);
+        return `workspace://${folder.name}${relativePath}`;
+      }
+    }
+
+    // ワークスペース外のパスはファイル名のみを残す
+    const match = uriString.match(/[/\\]([^/\\]+)$/);
+    return match ? `[external]/${match[1]}` : '[masked-path]';
+  }
+
+  /**
+   * 文字列内のパスをマスキング（errorStack 等用）
+   */
+  private maskPathsInString(
+    str: string,
+    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined
+  ): string {
+    // file:// URI をマスキング
+    let result = str.replace(/file:\/\/\/[^\s"']+/g, (match) => {
+      return this.maskPath(match, workspaceFolders);
+    });
+
+    // 絶対パス（Unix/Windows）をマスキング
+    result = result.replace(/(?:\/[a-zA-Z0-9_.-]+)+\.[a-zA-Z]+/g, (match) => {
+      const fileName = match.split('/').pop() || '[file]';
+      return `[path]/${fileName}`;
+    });
+
+    return result;
+  }
+
+  /**
+   * details オブジェクト内のパスをマスキング
+   */
+  private maskDetailsForExport(
+    details: Record<string, unknown>,
+    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined
+  ): Record<string, unknown> {
+    const masked = { ...details };
+
+    // url フィールドのマスキング（file:// の場合のみ）
+    if (typeof masked.url === 'string' && masked.url.startsWith('file://')) {
+      masked.url = this.maskPath(masked.url, workspaceFolders);
+    }
+
+    // path フィールドのマスキング
+    if (typeof masked.path === 'string') {
+      masked.path = this.maskPath(masked.path, workspaceFolders);
+    }
+
+    return masked;
   }
 
   dispose(): void {

@@ -63,15 +63,21 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   const { container, syncClient, onChangeGuardExceeded } = options;
   const codec = createMarkdownCodec();
 
-  const editor = new Editor({
-    element: container,
-    extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3, 4, 5, 6],
-        },
-      }),
-      Link.configure({
+    // Tiptap 3.x モダン化:
+    // - StarterKit に Link/Underline/ListKeymap が含まれるようになった
+    // - 重複を避けるため、StarterKit の link を無効化し、カスタム Link を使用
+    // - これにより openOnClick: false などのセキュリティ設定を確実に適用
+    const editor = new Editor({
+      element: container,
+      extensions: [
+        StarterKit.configure({
+          heading: {
+            levels: [1, 2, 3, 4, 5, 6],
+          },
+          // Tiptap 3.x: StarterKit に Link が含まれるため、カスタム Link と重複しないよう無効化
+          link: false,
+        }),
+        Link.configure({
         openOnClick: false,
         HTMLAttributes: {
           rel: 'noopener noreferrer',
