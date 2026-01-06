@@ -43,6 +43,7 @@
 
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as path from 'path';
 import {
   type WebviewToExtensionMessage,
   type WebviewConfig,
@@ -790,13 +791,17 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       const imageUri = vscode.Uri.joinPath(documentDir, normalizedSrc);
       
       // ワークスペースフォルダを取得して、画像がワークスペース内にあることを確認
+      // セキュリティ: path.relative を使用して、相対パスが '..' で始まらないことを確認
+      // これにより、startsWith の境界条件問題（/ws と /ws2）や OS 差分を回避
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
         const isWithinWorkspace = workspaceFolders.some(folder => {
           const folderPath = folder.uri.fsPath;
           const imagePath = imageUri.fsPath;
-          // 正規化されたパスがワークスペースフォルダ内にあるか確認
-          return imagePath.startsWith(folderPath);
+          // path.relative で相対パスを計算し、'..' で始まらないことを確認
+          const relativePath = path.relative(folderPath, imagePath);
+          // 相対パスが '..' で始まる場合、または絶対パス（Windows のドライブレター）の場合は外部
+          return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
         });
         
         if (!isWithinWorkspace) {

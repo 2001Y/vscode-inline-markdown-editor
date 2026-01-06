@@ -1,7 +1,48 @@
 /**
- * Role: Protocol types for Webview <-> Extension communication
- * Responsibility: Define message types used by the Webview
- * Invariant: Must match the extension's protocol/messages.ts types
+ * 役割: Webview ⇄ Extension 間通信のプロトコル型定義
+ * 責務: Webview 側で使用するメッセージ型を定義
+ * 不変条件: Extension 側の protocol/messages.ts の型と一致すること
+ * 
+ * 設計書参照: 9.2-9.4 (メッセージプロトコル)
+ * 
+ * プロトコルバージョン: 1
+ * - 全メッセージに v (version) フィールドを含む
+ * - バージョン不一致時は PROTOCOL_VERSION_MISMATCH エラー
+ * 
+ * メッセージフロー (設計書 9.3):
+ * 
+ * Webview → Extension:
+ * - ready: 初期化完了通知
+ * - edit: 編集内容送信 (txId, baseVersion, changes)
+ * - requestResync: 再同期要求
+ * - logClient: クライアントログ送信
+ * - openLink: リンクを開く要求
+ * - copyToClipboard: クリップボードコピー要求
+ * - overwriteSave: 上書き保存要求
+ * - resolveImage: 画像パス解決要求
+ * - reopenWithTextEditor: テキストエディタで再開
+ * - exportLogs: ログエクスポート要求
+ * - requestResyncWithConfirm: 確認付き再同期要求
+ * - overwriteSaveWithConfirm: 確認付き上書き保存要求
+ * 
+ * Extension → Webview:
+ * - init: 初期化データ (content, version, sessionId, clientId, config)
+ * - ack: 編集成功応答 (txId, currentVersion, outcome)
+ * - nack: 編集失敗応答 (txId, currentVersion, reason)
+ * - docChanged: ドキュメント変更通知 (version, reason, changes)
+ * - error: エラー通知 (code, message, remediation)
+ * - imageResolved: 画像パス解決結果
+ * 
+ * データ例:
+ * 
+ * edit メッセージ:
+ * { v: 1, type: "edit", txId: 101, baseVersion: 12, changes: [{ start: 10, end: 15, text: "hello" }] }
+ * 
+ * ack メッセージ:
+ * { v: 1, type: "ack", txId: 101, currentVersion: 13, outcome: "applied" }
+ * 
+ * nack メッセージ:
+ * { v: 1, type: "nack", txId: 101, currentVersion: 13, reason: "baseVersionMismatch" }
  */
 
 export const PROTOCOL_VERSION = 1;

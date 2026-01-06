@@ -1,7 +1,34 @@
 /**
- * Role: Text edit utilities for converting between offset-based and VS Code Range-based edits
- * Responsibility: Convert Replace[] to WorkspaceEdit, normalize edits, handle offset/Range conversion
- * Invariant: Edits must be non-overlapping and in ascending order
+ * 役割: オフセットベースと VS Code Range ベースの編集変換ユーティリティ
+ * 責務: Replace[] を WorkspaceEdit に変換、編集の正規化、オフセット/Range 変換
+ * 不変条件: 編集は重複せず昇順であること
+ * 
+ * 設計書参照: 10.1 (Replace 型), 12.2 (ChangeGuard)
+ * 
+ * Replace 型 (設計書 10.1):
+ * - start: 変更開始オフセット (0-indexed)
+ * - end: 変更終了オフセット (exclusive)
+ * - text: 挿入するテキスト
+ * 
+ * 変換例:
+ * Replace: { start: 10, end: 15, text: "hello" }
+ * → VS Code Range: Range(Position(0, 10), Position(0, 15))
+ * → TextEdit: new TextEdit(range, "hello")
+ * 
+ * ChangeGuard (設計書 12.2):
+ * - 大規模変更を検出して警告を表示
+ * - maxChangedRatio: 変更率の閾値 (default: 0.5)
+ * - maxChangedChars: 変更文字数の閾値 (default: 50000)
+ * - maxHunks: 変更箇所数の閾値 (default: 200)
+ * 
+ * ChangeMetrics の例:
+ * {
+ *   changedChars: 1500,
+ *   changedRatio: 0.15,
+ *   hunkCount: 3,
+ *   startOffset: 100,
+ *   endOffset: 2000
+ * }
  */
 
 import * as vscode from 'vscode';
