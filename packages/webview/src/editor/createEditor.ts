@@ -11,7 +11,7 @@ import Image from '@tiptap/extension-image';
 import { createMarkdownCodec, type MarkdownCodec } from './markdownCodec.js';
 import { computeDiff, isChangeGuardExceeded, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
-import type { Replace, WebviewConfig } from '../protocol/types.js';
+import type { Replace } from '../protocol/types.js';
 
 export interface EditorInstance {
   editor: Editor;

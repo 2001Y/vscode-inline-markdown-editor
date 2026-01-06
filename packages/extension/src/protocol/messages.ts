@@ -46,11 +46,36 @@ export interface LogClientMessage extends BaseMessage {
   details?: Record<string, unknown>;
 }
 
+export interface OpenLinkMessage extends BaseMessage {
+  type: 'openLink';
+  url: string;
+}
+
+export interface CopyToClipboardMessage extends BaseMessage {
+  type: 'copyToClipboard';
+  text: string;
+}
+
+export interface OverwriteSaveMessage extends BaseMessage {
+  type: 'overwriteSave';
+  content: string;
+}
+
+export interface ResolveImageMessage extends BaseMessage {
+  type: 'resolveImage';
+  requestId: string;
+  src: string;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
   | RequestResyncMessage
-  | LogClientMessage;
+  | LogClientMessage
+  | OpenLinkMessage
+  | CopyToClipboardMessage
+  | OverwriteSaveMessage
+  | ResolveImageMessage;
 
 export interface InitMessage extends BaseMessage {
   type: 'init';
@@ -144,7 +169,7 @@ export type ExtensionToWebviewMessage =
   | DocChangedMessage
   | ErrorMessage;
 
-const VALID_WEBVIEW_MESSAGE_TYPES = ['ready', 'edit', 'requestResync', 'logClient'] as const;
+const VALID_WEBVIEW_MESSAGE_TYPES = ['ready', 'edit', 'requestResync', 'logClient', 'openLink', 'copyToClipboard', 'overwriteSave', 'resolveImage'] as const;
 
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
   if (typeof msg !== 'object' || msg === null) {

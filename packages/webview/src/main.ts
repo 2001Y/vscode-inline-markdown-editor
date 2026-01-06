@@ -21,19 +21,24 @@ let errorOverlay: HTMLElement | null = null;
 let syncIndicator: HTMLElement | null = null;
 
 function main(): void {
+  console.log('[Main] Webview main() starting');
+  
   const appContainer = document.getElementById('app');
   if (!appContainer) {
-    console.error('App container not found');
+    console.error('[Main] App container not found - fatal error');
     return;
   }
 
+  console.log('[Main] Creating editor container');
   const editorContainer = document.createElement('div');
   editorContainer.className = 'editor-container';
   appContainer.appendChild(editorContainer);
 
+  console.log('[Main] Creating error overlay and sync indicator');
   errorOverlay = createErrorOverlay(appContainer);
   syncIndicator = createSyncIndicator(appContainer);
 
+  console.log('[Main] Creating SyncClient');
   syncClient = new SyncClient({
     onInit: handleInit,
     onDocChanged: handleDocChanged,
@@ -41,7 +46,9 @@ function main(): void {
     onSyncStateChange: handleSyncStateChange,
   });
 
+  console.log('[Main] Starting SyncClient');
   syncClient.start();
+  console.log('[Main] Webview initialization complete');
 }
 
 function handleInit(
@@ -50,29 +57,46 @@ function handleInit(
   config: WebviewConfig,
   _i18n: Record<string, string>
 ): void {
+  console.log('[handleInit] Init received', { 
+    contentLength: content.length, 
+    version: _version,
+    configDebugLogging: config.debug.logging,
+    configDebugLogLevel: config.debug.logLevel
+  });
+
   const editorContainer = document.querySelector('.editor-container') as HTMLElement;
-  if (!editorContainer) return;
+  if (!editorContainer) {
+    console.error('[handleInit] Editor container not found - fatal error');
+    return;
+  }
 
   if (editorInstance) {
+    console.log('[handleInit] Destroying existing editor instance');
     editorInstance.destroy();
   }
 
+  console.log('[handleInit] Creating new editor instance');
   editorInstance = createEditor({
     container: editorContainer,
     syncClient: syncClient!,
     onChangeGuardExceeded: handleChangeGuardExceeded,
   });
 
+  console.log('[handleInit] Setting editor content');
   editorInstance.setContent(content);
 
   const savedState = syncClient?.loadState<AppState>();
   if (savedState?.scrollTop !== undefined) {
+    console.log('[handleInit] Restoring scroll position', { scrollTop: savedState.scrollTop });
     editorContainer.scrollTop = savedState.scrollTop;
   }
 
   hideErrorOverlay();
 
-  console.log('Editor initialized with config:', config);
+  console.log('[handleInit] Editor initialization complete', { 
+    contentLength: content.length,
+    version: _version
+  });
 }
 
 function handleDocChanged(
@@ -80,12 +104,26 @@ function handleDocChanged(
   changes: Replace[],
   fullContent?: string
 ): void {
-  if (!editorInstance) return;
+  console.log('[handleDocChanged] DocChanged received', { 
+    version: _version, 
+    changesCount: changes.length, 
+    hasFullContent: fullContent !== undefined,
+    fullContentLength: fullContent?.length
+  });
+
+  if (!editorInstance) {
+    console.warn('[handleDocChanged] No editor instance - ignoring docChanged');
+    return;
+  }
 
   if (fullContent !== undefined) {
+    console.log('[handleDocChanged] Applying full content replacement', { contentLength: fullContent.length });
     editorInstance.setContent(fullContent);
   } else if (changes.length > 0) {
+    console.log('[handleDocChanged] Applying incremental changes', { changesCount: changes.length });
     editorInstance.applyChanges(changes);
+  } else {
+    console.log('[handleDocChanged] No changes to apply');
   }
 }
 
@@ -126,6 +164,8 @@ function createErrorOverlay(parent: HTMLElement): HTMLElement {
 function showErrorOverlay(code: string, message: string, remediation: string[]): void {
   if (!errorOverlay || !syncClient) return;
 
+  console.log('[ErrorOverlay] Showing error overlay', { code, message, remediation });
+
   const codeEl = errorOverlay.querySelector('.error-code');
   const messageEl = errorOverlay.querySelector('.error-message');
   const actionsEl = errorOverlay.querySelector('.error-actions');
@@ -140,10 +180,13 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
       const button = document.createElement('button');
       button.className = 'error-action-button';
 
+      console.log('[ErrorOverlay] Adding action button', { action });
+
       switch (action) {
         case 'resync':
           button.textContent = syncClient.t('Resync');
           button.onclick = () => {
+            console.log('[ErrorOverlay] Resync clicked');
             syncClient?.requestResync();
             hideErrorOverlay();
           };
@@ -151,6 +194,7 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
         case 'resetSession':
           button.textContent = syncClient.t('Reset Session');
           button.onclick = () => {
+            console.log('[ErrorOverlay] Reset Session clicked');
             syncClient?.requestResync();
             hideErrorOverlay();
           };
@@ -158,11 +202,37 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
         case 'reopenWithTextEditor':
           button.textContent = syncClient.t('Reopen with Text Editor');
           button.onclick = () => {
-            // This would need to be handled by the extension
+            console.log('[ErrorOverlay] Reopen with Text Editor clicked');
+            syncClient?.openLink('command:workbench.action.reopenTextEditor');
+          };
+          break;
+        case 'copyContent':
+          button.textContent = syncClient.t('Copy Content');
+          button.onclick = () => {
+            console.log('[ErrorOverlay] Copy Content clicked');
+            const content = editorInstance?.getContent() || syncClient?.getCurrentContent() || '';
+            syncClient?.copyToClipboard(content);
+          };
+          break;
+        case 'overwriteSave':
+          button.textContent = syncClient.t('Overwrite Save');
+          button.onclick = () => {
+            console.log('[ErrorOverlay] Overwrite Save clicked');
+            const content = editorInstance?.getContent() || syncClient?.getCurrentContent() || '';
+            syncClient?.overwriteSave(content);
+            hideErrorOverlay();
+          };
+          break;
+        case 'exportLogs':
+          button.textContent = syncClient.t('Export Logs');
+          button.onclick = () => {
+            console.log('[ErrorOverlay] Export Logs clicked');
+            syncClient?.openLink('command:inlineMarkdownEditor.exportLogs');
           };
           break;
         default:
           button.textContent = action;
+          console.log('[ErrorOverlay] Unknown action', { action });
       }
 
       actionsEl.appendChild(button);

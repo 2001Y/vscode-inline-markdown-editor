@@ -6,12 +6,8 @@
 
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
-import * as path from 'path';
-import * as fs from 'fs';
 import {
-  PROTOCOL_VERSION,
   type WebviewToExtensionMessage,
-  type Replace,
   type WebviewConfig,
   createInitMessage,
   createAckMessage,
@@ -92,18 +88,32 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   ): Promise<void> {
     const docKey = document.uri.toString();
 
+    logger.info('resolveCustomTextEditor called', {
+      docUri: docKey,
+      docVersion: document.version,
+      details: {
+        docLineCount: document.lineCount,
+        isTrusted: vscode.workspace.isTrusted,
+      },
+    });
+
     if (!vscode.workspace.isTrusted) {
+      logger.warn('Workspace not trusted - blocking editor', { docUri: docKey });
       await this.showUntrustedWorkspaceError(webviewPanel);
       return;
     }
 
+    logger.debug('Checking required settings', { docUri: docKey });
     const settingsValid = await this.checkRequiredSettings();
     if (!settingsValid) {
+      logger.info('Required settings not configured - showing dialog', { docUri: docKey });
       const applied = await this.showSettingsRequiredDialog();
       if (!applied) {
+        logger.warn('Settings not applied - blocking editor', { docUri: docKey });
         await this.showSettingsNotConfiguredError(webviewPanel);
         return;
       }
+      logger.info('Settings applied successfully', { docUri: docKey });
     }
 
     let state = this.documentStates.get(docKey);
@@ -274,6 +284,15 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       case 'logClient':
         this.handleLogClient(clientId, msg);
         break;
+      case 'openLink':
+        await this.handleOpenLink(clientId, msg);
+        break;
+      case 'copyToClipboard':
+        await this.handleCopyToClipboard(clientId, msg);
+        break;
+      case 'overwriteSave':
+        await this.handleOverwriteSave(document, clientId, msg);
+        break;
     }
   }
 
@@ -436,6 +455,162 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       clientId,
       details: msg.details,
     });
+  }
+
+  private async handleOpenLink(
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'openLink' }
+  ): Promise<void> {
+    const { url } = msg;
+
+    logger.info('Open link requested', { clientId, details: { url } });
+
+    // Handle VS Code command URLs
+    if (url.startsWith('command:')) {
+      const commandId = url.slice('command:'.length);
+      logger.debug('Executing VS Code command', { clientId, details: { commandId } });
+      try {
+        await vscode.commands.executeCommand(commandId);
+        logger.info('Command executed successfully', { clientId, details: { commandId } });
+      } catch (error) {
+        logger.error('Command execution failed', { 
+          clientId, 
+          errorCode: 'COMMAND_FAILED',
+          errorStack: String(error),
+          details: { commandId }
+        });
+      }
+      return;
+    }
+
+    // Check for dangerous URL schemes
+    const dangerousSchemes = ['javascript:', 'vbscript:', 'data:'];
+    const lowerUrl = url.toLowerCase();
+    for (const scheme of dangerousSchemes) {
+      if (lowerUrl.startsWith(scheme)) {
+        logger.warn('Blocked dangerous URL scheme', { clientId, details: { url, scheme } });
+        vscode.window.showWarningMessage(
+          vscode.l10n.t('Blocked potentially dangerous link: {0}', url)
+        );
+        return;
+      }
+    }
+
+    // Check if confirmation is required for external links
+    const securityConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
+    const confirmExternalLinks = securityConfig.get<boolean>('confirmExternalLinks', true);
+
+    if (confirmExternalLinks) {
+      const openButton = vscode.l10n.t('Open');
+      const cancelButton = vscode.l10n.t('Cancel');
+      
+      logger.debug('Showing external link confirmation dialog', { clientId, details: { url } });
+      
+      const result = await vscode.window.showInformationMessage(
+        vscode.l10n.t('Do you want to open this external link?\n{0}', url),
+        { modal: true },
+        openButton,
+        cancelButton
+      );
+
+      if (result !== openButton) {
+        logger.info('External link opening cancelled by user', { clientId, details: { url } });
+        return;
+      }
+    }
+
+    // Open the link using VS Code's openExternal
+    try {
+      const uri = vscode.Uri.parse(url);
+      await vscode.env.openExternal(uri);
+      logger.info('External link opened', { clientId, details: { url } });
+    } catch (error) {
+      logger.error('Failed to open external link', { 
+        clientId, 
+        errorCode: 'OPEN_LINK_FAILED',
+        errorStack: String(error),
+        details: { url }
+      });
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to open link: {0}', String(error))
+      );
+    }
+  }
+
+  private async handleCopyToClipboard(
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'copyToClipboard' }
+  ): Promise<void> {
+    const { text } = msg;
+
+    logger.info('Copy to clipboard requested', { clientId, details: { textLength: text.length } });
+
+    try {
+      await vscode.env.clipboard.writeText(text);
+      logger.info('Text copied to clipboard', { clientId, details: { textLength: text.length } });
+      vscode.window.showInformationMessage(vscode.l10n.t('Content copied to clipboard.'));
+    } catch (error) {
+      logger.error('Failed to copy to clipboard', { 
+        clientId, 
+        errorCode: 'CLIPBOARD_FAILED',
+        errorStack: String(error)
+      });
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to copy to clipboard: {0}', String(error))
+      );
+    }
+  }
+
+  private async handleOverwriteSave(
+    document: vscode.TextDocument,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'overwriteSave' }
+  ): Promise<void> {
+    const { content } = msg;
+
+    logger.info('Overwrite save requested', { 
+      clientId, 
+      docUri: document.uri.toString(),
+      docVersion: document.version,
+      details: { contentLength: content.length }
+    });
+
+    try {
+      const edit = new vscode.WorkspaceEdit();
+      const fullRange = new vscode.Range(
+        document.positionAt(0),
+        document.positionAt(document.getText().length)
+      );
+      edit.replace(document.uri, fullRange, content);
+
+      const success = await vscode.workspace.applyEdit(edit);
+      
+      if (success) {
+        await document.save();
+        logger.info('Overwrite save completed', { 
+          clientId, 
+          docUri: document.uri.toString(),
+          docVersion: document.version
+        });
+        vscode.window.showInformationMessage(vscode.l10n.t('Document saved successfully.'));
+      } else {
+        logger.error('Overwrite save failed - edit not applied', { 
+          clientId, 
+          docUri: document.uri.toString()
+        });
+        vscode.window.showErrorMessage(vscode.l10n.t('Failed to save document.'));
+      }
+    } catch (error) {
+      logger.error('Overwrite save error', { 
+        clientId, 
+        docUri: document.uri.toString(),
+        errorCode: 'OVERWRITE_SAVE_FAILED',
+        errorStack: String(error)
+      });
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to save document: {0}', String(error))
+      );
+    }
   }
 
   private onDidChangeTextDocument(e: vscode.TextDocumentChangeEvent): void {

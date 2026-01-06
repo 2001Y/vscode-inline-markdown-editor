@@ -135,11 +135,40 @@ export interface LogClientMessage {
   details?: Record<string, unknown>;
 }
 
+export interface OpenLinkMessage {
+  v: number;
+  type: 'openLink';
+  url: string;
+}
+
+export interface CopyToClipboardMessage {
+  v: number;
+  type: 'copyToClipboard';
+  text: string;
+}
+
+export interface OverwriteSaveMessage {
+  v: number;
+  type: 'overwriteSave';
+  content: string;
+}
+
+export interface ResolveImageMessage {
+  v: number;
+  type: 'resolveImage';
+  requestId: string;
+  src: string;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
   | RequestResyncMessage
-  | LogClientMessage;
+  | LogClientMessage
+  | OpenLinkMessage
+  | CopyToClipboardMessage
+  | OverwriteSaveMessage
+  | ResolveImageMessage;
 
 export function createReadyMessage(): ReadyMessage {
   return {
@@ -180,5 +209,38 @@ export function createLogClientMessage(
     level,
     message,
     details,
+  };
+}
+
+export function createOpenLinkMessage(url: string): OpenLinkMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'openLink',
+    url,
+  };
+}
+
+export function createCopyToClipboardMessage(text: string): CopyToClipboardMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'copyToClipboard',
+    text,
+  };
+}
+
+export function createOverwriteSaveMessage(content: string): OverwriteSaveMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'overwriteSave',
+    content,
+  };
+}
+
+export function createResolveImageMessage(requestId: string, src: string): ResolveImageMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'resolveImage',
+    requestId,
+    src,
   };
 }

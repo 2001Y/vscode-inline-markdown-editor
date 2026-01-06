@@ -12,6 +12,9 @@ import {
   createEditMessage,
   createRequestResyncMessage,
   createLogClientMessage,
+  createOpenLinkMessage,
+  createCopyToClipboardMessage,
+  createOverwriteSaveMessage,
   PROTOCOL_VERSION,
 } from './types.js';
 
@@ -51,6 +54,9 @@ export class SyncClient {
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private applyingRemote = false;
+  private pendingRetry: { changes: Replace[]; baseVersion: number } | null = null;
+  private retryCount = 0;
+  private readonly MAX_RETRY_COUNT = 1;
 
   constructor(callbacks: SyncClientCallbacks) {
     this.vscode = acquireVsCodeApi();
@@ -125,8 +131,15 @@ export class SyncClient {
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
     this.baseVersion = msg.currentVersion;
+    this.retryCount = 0;
+    this.pendingRetry = null;
 
-    this.log('DEBUG', 'Ack received', { txId: msg.txId, outcome: msg.outcome, version: msg.currentVersion });
+    this.log('DEBUG', 'Ack received', { 
+      txId: msg.txId, 
+      outcome: msg.outcome, 
+      version: msg.currentVersion,
+      coalescePending: this.coalescePending
+    });
 
     if (this.coalescePending) {
       this.coalescePending = false;
@@ -145,13 +158,47 @@ export class SyncClient {
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
 
-    this.log('WARN', 'Nack received', { txId: msg.txId, reason: msg.reason, version: msg.currentVersion });
+    this.log('WARN', 'Nack received', { 
+      txId: msg.txId, 
+      reason: msg.reason, 
+      version: msg.currentVersion,
+      retryCount: this.retryCount,
+      maxRetry: this.MAX_RETRY_COUNT
+    });
 
     if (msg.reason === 'baseVersionMismatch') {
-      this.requestResync();
+      if (this.retryCount < this.MAX_RETRY_COUNT && this.pendingRetry) {
+        this.log('INFO', 'Auto-retry after baseVersionMismatch - requesting resync first', {
+          retryCount: this.retryCount,
+          pendingChangesCount: this.pendingRetry.changes.length
+        });
+        this.retryCount++;
+        this.requestResyncWithRetry();
+      } else {
+        this.log('INFO', 'Max retry exceeded or no pending retry - requesting resync without retry', {
+          retryCount: this.retryCount,
+          hasPendingRetry: !!this.pendingRetry
+        });
+        this.retryCount = 0;
+        this.pendingRetry = null;
+        this.requestResync();
+      }
     } else {
+      this.retryCount = 0;
+      this.pendingRetry = null;
       this.callbacks.onError('APPLY_EDIT_FAILED', msg.details || 'Edit failed', ['resync']);
     }
+  }
+
+  private requestResyncWithRetry(): void {
+    this.clearInFlightTimeout();
+    this.inFlightTxId = null;
+    this.coalescePending = false;
+
+    this.vscode.postMessage(createRequestResyncMessage());
+    this.callbacks.onSyncStateChange('syncing');
+
+    this.log('INFO', 'Resync requested with pending retry');
   }
 
   private handleDocChanged(msg: ExtensionToWebviewMessage & { type: 'docChanged' }): void {
@@ -178,7 +225,22 @@ export class SyncClient {
         reason: msg.reason,
         changesCount: msg.changes.length,
         hasFullContent: msg.fullContent !== undefined,
+        hasPendingRetry: !!this.pendingRetry,
+        retryCount: this.retryCount,
       });
+
+      if (this.pendingRetry && this.retryCount > 0) {
+        this.log('INFO', 'Executing auto-retry after resync', {
+          retryCount: this.retryCount,
+          pendingChangesCount: this.pendingRetry.changes.length,
+          newBaseVersion: this.baseVersion
+        });
+        const retryChanges = this.pendingRetry.changes;
+        this.pendingRetry = null;
+        setTimeout(() => {
+          this.sendEdit(retryChanges);
+        }, 50);
+      }
     } finally {
       this.applyingRemote = false;
     }
@@ -225,6 +287,8 @@ export class SyncClient {
     const txId = ++this.txIdCounter;
     this.inFlightTxId = txId;
 
+    this.pendingRetry = { changes, baseVersion: this.baseVersion };
+
     const msg = createEditMessage(txId, this.baseVersion, changes);
     this.vscode.postMessage(msg);
 
@@ -235,7 +299,12 @@ export class SyncClient {
       this.handleTimeout(txId);
     }, timeoutMs);
 
-    this.log('DEBUG', 'Edit sent', { txId, baseVersion: this.baseVersion, changesCount: changes.length });
+    this.log('DEBUG', 'Edit sent', { 
+      txId, 
+      baseVersion: this.baseVersion, 
+      changesCount: changes.length,
+      retryCount: this.retryCount
+    });
   }
 
   private flushPendingChanges(): void {
@@ -312,6 +381,25 @@ export class SyncClient {
 
   loadState<T>(): T | undefined {
     return this.vscode.getState() as T | undefined;
+  }
+
+  openLink(url: string): void {
+    this.log('INFO', 'Opening link', { url });
+    this.vscode.postMessage(createOpenLinkMessage(url));
+  }
+
+  copyToClipboard(text: string): void {
+    this.log('INFO', 'Copying to clipboard', { textLength: text.length });
+    this.vscode.postMessage(createCopyToClipboardMessage(text));
+  }
+
+  overwriteSave(content: string): void {
+    this.log('INFO', 'Overwrite save requested', { contentLength: content.length });
+    this.vscode.postMessage(createOverwriteSaveMessage(content));
+  }
+
+  getCurrentContent(): string {
+    return this.shadowText;
   }
 
   private log(
