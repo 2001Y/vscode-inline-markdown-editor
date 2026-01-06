@@ -186,24 +186,22 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
         case 'resync':
           button.textContent = syncClient.t('Resync');
           button.onclick = () => {
-            console.log('[ErrorOverlay] Resync clicked');
-            syncClient?.requestResync();
-            hideErrorOverlay();
+            console.log('[ErrorOverlay] Resync clicked - requesting confirmation');
+            syncClient?.requestResyncWithConfirm();
           };
           break;
         case 'resetSession':
           button.textContent = syncClient.t('Reset Session');
           button.onclick = () => {
-            console.log('[ErrorOverlay] Reset Session clicked');
-            syncClient?.requestResync();
-            hideErrorOverlay();
+            console.log('[ErrorOverlay] Reset Session clicked - requesting confirmation');
+            syncClient?.requestResyncWithConfirm();
           };
           break;
         case 'reopenWithTextEditor':
           button.textContent = syncClient.t('Reopen with Text Editor');
           button.onclick = () => {
             console.log('[ErrorOverlay] Reopen with Text Editor clicked');
-            syncClient?.openLink('command:workbench.action.reopenTextEditor');
+            syncClient?.reopenWithTextEditor();
           };
           break;
         case 'copyContent':
@@ -217,17 +215,16 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
         case 'overwriteSave':
           button.textContent = syncClient.t('Overwrite Save');
           button.onclick = () => {
-            console.log('[ErrorOverlay] Overwrite Save clicked');
+            console.log('[ErrorOverlay] Overwrite Save clicked - requesting confirmation');
             const content = editorInstance?.getContent() || syncClient?.getCurrentContent() || '';
-            syncClient?.overwriteSave(content);
-            hideErrorOverlay();
+            syncClient?.overwriteSaveWithConfirm(content);
           };
           break;
         case 'exportLogs':
           button.textContent = syncClient.t('Export Logs');
           button.onclick = () => {
             console.log('[ErrorOverlay] Export Logs clicked');
-            syncClient?.openLink('command:inlineMarkdownEditor.exportLogs');
+            syncClient?.exportLogs();
           };
           break;
         default:

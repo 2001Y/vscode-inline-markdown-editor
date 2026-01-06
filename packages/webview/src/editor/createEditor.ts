@@ -8,6 +8,7 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
+import { RawBlock } from './rawBlockExtension.js';
 import { createMarkdownCodec, type MarkdownCodec } from './markdownCodec.js';
 import { computeDiff, isChangeGuardExceeded, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
@@ -50,6 +51,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         inline: true,
         allowBase64: true,
       }),
+      RawBlock,
     ],
     editorProps: {
       attributes: {

@@ -15,6 +15,11 @@ import {
   createOpenLinkMessage,
   createCopyToClipboardMessage,
   createOverwriteSaveMessage,
+  createReopenWithTextEditorMessage,
+  createExportLogsMessage,
+  createRequestResyncWithConfirmMessage,
+  createOverwriteSaveWithConfirmMessage,
+  createResolveImageMessage,
   PROTOCOL_VERSION,
 } from './types.js';
 
@@ -33,6 +38,7 @@ export interface SyncClientCallbacks {
   onDocChanged: (version: number, changes: Replace[], fullContent?: string) => void;
   onError: (code: string, message: string, remediation: string[]) => void;
   onSyncStateChange: (state: SyncState) => void;
+  onImageResolved?: (requestId: string, resolvedSrc: string) => void;
 }
 
 export class SyncClient {
@@ -95,6 +101,11 @@ export class SyncClient {
         break;
       case 'error':
         this.callbacks.onError(msg.code, msg.message, msg.remediation);
+        break;
+      case 'imageResolved':
+        if (this.callbacks.onImageResolved) {
+          this.callbacks.onImageResolved(msg.requestId, msg.resolvedSrc);
+        }
         break;
     }
   }
@@ -396,6 +407,31 @@ export class SyncClient {
   overwriteSave(content: string): void {
     this.log('INFO', 'Overwrite save requested', { contentLength: content.length });
     this.vscode.postMessage(createOverwriteSaveMessage(content));
+  }
+
+  reopenWithTextEditor(): void {
+    this.log('INFO', 'Reopen with text editor requested');
+    this.vscode.postMessage(createReopenWithTextEditorMessage());
+  }
+
+  exportLogs(): void {
+    this.log('INFO', 'Export logs requested');
+    this.vscode.postMessage(createExportLogsMessage());
+  }
+
+  requestResyncWithConfirm(): void {
+    this.log('INFO', 'Resync with confirmation requested');
+    this.vscode.postMessage(createRequestResyncWithConfirmMessage());
+  }
+
+  overwriteSaveWithConfirm(content: string): void {
+    this.log('INFO', 'Overwrite save with confirmation requested', { contentLength: content.length });
+    this.vscode.postMessage(createOverwriteSaveWithConfirmMessage(content));
+  }
+
+  resolveImage(requestId: string, src: string): void {
+    this.log('DEBUG', 'Resolving image', { requestId, src });
+    this.vscode.postMessage(createResolveImageMessage(requestId, src));
   }
 
   getCurrentContent(): string {

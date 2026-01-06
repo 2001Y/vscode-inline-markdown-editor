@@ -67,6 +67,23 @@ export interface ResolveImageMessage extends BaseMessage {
   src: string;
 }
 
+export interface ReopenWithTextEditorMessage extends BaseMessage {
+  type: 'reopenWithTextEditor';
+}
+
+export interface ExportLogsMessage extends BaseMessage {
+  type: 'exportLogs';
+}
+
+export interface RequestResyncWithConfirmMessage extends BaseMessage {
+  type: 'requestResyncWithConfirm';
+}
+
+export interface OverwriteSaveWithConfirmMessage extends BaseMessage {
+  type: 'overwriteSaveWithConfirm';
+  content: string;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -75,7 +92,11 @@ export type WebviewToExtensionMessage =
   | OpenLinkMessage
   | CopyToClipboardMessage
   | OverwriteSaveMessage
-  | ResolveImageMessage;
+  | ResolveImageMessage
+  | ReopenWithTextEditorMessage
+  | ExportLogsMessage
+  | RequestResyncWithConfirmMessage
+  | OverwriteSaveWithConfirmMessage;
 
 export interface InitMessage extends BaseMessage {
   type: 'init';
@@ -169,7 +190,7 @@ export type ExtensionToWebviewMessage =
   | DocChangedMessage
   | ErrorMessage;
 
-const VALID_WEBVIEW_MESSAGE_TYPES = ['ready', 'edit', 'requestResync', 'logClient', 'openLink', 'copyToClipboard', 'overwriteSave', 'resolveImage'] as const;
+const VALID_WEBVIEW_MESSAGE_TYPES = ['ready', 'edit', 'requestResync', 'logClient', 'openLink', 'copyToClipboard', 'overwriteSave', 'resolveImage', 'reopenWithTextEditor', 'exportLogs', 'requestResyncWithConfirm', 'overwriteSaveWithConfirm'] as const;
 
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
   if (typeof msg !== 'object' || msg === null) {

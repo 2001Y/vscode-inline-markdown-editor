@@ -102,12 +102,19 @@ export interface ErrorMessage {
   remediation: Remediation[];
 }
 
+export interface ImageResolvedMessage {
+  type: 'imageResolved';
+  requestId: string;
+  resolvedSrc: string;
+}
+
 export type ExtensionToWebviewMessage =
   | InitMessage
   | AckMessage
   | NackMessage
   | DocChangedMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | ImageResolvedMessage;
 
 export interface ReadyMessage {
   v: number;
@@ -160,6 +167,27 @@ export interface ResolveImageMessage {
   src: string;
 }
 
+export interface ReopenWithTextEditorMessage {
+  v: number;
+  type: 'reopenWithTextEditor';
+}
+
+export interface ExportLogsMessage {
+  v: number;
+  type: 'exportLogs';
+}
+
+export interface RequestResyncWithConfirmMessage {
+  v: number;
+  type: 'requestResyncWithConfirm';
+}
+
+export interface OverwriteSaveWithConfirmMessage {
+  v: number;
+  type: 'overwriteSaveWithConfirm';
+  content: string;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -168,7 +196,11 @@ export type WebviewToExtensionMessage =
   | OpenLinkMessage
   | CopyToClipboardMessage
   | OverwriteSaveMessage
-  | ResolveImageMessage;
+  | ResolveImageMessage
+  | ReopenWithTextEditorMessage
+  | ExportLogsMessage
+  | RequestResyncWithConfirmMessage
+  | OverwriteSaveWithConfirmMessage;
 
 export function createReadyMessage(): ReadyMessage {
   return {
@@ -242,5 +274,34 @@ export function createResolveImageMessage(requestId: string, src: string): Resol
     type: 'resolveImage',
     requestId,
     src,
+  };
+}
+
+export function createReopenWithTextEditorMessage(): ReopenWithTextEditorMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'reopenWithTextEditor',
+  };
+}
+
+export function createExportLogsMessage(): ExportLogsMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'exportLogs',
+  };
+}
+
+export function createRequestResyncWithConfirmMessage(): RequestResyncWithConfirmMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'requestResyncWithConfirm',
+  };
+}
+
+export function createOverwriteSaveWithConfirmMessage(content: string): OverwriteSaveWithConfirmMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'overwriteSaveWithConfirm',
+    content,
   };
 }

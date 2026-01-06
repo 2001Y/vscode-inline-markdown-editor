@@ -18,6 +18,30 @@ export function createMarkdownCodec(): MarkdownCodec {
       const content: Record<string, unknown>[] = [];
       let i = 0;
 
+      // Check for frontmatter at the start of the document
+      if (lines[0] === '---') {
+        const frontmatterLines: string[] = ['---'];
+        i = 1;
+        while (i < lines.length && lines[i] !== '---') {
+          frontmatterLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length && lines[i] === '---') {
+          frontmatterLines.push('---');
+          i++;
+          // Store frontmatter as a RAW block
+          console.log('[MarkdownCodec] Detected frontmatter', { lineCount: frontmatterLines.length });
+          content.push({
+            type: 'rawBlock',
+            attrs: { content: frontmatterLines.join('\n') },
+          });
+        } else {
+          // Not valid frontmatter, reset and parse normally
+          console.log('[MarkdownCodec] Invalid frontmatter, parsing as normal content');
+          i = 0;
+        }
+      }
+
       while (i < lines.length) {
         const line = lines[i];
 
@@ -279,6 +303,11 @@ function serializeNode(node: Record<string, unknown>): string {
 
     case 'horizontalRule':
       return '---';
+
+    case 'rawBlock': {
+      const rawContent = (attrs?.content as string) || '';
+      return rawContent;
+    }
 
     case 'image': {
       const src = (attrs?.src as string) || '';

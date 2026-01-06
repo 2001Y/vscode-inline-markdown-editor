@@ -293,6 +293,21 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       case 'overwriteSave':
         await this.handleOverwriteSave(document, clientId, msg);
         break;
+      case 'reopenWithTextEditor':
+        await this.handleReopenWithTextEditor(clientId);
+        break;
+      case 'exportLogs':
+        await this.handleExportLogs(clientId);
+        break;
+      case 'requestResyncWithConfirm':
+        await this.handleRequestResyncWithConfirm(document, state, panel, clientId);
+        break;
+      case 'overwriteSaveWithConfirm':
+        await this.handleOverwriteSaveWithConfirm(document, clientId, msg);
+        break;
+      case 'resolveImage':
+        await this.handleResolveImage(document, panel, clientId, msg);
+        break;
     }
   }
 
@@ -465,26 +480,8 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
 
     logger.info('Open link requested', { clientId, details: { url } });
 
-    // Handle VS Code command URLs
-    if (url.startsWith('command:')) {
-      const commandId = url.slice('command:'.length);
-      logger.debug('Executing VS Code command', { clientId, details: { commandId } });
-      try {
-        await vscode.commands.executeCommand(commandId);
-        logger.info('Command executed successfully', { clientId, details: { commandId } });
-      } catch (error) {
-        logger.error('Command execution failed', { 
-          clientId, 
-          errorCode: 'COMMAND_FAILED',
-          errorStack: String(error),
-          details: { commandId }
-        });
-      }
-      return;
-    }
-
-    // Check for dangerous URL schemes
-    const dangerousSchemes = ['javascript:', 'vbscript:', 'data:'];
+    // Check for dangerous URL schemes (per spec 12.3.2: javascript/command/vscode/file are always blocked)
+    const dangerousSchemes = ['javascript:', 'vbscript:', 'data:', 'command:', 'vscode:', 'file:'];
     const lowerUrl = url.toLowerCase();
     for (const scheme of dangerousSchemes) {
       if (lowerUrl.startsWith(scheme)) {
@@ -613,6 +610,176 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     }
   }
 
+  private async handleReopenWithTextEditor(clientId: string): Promise<void> {
+    logger.info('Reopen with text editor requested', { clientId });
+    try {
+      await vscode.commands.executeCommand('workbench.action.reopenTextEditor');
+      logger.info('Reopened with text editor', { clientId });
+    } catch (error) {
+      logger.error('Failed to reopen with text editor', {
+        clientId,
+        errorCode: 'REOPEN_FAILED',
+        errorStack: String(error),
+      });
+    }
+  }
+
+  private async handleExportLogs(clientId: string): Promise<void> {
+    logger.info('Export logs requested', { clientId });
+    try {
+      await vscode.commands.executeCommand('inlineMarkdownEditor.exportLogs');
+      logger.info('Export logs command executed', { clientId });
+    } catch (error) {
+      logger.error('Failed to export logs', {
+        clientId,
+        errorCode: 'EXPORT_LOGS_FAILED',
+        errorStack: String(error),
+      });
+    }
+  }
+
+  private async handleRequestResyncWithConfirm(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string
+  ): Promise<void> {
+    logger.info('Resync with confirmation requested', { clientId, docUri: document.uri.toString() });
+
+    const confirmButton = vscode.l10n.t('Resync');
+    const cancelButton = vscode.l10n.t('Cancel');
+
+    const result = await vscode.window.showWarningMessage(
+      vscode.l10n.t('This will discard your current edits and reload the document from disk. Continue?'),
+      { modal: true },
+      confirmButton,
+      cancelButton
+    );
+
+    if (result === confirmButton) {
+      logger.info('Resync confirmed by user', { clientId });
+      await this.handleRequestResync(document, state, panel);
+    } else {
+      logger.info('Resync cancelled by user', { clientId });
+    }
+  }
+
+  private async handleOverwriteSaveWithConfirm(
+    document: vscode.TextDocument,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'overwriteSaveWithConfirm' }
+  ): Promise<void> {
+    const { content } = msg;
+
+    logger.info('Overwrite save with confirmation requested', {
+      clientId,
+      docUri: document.uri.toString(),
+      details: { contentLength: content.length },
+    });
+
+    const confirmButton = vscode.l10n.t('Overwrite');
+    const cancelButton = vscode.l10n.t('Cancel');
+
+    const result = await vscode.window.showWarningMessage(
+      vscode.l10n.t('This will overwrite the document with your current edits. Continue?'),
+      { modal: true },
+      confirmButton,
+      cancelButton
+    );
+
+    if (result === confirmButton) {
+      logger.info('Overwrite save confirmed by user', { clientId });
+      await this.handleOverwriteSave(document, clientId, { ...msg, type: 'overwriteSave' });
+    } else {
+      logger.info('Overwrite save cancelled by user', { clientId });
+    }
+  }
+
+  private async handleResolveImage(
+    document: vscode.TextDocument,
+    panel: WebviewPanel,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'resolveImage' }
+  ): Promise<void> {
+    const { requestId, src } = msg;
+
+    logger.debug('Resolve image requested', {
+      clientId,
+      docUri: document.uri.toString(),
+      details: { requestId, src },
+    });
+
+    // Check if workspace images are allowed
+    const securityConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
+    const allowWorkspaceImages = securityConfig.get<boolean>('allowWorkspaceImages', true);
+
+    if (!allowWorkspaceImages) {
+      logger.info('Workspace images not allowed - returning original src', {
+        clientId,
+        details: { requestId, src },
+      });
+      await panel.panel.webview.postMessage({
+        type: 'imageResolved',
+        requestId,
+        resolvedSrc: src,
+      });
+      return;
+    }
+
+    // Check if it's a relative path
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
+      logger.debug('Image is remote or data URL - returning original src', {
+        clientId,
+        details: { requestId, src },
+      });
+      await panel.panel.webview.postMessage({
+        type: 'imageResolved',
+        requestId,
+        resolvedSrc: src,
+      });
+      return;
+    }
+
+    try {
+      // Resolve relative path against document directory
+      const documentDir = vscode.Uri.joinPath(document.uri, '..');
+      const imageUri = vscode.Uri.joinPath(documentDir, src);
+
+      logger.debug('Resolving workspace image', {
+        clientId,
+        details: { requestId, src, imageUri: imageUri.toString() },
+      });
+
+      // Convert to webview URI
+      const webviewUri = panel.panel.webview.asWebviewUri(imageUri);
+
+      logger.info('Image resolved to webview URI', {
+        clientId,
+        details: { requestId, src, resolvedSrc: webviewUri.toString() },
+      });
+
+      await panel.panel.webview.postMessage({
+        type: 'imageResolved',
+        requestId,
+        resolvedSrc: webviewUri.toString(),
+      });
+    } catch (error) {
+      logger.error('Failed to resolve image', {
+        clientId,
+        errorCode: 'IMAGE_RESOLVE_FAILED',
+        errorStack: String(error),
+        details: { requestId, src },
+      });
+
+      // Return original src on error
+      await panel.panel.webview.postMessage({
+        type: 'imageResolved',
+        requestId,
+        resolvedSrc: src,
+      });
+    }
+  }
+
   private onDidChangeTextDocument(e: vscode.TextDocumentChangeEvent): void {
     const docKey = e.document.uri.toString();
     const state = this.documentStates.get(docKey);
@@ -725,12 +892,23 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     const openSettingsButton = vscode.l10n.t('Open Settings');
     const cancelButton = vscode.l10n.t('Cancel');
 
+    // Get current values for comparison
+    const config = vscode.workspace.getConfiguration('', { languageId: 'markdown' });
     const settingsDescription = Object.entries(REQUIRED_MARKDOWN_SETTINGS)
-      .map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`)
+      .map(([key, expectedValue]) => {
+        const currentValue = config.get(key);
+        const currentStr = JSON.stringify(currentValue);
+        const expectedStr = JSON.stringify(expectedValue);
+        return `  ${key}: ${currentStr} → ${expectedStr}`;
+      })
       .join('\n');
 
+    logger.debug('Showing settings required dialog', {
+      details: { settingsDescription },
+    });
+
     const message = vscode.l10n.t('Required Markdown settings are not configured. The editor cannot start.');
-    const detail = vscode.l10n.t('The following settings will be applied to your workspace:') + '\n' + settingsDescription;
+    const detail = vscode.l10n.t('The following settings will be changed (current → required):') + '\n' + settingsDescription;
 
     const result = await vscode.window.showWarningMessage(
       message,
