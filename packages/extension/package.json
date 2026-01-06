@@ -81,7 +81,13 @@
         "inlineMarkdownEditor.debug.logLevel": {
           "type": "string",
           "default": "INFO",
-          "enum": ["INFO", "DEBUG", "TRACE", "WARN", "ERROR"],
+          "enum": [
+            "INFO",
+            "DEBUG",
+            "TRACE",
+            "WARN",
+            "ERROR"
+          ],
           "description": "%configuration.debug.logLevel.description%"
         },
         "inlineMarkdownEditor.debug.logToJsonl": {
@@ -141,14 +147,20 @@
     "vscode:prepublish": "npm run build",
     "build": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "lint": "eslint src --ext ts"
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test",
+    "pretest": "npm run build"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.10.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^8.54.0",
+    "mocha": "^11.7.5",
     "typescript": "^5.3.3"
   },
   "dependencies": {
