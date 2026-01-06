@@ -1,7 +1,48 @@
 /**
- * Role: Sync client for Webview <-> Extension communication
- * Responsibility: Handle message passing, manage in-flight edits, debounce, timeout
- * Invariant: Only one in-flight edit at a time; coalesce pending edits
+ * 役割: Webview ⇄ Extension 間の同期クライアント
+ * 責務: メッセージパッシング、in-flight 編集管理、debounce、タイムアウト
+ * 不変条件: in-flight は 1 件まで。複数編集は coalesce して待機
+ * 
+ * 設計書参照: 10 (同期アルゴリズム), 13.1 (sessionId フィルタリング)
+ * 
+ * 同期アルゴリズム (設計書 10):
+ * - baseVersion: 最後に受信した docChanged/init の version
+ * - txId: 送信ごとにインクリメント（クライアント内でユニーク）
+ * - shadowText: 最後に同期した Markdown テキスト（差分計算の基準）
+ * 
+ * in-flight 管理 (設計書 10.1):
+ * - 同時に送信できる edit は 1 件まで
+ * - in-flight 中の編集は pendingChanges に coalesce
+ * - ack 受信後に pendingChanges を送信
+ * 
+ * nack 後の自動再送 (設計書 10.2):
+ * - baseVersionMismatch の場合、1 回だけ自動リトライ
+ * - requestResync → docChanged 受信 → 保留していた edit を再送
+ * - 2 回目の nack はエラー表示
+ * 
+ * タイムアウト (設計書 10.4):
+ * - timeoutMs 以内に ack/nack が来なければ SYNC_TIMEOUT
+ * - ErrorOverlay で復旧導線を表示
+ * 
+ * sessionId フィルタリング (設計書 13.1):
+ * - init で受信した sessionId を保持
+ * - 以降のメッセージは sessionId が一致しなければ破棄
+ * - タブ復元時の古いメッセージ混入を防止
+ * 
+ * applyingRemote フラグ (設計書 9.5 ルール 3):
+ * - docChanged 適用中は true
+ * - この間は edit を送信しない（ループ防止）
+ * 
+ * メッセージ例:
+ * 
+ * edit 送信:
+ * { "v": 1, "type": "edit", "txId": 101, "baseVersion": 12, "changes": [...] }
+ * 
+ * ack 受信:
+ * { "v": 1, "type": "ack", "txId": 101, "currentVersion": 13, "outcome": "applied", "sessionId": "uuid" }
+ * 
+ * docChanged 受信:
+ * { "v": 1, "type": "docChanged", "version": 14, "reason": "external", "changes": [...], "sessionId": "uuid" }
  */
 
 import {

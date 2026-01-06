@@ -1,8 +1,46 @@
 /**
- * Role: Markdown <-> Tiptap document conversion
- * Responsibility: Parse Markdown to Tiptap JSON, serialize Tiptap JSON to Markdown
- * Invariant: Conversion should preserve content semantics; unknown elements become RAW blocks
- * Note: HTML sanitization is done at render time in htmlBlockExtension.ts, not during parsing
+ * 役割: Markdown ⇄ Tiptap ドキュメント変換
+ * 責務: Markdown を Tiptap JSON にパース、Tiptap JSON を Markdown にシリアライズ
+ * 不変条件: 変換は内容のセマンティクスを保持すること。未知の要素は RAW ブロックになる
+ * 注意: HTML サニタイズはパース時ではなく、htmlBlockExtension.ts でのレンダリング時に行う
+ * 
+ * 設計書参照: 12.3 (Markdown Codec), 12.3.4 (RAW ブロック)
+ * 
+ * G5-lite 方針 (設計書 12.3.5):
+ * - 整形を最小限に抑える
+ * - 元の Markdown の書式をできるだけ保持
+ * - diff-match-patch で最小差分を計算
+ * 
+ * RAW ブロック (設計書 12.3.4):
+ * - frontmatter (---...---) は RAW ブロックとして保持
+ * - 未対応の Markdown 記法も RAW ブロックに
+ * - RAW ブロックは編集可能（NodeView + textarea）
+ * - シリアライズ時は元のテキストをそのまま出力
+ * 
+ * HTML ブロック (設計書 12.3.1):
+ * - renderHtml=false (デフォルト): HTML は RAW ブロックとして保存
+ * - renderHtml=true: HTML は htmlBlock として保存、表示時に DOMPurify でサニタイズ
+ * - 重要: attrs.content には常に元の HTML を保存（サニタイズ済みを保存しない）
+ * 
+ * パース例:
+ * 入力: "# Hello\n\nWorld"
+ * 出力: {
+ *   type: 'doc',
+ *   content: [
+ *     { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Hello' }] },
+ *     { type: 'paragraph', content: [{ type: 'text', text: 'World' }] }
+ *   ]
+ * }
+ * 
+ * frontmatter の例:
+ * 入力: "---\ntitle: Test\n---\n\n# Hello"
+ * 出力: {
+ *   type: 'doc',
+ *   content: [
+ *     { type: 'rawBlock', attrs: { content: '---\ntitle: Test\n---' } },
+ *     { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Hello' }] }
+ *   ]
+ * }
  */
 
 import { Editor } from '@tiptap/core';

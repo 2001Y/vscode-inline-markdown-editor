@@ -1,7 +1,37 @@
 /**
- * Role: Message protocol types and validation for Webview <-> Extension communication
- * Responsibility: Define all message types, validate incoming messages, provide type guards
- * Invariant: All messages must have v (protocol version) and type fields
+ * 役割: Webview ⇄ Extension 間のメッセージプロトコル型定義とバリデーション
+ * 責務: 全メッセージ型の定義、受信メッセージの検証、型ガード提供
+ * 不変条件: 全メッセージは v (プロトコルバージョン) と type フィールドを必須とする
+ * 
+ * 設計書参照: 9.2-9.4 (メッセージプロトコル)
+ * 
+ * メッセージ例 (設計書 9.4):
+ * 
+ * ready (Webview → Extension):
+ * { "v": 1, "type": "ready" }
+ * 
+ * edit (Webview → Extension):
+ * {
+ *   "v": 1, "type": "edit", "txId": 101, "baseVersion": 12,
+ *   "changes": [{ "start": 120, "end": 125, "text": "abc" }]
+ * }
+ * 
+ * ack (Extension → Webview):
+ * { "v": 1, "type": "ack", "txId": 101, "currentVersion": 13, "outcome": "applied", "sessionId": "uuid" }
+ * 
+ * nack (Extension → Webview):
+ * { "v": 1, "type": "nack", "txId": 101, "currentVersion": 13, "reason": "baseVersionMismatch", "sessionId": "uuid" }
+ * 
+ * docChanged (Extension → Webview):
+ * { "v": 1, "type": "docChanged", "version": 13, "reason": "external", "changes": [...], "sessionId": "uuid" }
+ * 
+ * error (Extension → Webview):
+ * { "v": 1, "type": "error", "code": "SYNC_TIMEOUT", "message": "...", "remediation": ["resetSession"], "sessionId": "uuid" }
+ * 
+ * Replace[] の例 (設計書 9.3):
+ * - start/end は UTF-16 offset (VS Code の positionAt/offsetAt 互換)
+ * - changes は互いに非重複、原則昇順
+ * [{ "start": 0, "end": 5, "text": "Hello" }, { "start": 10, "end": 15, "text": "World" }]
  */
 
 export const PROTOCOL_VERSION = 1;

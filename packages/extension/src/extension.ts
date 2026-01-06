@@ -1,7 +1,18 @@
 /**
- * Role: Extension entry point
- * Responsibility: Register providers, commands, and initialize logging
- * Invariant: Extension must be properly activated and deactivated
+ * 役割: 拡張機能のエントリーポイント
+ * 責務: Provider登録、コマンド登録、ロギング初期化
+ * 不変条件: 拡張機能は適切にactivate/deactivateされること
+ * 
+ * 設計書参照: 6.2 (extension.ts の責務)
+ * 
+ * この拡張機能は CustomTextEditorProvider を使用して .md ファイルを
+ * Tiptap ベースの WYSIWYG エディタで開く。TextDocument が唯一の真実
+ * (source of truth) であり、Webview は表示と入力を担当する。
+ * 
+ * コマンド一覧 (設計書 17.2):
+ * - inlineMarkdownEditor.resetSession: セッションをリセット（破壊的操作、確認必須）
+ * - inlineMarkdownEditor.applyRequiredSettings: 必須設定を適用
+ * - inlineMarkdownEditor.exportLogs: ログをエクスポート
  */
 
 import * as vscode from 'vscode';

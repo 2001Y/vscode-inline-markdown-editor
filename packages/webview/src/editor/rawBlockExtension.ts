@@ -1,8 +1,28 @@
 /**
- * Role: Tiptap extension for RAW blocks
- * Responsibility: Render unsupported Markdown syntax (frontmatter, etc.) as EDITABLE blocks
- * Invariant: RAW blocks preserve their content exactly and are serialized back unchanged
- * Note: Per spec 12.3.4, RAW blocks should be editable in the webview
+ * 役割: RAW ブロック用の Tiptap 拡張機能
+ * 責務: 未対応の Markdown 記法（frontmatter 等）を編集可能なブロックとしてレンダリング
+ * 不変条件: RAW ブロックは内容を正確に保持し、シリアライズ時にそのまま出力すること
+ * 注意: 設計書 12.3.4 に従い、RAW ブロックは Webview 内で編集可能であること
+ * 
+ * 設計書参照: 12.3.4 (RAW ブロック)
+ * 
+ * RAW ブロックの用途:
+ * - frontmatter (---...---): YAML メタデータ
+ * - 未対応の Markdown 記法
+ * - 特殊なコードブロック
+ * 
+ * 実装詳細:
+ * - NodeView を使用して編集可能な textarea をレンダリング
+ * - atom: true で Tiptap の通常編集から分離
+ * - textarea の input イベントで attrs.content を更新
+ * - autoResize で textarea の高さを内容に合わせて自動調整
+ * 
+ * データ例:
+ * attrs: { content: "---\ntitle: Test\ndate: 2026-01-06\n---" }
+ * 
+ * シリアライズ:
+ * - markdownCodec.ts の serializeNode で attrs.content をそのまま出力
+ * - 整形や変換は行わない（G5-lite 方針）
  */
 
 import { Node, mergeAttributes } from '@tiptap/core';

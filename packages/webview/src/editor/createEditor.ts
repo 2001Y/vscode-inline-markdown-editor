@@ -1,7 +1,36 @@
 /**
- * Role: Tiptap editor instance creation and configuration
- * Responsibility: Create and configure Tiptap editor with extensions, handle user input
- * Invariant: Editor state changes trigger sync via SyncClient
+ * 役割: Tiptap エディタインスタンスの生成と設定
+ * 責務: Tiptap エディタを拡張機能付きで生成、ユーザー入力を処理
+ * 不変条件: エディタ状態の変更は SyncClient 経由で同期をトリガーすること
+ * 
+ * 設計書参照: 12.2 (EditorInstance), 12.3 (Markdown Codec)
+ * 
+ * EditorInstance インターフェース (設計書 12.2):
+ * - setContent(markdown): Markdown を Tiptap ドキュメントに変換してセット
+ * - applyChanges(changes): Replace[] を適用（差分更新）
+ * - getContent(): 現在のエディタ内容を Markdown として取得
+ * - destroy(): エディタを破棄
+ * 
+ * 拡張機能一覧:
+ * - StarterKit: 基本的な Markdown 要素（見出し、リスト、コードブロック等）
+ * - Link: リンク（openOnClick: false で直接開かない）
+ * - Image: 画像（inline: true, allowBase64: true）
+ * - RawBlock: 非対応記法の保持（frontmatter 等）
+ * - HtmlBlock: HTML ブロック（renderHtml=true 時は DOMPurify でサニタイズ）
+ * 
+ * onUpdate コールバック (設計書 10.1):
+ * - applyingRemote 中は何もしない（ループ防止）
+ * - scheduleEdit() で debounce 後に edit 送信
+ * 
+ * ChangeGuard (設計書 11):
+ * - 大規模変更を検出して警告
+ * - maxChangedRatio, maxChangedChars, maxHunks で閾値設定
+ * - 超過時は onChangeGuardExceeded コールバック
+ * 
+ * 差分計算 (設計書 12.3.5):
+ * - shadowText と現在の Markdown を比較
+ * - diff-match-patch で最小差分を計算
+ * - G5-lite: 整形を最小限に抑える
  */
 
 import { Editor } from '@tiptap/core';

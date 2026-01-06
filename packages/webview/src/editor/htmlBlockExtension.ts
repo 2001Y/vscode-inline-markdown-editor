@@ -1,8 +1,29 @@
 /**
- * Role: Tiptap extension for HTML blocks
- * Responsibility: Render sanitized HTML content when security.renderHtml=true
- * Invariant: Original HTML is preserved in attrs.content, sanitization happens at render time only
- * Note: Per spec 12.3.1, HTML should be sanitized at render time, not stored sanitized
+ * 役割: HTML ブロック用の Tiptap 拡張機能
+ * 責務: security.renderHtml=true の場合にサニタイズされた HTML をレンダリング
+ * 不変条件: 元の HTML は attrs.content に保持、サニタイズはレンダリング時のみ
+ * 注意: 設計書 12.3.1 に従い、HTML はレンダリング時にサニタイズ（保存時ではない）
+ * 
+ * 設計書参照: 12.3.1 (HTML サニタイズ)
+ * 
+ * セキュリティ方針:
+ * - DOMPurify でサニタイズ
+ * - 許可タグ: b, i, em, strong, a, p, br, ul, ol, li, code, pre, blockquote, h1-h6, hr, span, div, table, thead, tbody, tr, th, td, img, sup, sub, del, s, mark
+ * - 許可属性: href, src, alt, title, class, id, target, rel
+ * - data-* 属性は禁止 (ALLOW_DATA_ATTR: false)
+ * 
+ * 重要な設計決定:
+ * - attrs.content には常に元の HTML を保存（サニタイズ済みを保存しない）
+ * - NodeView の update でも毎回サニタイズ（セキュリティ確保）
+ * - contentEditable: false で直接編集を防止
+ * 
+ * データ例:
+ * attrs: { content: "<div class='note'>Hello <script>alert('xss')</script></div>" }
+ * レンダリング結果: "<div class='note'>Hello </div>" (script タグは除去)
+ * 
+ * シリアライズ:
+ * - markdownCodec.ts の serializeNode で attrs.content をそのまま出力
+ * - サニタイズ済みではなく元の HTML を出力（ユーザーの意図を保持）
  */
 
 import { Node, mergeAttributes } from '@tiptap/core';

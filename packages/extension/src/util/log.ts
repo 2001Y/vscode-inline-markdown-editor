@@ -1,7 +1,51 @@
 /**
- * Role: Logging utility for the extension
- * Responsibility: Provide OutputChannel logging and optional JSONL file logging
- * Invariant: Log output should be configurable via settings
+ * 役割: 拡張機能のロギングユーティリティ
+ * 責務: OutputChannel ロギングとオプションの JSONL ファイルロギングを提供
+ * 不変条件: ログ出力は設定で制御可能であること
+ * 
+ * 設計書参照: 15 (ログ/診断)
+ * 
+ * 出力先 (設計書 15.1):
+ * - OutputChannel: すぐ見たいログ（エラー/重要イベント）
+ * - JSONL: 再現性・共有性のための構造化ログ（デフォルト無効）
+ * 
+ * ログレベル (設計書 15.2):
+ * INFO / DEBUG / TRACE / WARN / ERROR
+ * 
+ * 記録項目 (設計書 15.3):
+ * - ts (ISO8601), level, event
+ * - sessionId, clientId, docUri
+ * - docVersion (current/base/applied), txId
+ * - changes (件数、総文字数、範囲サマリ)
+ * - durationMs
+ * - errorCode, errorStack (ERROR の場合)
+ * 
+ * 内容ログの方針 (設計書 15.4):
+ * - デフォルトは全文 Markdown をログに残さない
+ * - debug.logContent=true の場合のみ内容を記録
+ * 
+ * JSONL ローテーション (設計書 15.7):
+ * - 最大ファイルサイズ: jsonlMaxBytes (default: 5MB)
+ * - 最大ファイル数: jsonlMaxFiles (default: 20)
+ * - 保持期間: jsonlRetentionDays (default: 7日)
+ * 
+ * Export Logs のマスキング (設計書 15.8):
+ * - パスは workspace 相対またはハッシュ化
+ * - 内容は原則含めない（debug.logContent の許可が必要）
+ * 
+ * LogEntry の例:
+ * {
+ *   "ts": "2026-01-06T12:00:00.000Z",
+ *   "level": "INFO",
+ *   "event": "Edit applied",
+ *   "sessionId": "uuid",
+ *   "clientId": "client-1",
+ *   "docUri": "file:///path/to/doc.md",
+ *   "docVersion": 13,
+ *   "txId": 101,
+ *   "changesCount": 2,
+ *   "durationMs": 15
+ * }
  */
 
 import * as vscode from 'vscode';

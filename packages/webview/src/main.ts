@@ -1,7 +1,31 @@
 /**
- * Role: Webview entry point
- * Responsibility: Initialize VS Code API, start sync client, mount editor
- * Invariant: acquireVsCodeApi() must be called only once and kept in module scope
+ * 役割: Webview のエントリーポイント
+ * 責務: VS Code API 初期化、SyncClient 起動、エディタマウント
+ * 不変条件: acquireVsCodeApi() はモジュールスコープで一度だけ呼び出すこと
+ * 
+ * 設計書参照: 6.3, 12.1 (Webview の責務)
+ * 
+ * Webview ライフサイクル (設計書 13):
+ * 1. main() 実行 → SyncClient 生成 → ready 送信
+ * 2. Extension から init 受信 → エディタ初期化
+ * 3. 編集 → SyncClient.scheduleEdit() → debounce 後に edit 送信
+ * 4. ack/nack 受信 → 状態更新
+ * 5. docChanged 受信 → エディタに差分適用
+ * 6. beforeunload → getState/setState でスクロール位置保存
+ * 
+ * ErrorOverlay (設計書 12.1.1):
+ * - エラー発生時に表示
+ * - 復旧導線: resync, resetSession, reopenWithTextEditor, copyContent, overwriteSave, exportLogs
+ * - 破壊的操作 (overwriteSave, resetSession) は確認ダイアログ必須
+ * 
+ * SyncIndicator:
+ * - idle: 同期完了
+ * - syncing: 送信中/待機中
+ * - error: エラー発生
+ * 
+ * 状態永続化 (設計書 13.2):
+ * - getState/setState でスクロール位置を保存
+ * - タブ切り替え/リロード後も位置を復元
  */
 
 import { SyncClient, type SyncState } from './protocol/client.js';

@@ -1,7 +1,30 @@
 /**
- * Role: Diff engine for computing minimal text changes
- * Responsibility: Compare shadowText and nextMarkdown to generate Replace[] for G5-lite
- * Invariant: Generated Replace[] must be non-overlapping and in ascending order
+ * 役割: 最小テキスト変更を計算する差分エンジン
+ * 責務: shadowText と nextMarkdown を比較して G5-lite 用の Replace[] を生成
+ * 不変条件: 生成された Replace[] は非重複かつ昇順であること
+ * 
+ * 設計書参照: 12.3.5 (G5-lite 差分計算)
+ * 
+ * G5-lite 方針:
+ * - diff-match-patch ライブラリを使用
+ * - diff_cleanupSemantic で人間が読みやすい差分に整理
+ * - 最小限の変更で元の書式を保持
+ * 
+ * Replace[] の例:
+ * shadowText: "Hello World"
+ * nextMarkdown: "Hello Devin"
+ * 結果: [{ start: 6, end: 11, text: "Devin" }]
+ * 
+ * ChangeMetrics (設計書 11):
+ * - changedChars: 変更された文字数
+ * - changedRatio: 変更率 (changedChars / originalLength)
+ * - hunkCount: 変更箇所の数
+ * 
+ * ChangeGuard (設計書 11):
+ * - maxChangedRatio: 最大変更率 (default: 0.5)
+ * - maxChangedChars: 最大変更文字数 (default: 10000)
+ * - maxHunks: 最大変更箇所数 (default: 100)
+ * - 超過時は警告を表示して編集をブロック
  */
 
 import DiffMatchPatch from 'diff-match-patch';

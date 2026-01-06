@@ -1,7 +1,44 @@
 /**
- * Role: CustomTextEditorProvider implementation for Markdown files
- * Responsibility: Manage Webview lifecycle, handle message passing, coordinate document sync
- * Invariant: TextDocument is the single source of truth; all Webviews must converge to the same state
+ * 役割: Markdown ファイル用の CustomTextEditorProvider 実装
+ * 責務: Webview ライフサイクル管理、メッセージパッシング、ドキュメント同期の調整
+ * 不変条件: TextDocument が唯一の真実 (source of truth)。全 Webview は同一状態に収束すること
+ * 
+ * 設計書参照: 6.2, 6.4 (InlineMarkdownEditorProvider の責務)
+ * 
+ * 設計原則 (設計書 4.2):
+ * - 原則 A: 真実は常に TextDocument（Webview は入力と表示を担う）
+ * - 原則 B: Webview 更新通知は onDidChangeTextDocument 起点に統一
+ * - 原則 C: 整合性は baseVersion + txId で担保
+ * 
+ * ポリシー (設計書 4.3):
+ * - フォールバック禁止: 自動で標準テキストエディタへ切り替えない
+ * - サイレントリカバリ禁止: 失敗を隠さない（ログとエラー表示）
+ * - 不整合は完全リセット: 状態が壊れたらセッション破棄→再初期化
+ * - 完全ログ主義: 原因特定に必要な入出力を記録
+ * 
+ * 同期フロー (設計書 10):
+ * 1. Webview 起動 → ready 送信
+ * 2. Extension は init (全文 + version + sessionId/clientId) を返信
+ * 3. 編集: Webview → edit(baseVersion, txId, changes) → Extension
+ * 4. Extension: baseVersion 検証 → 一致なら applyEdit → ack/nack 返信
+ * 5. 外部変更: onDidChangeTextDocument → 全 Webview へ docChanged ブロードキャスト
+ * 
+ * 重要な運用ルール (設計書 9.5):
+ * - ルール 1: docChanged は onDidChangeTextDocument 起点に統一（二重通知防止）
+ * - ルール 2: baseVersion 不一致の edit は nack（破壊的適用を防ぐ）
+ * - ルール 3: Webview は docChanged 適用中に edit を送らない（ループ防止）
+ * - ルール 4: in-flight は client ごとに 1 件まで（coalesce）
+ * 
+ * セキュリティ (設計書 8, 12.3, 18):
+ * - CSP: default-src 'none' + nonce による script 制約
+ * - 危険スキーム禁止: javascript:/command:/vscode:/file: は常にブロック
+ * - リンクは openExternal 経由で開く
+ * - 画像: ワークスペース内は asWebviewUri、リモートはオプション
+ * - HTML: デフォルト RAW、renderHtml=true なら DOMPurify でサニタイズ
+ * 
+ * docUri の扱い (設計書 9.2 補足):
+ * - Webview から来た docUri は信頼しない（照合のみ）
+ * - Extension 側は resolveCustomTextEditor で panel と document の対応を把握済み
  */
 
 import * as vscode from 'vscode';
@@ -743,9 +780,38 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     }
 
     try {
+      // セキュリティ: パストラバーサル攻撃を防止 (設計書 12.3.3)
+      // ../ を含むパスはワークスペース外へのアクセスを試みる可能性がある
+      // 正規化後のパスがワークスペース内にあることを確認する
+      const normalizedSrc = src.replace(/\\/g, '/');
+      
       // Resolve relative path against document directory
       const documentDir = vscode.Uri.joinPath(document.uri, '..');
-      const imageUri = vscode.Uri.joinPath(documentDir, src);
+      const imageUri = vscode.Uri.joinPath(documentDir, normalizedSrc);
+      
+      // ワークスペースフォルダを取得して、画像がワークスペース内にあることを確認
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const isWithinWorkspace = workspaceFolders.some(folder => {
+          const folderPath = folder.uri.fsPath;
+          const imagePath = imageUri.fsPath;
+          // 正規化されたパスがワークスペースフォルダ内にあるか確認
+          return imagePath.startsWith(folderPath);
+        });
+        
+        if (!isWithinWorkspace) {
+          logger.warn('Image path traversal blocked - path outside workspace', {
+            clientId,
+            details: { requestId, src, resolvedPath: imageUri.fsPath },
+          });
+          await panel.panel.webview.postMessage({
+            type: 'imageResolved',
+            requestId,
+            resolvedSrc: src, // 元のパスを返す（解決しない）
+          });
+          return;
+        }
+      }
 
       logger.debug('Resolving workspace image', {
         clientId,
