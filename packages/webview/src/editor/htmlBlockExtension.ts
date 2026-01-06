@@ -1,10 +1,19 @@
 /**
  * Role: Tiptap extension for HTML blocks
  * Responsibility: Render sanitized HTML content when security.renderHtml=true
- * Invariant: HTML blocks are sanitized with DOMPurify before rendering
+ * Invariant: Original HTML is preserved in attrs.content, sanitization happens at render time only
+ * Note: Per spec 12.3.1, HTML should be sanitized at render time, not stored sanitized
  */
 
 import { Node, mergeAttributes } from '@tiptap/core';
+import DOMPurify from 'dompurify';
+
+// DOMPurify configuration for safe HTML rendering (same as in markdownCodec)
+const DOMPURIFY_CONFIG = {
+  ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'sup', 'sub', 'del', 's', 'mark'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+  ALLOW_DATA_ATTR: false,
+};
 
 export interface HtmlBlockOptions {
   HTMLAttributes: Record<string, unknown>;
@@ -59,8 +68,6 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
     const content = node.attrs.content as string;
     console.log('[HtmlBlock] Rendering HTML block', { contentLength: content.length });
     
-    // Create a wrapper div with the sanitized HTML content
-    // The content is already sanitized by DOMPurify in markdownCodec
     return [
       'div',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
@@ -71,9 +78,7 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
       [
         'div',
         { class: 'html-block-content' },
-        // Note: innerHTML will be set via NodeView or DOM manipulation
-        // For now, we render the sanitized HTML as text that will be parsed
-        0, // This tells Tiptap to render the content
+        0,
       ],
     ];
   },
@@ -85,14 +90,26 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
       dom.className = 'html-block';
       dom.contentEditable = 'false';
 
+      const label = document.createElement('span');
+      label.className = 'html-block-label';
+      label.textContent = 'HTML';
+      dom.appendChild(label);
+
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'html-block-content';
-      // The content is already sanitized by DOMPurify in markdownCodec
-      contentWrapper.innerHTML = node.attrs.content as string;
+      
+      // IMPORTANT: Sanitize at render time, not at parse time
+      // This preserves original HTML in attrs.content for serialization
+      const originalHtml = node.attrs.content as string;
+      const sanitizedHtml = DOMPurify.sanitize(originalHtml, DOMPURIFY_CONFIG);
+      contentWrapper.innerHTML = sanitizedHtml;
+      
+      console.log('[HtmlBlock] NodeView created with render-time sanitization', { 
+        originalLength: originalHtml.length,
+        sanitizedLength: sanitizedHtml.length 
+      });
       
       dom.appendChild(contentWrapper);
-
-      console.log('[HtmlBlock] NodeView created', { contentLength: (node.attrs.content as string).length });
 
       return {
         dom,
@@ -101,7 +118,14 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
           if (updatedNode.type.name !== 'htmlBlock') {
             return false;
           }
-          contentWrapper.innerHTML = updatedNode.attrs.content as string;
+          // Re-sanitize on every update for security
+          const updatedHtml = updatedNode.attrs.content as string;
+          const sanitized = DOMPurify.sanitize(updatedHtml, DOMPURIFY_CONFIG);
+          contentWrapper.innerHTML = sanitized;
+          console.log('[HtmlBlock] NodeView updated with re-sanitization', {
+            originalLength: updatedHtml.length,
+            sanitizedLength: sanitized.length
+          });
           return true;
         },
       };

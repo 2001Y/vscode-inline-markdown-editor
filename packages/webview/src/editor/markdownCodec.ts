@@ -2,10 +2,10 @@
  * Role: Markdown <-> Tiptap document conversion
  * Responsibility: Parse Markdown to Tiptap JSON, serialize Tiptap JSON to Markdown
  * Invariant: Conversion should preserve content semantics; unknown elements become RAW blocks
+ * Note: HTML sanitization is done at render time in htmlBlockExtension.ts, not during parsing
  */
 
 import { Editor } from '@tiptap/core';
-import DOMPurify from 'dompurify';
 
 export interface MarkdownCodecOptions {
   renderHtml?: boolean;
@@ -19,14 +19,6 @@ export interface MarkdownCodec {
 // HTML tag detection regex
 const HTML_BLOCK_REGEX = /^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/;
 const HTML_SELF_CLOSING_REGEX = /^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/>/;
-const HTML_CLOSING_REGEX = /^<\/([a-zA-Z][a-zA-Z0-9]*)>/;
-
-// DOMPurify configuration for safe HTML rendering
-const DOMPURIFY_CONFIG = {
-  ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'sup', 'sub', 'del', 's', 'mark'],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
-  ALLOW_DATA_ATTR: false,
-};
 
 export function createMarkdownCodec(): MarkdownCodec {
   return {
@@ -189,15 +181,14 @@ export function createMarkdownCodec(): MarkdownCodec {
           const htmlContent = htmlLines.join('\n');
           
           if (renderHtml) {
-            // Sanitize and render HTML when renderHtml=true
-            const sanitizedHtml = DOMPurify.sanitize(htmlContent, DOMPURIFY_CONFIG);
-            console.log('[MarkdownCodec] Sanitized HTML', { 
-              originalLength: htmlContent.length, 
-              sanitizedLength: sanitizedHtml.length 
+            // Store original HTML - sanitization happens at render time in NodeView
+            // This preserves the original HTML for serialization (G5-lite)
+            console.log('[MarkdownCodec] Storing HTML for render-time sanitization', { 
+              length: htmlContent.length 
             });
             content.push({
               type: 'htmlBlock',
-              attrs: { content: sanitizedHtml },
+              attrs: { content: htmlContent },
             });
           } else {
             // Store as RAW block when renderHtml=false (default)

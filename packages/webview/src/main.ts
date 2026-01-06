@@ -193,8 +193,9 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
         case 'resetSession':
           button.textContent = syncClient.t('Reset Session');
           button.onclick = () => {
-            console.log('[ErrorOverlay] Reset Session clicked - requesting confirmation');
-            syncClient?.requestResyncWithConfirm();
+            console.log('[ErrorOverlay] Reset Session clicked - requesting reset');
+            // Reset session is a hard reset - destroy editor and request fresh init
+            syncClient?.resetSession();
           };
           break;
         case 'reopenWithTextEditor':

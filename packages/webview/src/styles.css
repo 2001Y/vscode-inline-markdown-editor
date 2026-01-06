@@ -412,6 +412,43 @@ body {
   color: var(--vscode-descriptionForeground, #6a737d);
 }
 
+/* RAW Block label for NodeView */
+.raw-block-label {
+  position: absolute;
+  top: -10px;
+  left: 8px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-descriptionForeground, #6a737d);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* RAW Block editable textarea */
+.raw-block-textarea {
+  width: 100%;
+  min-height: 60px;
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.raw-block-textarea:focus {
+  background: var(--vscode-editor-selectionBackground, rgba(128, 128, 128, 0.1));
+}
+
 /* HTML Block styles (for sanitized HTML when renderHtml=true) */
 .html-block {
   background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.05));

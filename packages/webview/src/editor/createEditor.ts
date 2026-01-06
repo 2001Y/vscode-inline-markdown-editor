@@ -21,6 +21,7 @@ export interface EditorInstance {
   destroy: () => void;
   setContent: (markdown: string) => void;
   applyChanges: (changes: Replace[]) => void;
+  getContent: () => string;
 }
 
 export interface CreateEditorOptions {
@@ -103,12 +104,17 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     editor.destroy();
   }
 
+  function getContent(): string {
+    return codec.serialize(editor);
+  }
+
   return {
     editor,
     codec,
     destroy,
     setContent,
     applyChanges,
+    getContent,
   };
 }
 

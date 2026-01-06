@@ -86,6 +86,20 @@ export class SyncClient {
       return;
     }
 
+    // Per spec 13.1: Filter messages by sessionId after init
+    // Messages with different sessionId should be dropped to prevent stale message mix-in
+    if (msg.type !== 'init' && this.sessionId !== null) {
+      const msgSessionId = (msg as { sessionId?: string }).sessionId;
+      if (msgSessionId !== undefined && msgSessionId !== this.sessionId) {
+        this.log('WARN', 'Dropping message with mismatched sessionId', {
+          expectedSessionId: this.sessionId,
+          receivedSessionId: msgSessionId,
+          messageType: msg.type
+        });
+        return;
+      }
+    }
+
     switch (msg.type) {
       case 'init':
         this.handleInit(msg);
@@ -436,6 +450,22 @@ export class SyncClient {
 
   getCurrentContent(): string {
     return this.shadowText;
+  }
+
+  resetSession(): void {
+    this.log('INFO', 'Reset session requested');
+    // Clear all state and request fresh init
+    this.clearInFlightTimeout();
+    this.inFlightTxId = null;
+    this.coalescePending = false;
+    this.pendingChanges = [];
+    this.pendingRetry = null;
+    this.retryCount = 0;
+    this.baseVersion = 0;
+    this.shadowText = '';
+    // Send ready message to trigger fresh init from extension
+    this.vscode.postMessage(createReadyMessage());
+    this.callbacks.onSyncStateChange('syncing');
   }
 
   private log(
