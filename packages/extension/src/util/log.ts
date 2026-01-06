@@ -160,7 +160,7 @@ export class Logger {
           await fs.promises.unlink(file.path);
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore cleanup errors
     }
   }
@@ -209,7 +209,7 @@ export class Logger {
       if (stats.size > this.jsonlMaxBytes) {
         this.rotateJsonl();
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore JSONL write errors
     }
   }
