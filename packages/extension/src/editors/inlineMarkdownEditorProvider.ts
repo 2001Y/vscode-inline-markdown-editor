@@ -365,7 +365,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     });
 
     if (baseVersion !== document.version) {
-      const nackMessage = createNackMessage(txId, document.version, 'baseVersionMismatch');
+      const nackMessage = createNackMessage(txId, document.version, 'baseVersionMismatch', state.sessionId);
       await panel.panel.webview.postMessage(nackMessage);
 
       logger.info('Edit nacked (version mismatch)', {
@@ -378,7 +378,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     }
 
     if (changes.length === 0) {
-      const ackMessage = createAckMessage(txId, document.version, 'noop');
+      const ackMessage = createAckMessage(txId, document.version, 'noop', state.sessionId);
       await panel.panel.webview.postMessage(ackMessage);
 
       logger.debug('Edit acked (noop)', { clientId, txId, docVersion: document.version });
@@ -403,7 +403,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       const success = await vscode.workspace.applyEdit(workspaceEdit);
 
       if (success) {
-        const ackMessage = createAckMessage(txId, document.version, 'applied');
+        const ackMessage = createAckMessage(txId, document.version, 'applied', state.sessionId);
         await panel.panel.webview.postMessage(ackMessage);
 
         logger.info('Edit applied', {
@@ -413,7 +413,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
           changesCount: changes.length,
         });
       } else {
-        const nackMessage = createNackMessage(txId, document.version, 'applyFailed');
+        const nackMessage = createNackMessage(txId, document.version, 'applyFailed', state.sessionId);
         await panel.panel.webview.postMessage(nackMessage);
 
         logger.error('Edit apply failed', { clientId, txId, docVersion: document.version });
@@ -423,6 +423,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         txId,
         document.version,
         'applyFailed',
+        state.sessionId,
         String(error)
       );
       await panel.panel.webview.postMessage(nackMessage);
@@ -447,6 +448,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       document.version,
       'external',
       [],
+      state.sessionId,
       document.getText()
     );
 
@@ -791,7 +793,8 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     const docChangedMessage = createDocChangedMessage(
       e.document.version,
       'external',
-      changes
+      changes,
+      state.sessionId
     );
 
     for (const [, panel] of state.panels) {
@@ -949,21 +952,23 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     }
   }
 
-  private async showUntrustedWorkspaceError(webviewPanel: vscode.WebviewPanel): Promise<void> {
+  private async showUntrustedWorkspaceError(webviewPanel: vscode.WebviewPanel, sessionId?: string): Promise<void> {
     const errorMessage = createErrorMessage(
       'WORKSPACE_UNTRUSTED',
       vscode.l10n.t('Workspace is not trusted. Please trust the workspace to use this editor.'),
-      ['trustWorkspace', 'reopenWithTextEditor']
+      ['trustWorkspace', 'reopenWithTextEditor'],
+      sessionId
     );
 
     webviewPanel.webview.html = this.getErrorHtml(errorMessage.message);
   }
 
-  private async showSettingsNotConfiguredError(webviewPanel: vscode.WebviewPanel): Promise<void> {
+  private async showSettingsNotConfiguredError(webviewPanel: vscode.WebviewPanel, sessionId?: string): Promise<void> {
     const errorMessage = createErrorMessage(
       'SETTINGS_NOT_CONFIGURED',
       vscode.l10n.t('Required Markdown settings are not configured. The editor cannot start.'),
-      ['applySettings', 'reopenWithTextEditor']
+      ['applySettings', 'reopenWithTextEditor'],
+      sessionId
     );
 
     webviewPanel.webview.html = this.getErrorHtml(errorMessage.message);
@@ -1022,11 +1027,28 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       .replace(/'/g, '&#039;');
   }
 
-  public async resetSession(document: vscode.TextDocument): Promise<void> {
+  public async resetSession(document: vscode.TextDocument, skipConfirmation = false): Promise<boolean> {
     const docKey = document.uri.toString();
     const state = this.documentStates.get(docKey);
 
-    if (!state) return;
+    if (!state) return false;
+
+    // Show confirmation dialog for destructive operation (spec 12.1.1)
+    if (!skipConfirmation) {
+      const confirmButton = vscode.l10n.t('Reset Session');
+      const cancelButton = vscode.l10n.t('Cancel');
+      const result = await vscode.window.showWarningMessage(
+        vscode.l10n.t('This will reset the editor session and discard any unsaved changes in the editor. Are you sure?'),
+        { modal: true },
+        confirmButton,
+        cancelButton
+      );
+
+      if (result !== confirmButton) {
+        logger.debug('Session reset cancelled by user', { docUri: docKey });
+        return false;
+      }
+    }
 
     state.sessionId = crypto.randomUUID();
     state.pendingEdits.clear();
@@ -1053,6 +1075,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
 
     vscode.window.showInformationMessage(vscode.l10n.t('Editor session has been reset.'));
     logger.info('Session reset', { sessionId: state.sessionId, docUri: docKey });
+    return true;
   }
 
   dispose(): void {

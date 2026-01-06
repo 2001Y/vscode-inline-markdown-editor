@@ -10,7 +10,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCustomEditor:inlineMarkdownEditor.editor"
+  ],
   "main": "./out/extension.js",
   "l10n": "./l10n",
   "contributes": {

@@ -258,13 +258,15 @@ export function createInitMessage(
 export function createAckMessage(
   txId: number,
   currentVersion: number,
-  outcome: AckOutcome
+  outcome: AckOutcome,
+  sessionId: string
 ): AckMessage {
   return {
     v: PROTOCOL_VERSION,
     type: 'ack',
     ts: Date.now(),
     origin: 'extension',
+    sessionId,
     txId,
     currentVersion,
     outcome,
@@ -275,6 +277,7 @@ export function createNackMessage(
   txId: number,
   currentVersion: number,
   reason: NackReason,
+  sessionId: string,
   details?: string
 ): NackMessage {
   return {
@@ -282,6 +285,7 @@ export function createNackMessage(
     type: 'nack',
     ts: Date.now(),
     origin: 'extension',
+    sessionId,
     txId,
     currentVersion,
     reason,
@@ -293,6 +297,7 @@ export function createDocChangedMessage(
   version: number,
   reason: DocChangedMessage['reason'],
   changes: Replace[],
+  sessionId: string,
   fullContent?: string
 ): DocChangedMessage {
   return {
@@ -300,6 +305,7 @@ export function createDocChangedMessage(
     type: 'docChanged',
     ts: Date.now(),
     origin: 'extension',
+    sessionId,
     version,
     reason,
     changes,
@@ -310,13 +316,15 @@ export function createDocChangedMessage(
 export function createErrorMessage(
   code: ErrorCode,
   message: string,
-  remediation: Remediation[]
+  remediation: Remediation[],
+  sessionId?: string
 ): ErrorMessage {
   return {
     v: PROTOCOL_VERSION,
     type: 'error',
     ts: Date.now(),
     origin: 'extension',
+    sessionId,
     code,
     message,
     remediation,
