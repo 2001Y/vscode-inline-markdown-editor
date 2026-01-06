@@ -5,15 +5,35 @@
  */
 
 import { Editor } from '@tiptap/core';
+import DOMPurify from 'dompurify';
+
+export interface MarkdownCodecOptions {
+  renderHtml?: boolean;
+}
 
 export interface MarkdownCodec {
-  parse(markdown: string): Record<string, unknown>;
+  parse(markdown: string, options?: MarkdownCodecOptions): Record<string, unknown>;
   serialize(editor: Editor): string;
 }
 
+// HTML tag detection regex
+const HTML_BLOCK_REGEX = /^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/;
+const HTML_SELF_CLOSING_REGEX = /^<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/>/;
+const HTML_CLOSING_REGEX = /^<\/([a-zA-Z][a-zA-Z0-9]*)>/;
+
+// DOMPurify configuration for safe HTML rendering
+const DOMPURIFY_CONFIG = {
+  ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'span', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'sup', 'sub', 'del', 's', 'mark'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+  ALLOW_DATA_ATTR: false,
+};
+
 export function createMarkdownCodec(): MarkdownCodec {
   return {
-    parse(markdown: string): Record<string, unknown> {
+    parse(markdown: string, options?: MarkdownCodecOptions): Record<string, unknown> {
+      const renderHtml = options?.renderHtml ?? false;
+      console.log('[MarkdownCodec] Parsing markdown', { length: markdown.length, renderHtml });
+      
       const lines = markdown.split('\n');
       const content: Record<string, unknown>[] = [];
       let i = 0;
@@ -141,6 +161,52 @@ export function createMarkdownCodec(): MarkdownCodec {
           });
         } else if (line.trim() === '') {
           i++;
+        } else if (HTML_BLOCK_REGEX.test(line)) {
+          // Detect HTML block - collect all lines until closing tag or empty line
+          const htmlLines: string[] = [line];
+          const tagMatch = line.match(HTML_BLOCK_REGEX);
+          const tagName = tagMatch ? tagMatch[1].toLowerCase() : '';
+          const isSelfClosing = HTML_SELF_CLOSING_REGEX.test(line);
+          
+          console.log('[MarkdownCodec] Detected HTML block', { tagName, isSelfClosing, renderHtml });
+          
+          if (!isSelfClosing && tagName) {
+            i++;
+            // Collect lines until we find the closing tag
+            const closingTag = `</${tagName}>`;
+            while (i < lines.length) {
+              htmlLines.push(lines[i]);
+              if (lines[i].toLowerCase().includes(closingTag)) {
+                i++;
+                break;
+              }
+              i++;
+            }
+          } else {
+            i++;
+          }
+          
+          const htmlContent = htmlLines.join('\n');
+          
+          if (renderHtml) {
+            // Sanitize and render HTML when renderHtml=true
+            const sanitizedHtml = DOMPurify.sanitize(htmlContent, DOMPURIFY_CONFIG);
+            console.log('[MarkdownCodec] Sanitized HTML', { 
+              originalLength: htmlContent.length, 
+              sanitizedLength: sanitizedHtml.length 
+            });
+            content.push({
+              type: 'htmlBlock',
+              attrs: { content: sanitizedHtml },
+            });
+          } else {
+            // Store as RAW block when renderHtml=false (default)
+            console.log('[MarkdownCodec] Storing HTML as RAW block', { length: htmlContent.length });
+            content.push({
+              type: 'rawBlock',
+              attrs: { content: htmlContent },
+            });
+          }
         } else {
           const paragraphContent = parseInlineContent(line);
           content.push({
@@ -307,6 +373,12 @@ function serializeNode(node: Record<string, unknown>): string {
     case 'rawBlock': {
       const rawContent = (attrs?.content as string) || '';
       return rawContent;
+    }
+
+    case 'htmlBlock': {
+      // HTML blocks are serialized back as raw HTML
+      const htmlContent = (attrs?.content as string) || '';
+      return htmlContent;
     }
 
     case 'image': {

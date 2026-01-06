@@ -411,3 +411,64 @@ body {
   background: transparent;
   color: var(--vscode-descriptionForeground, #6a737d);
 }
+
+/* HTML Block styles (for sanitized HTML when renderHtml=true) */
+.html-block {
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.05));
+  border: 1px solid var(--vscode-editorIndentGuide-activeBackground, rgba(128, 128, 128, 0.2));
+  border-radius: 4px;
+  margin: 1em 0;
+  padding: 0;
+  position: relative;
+}
+
+.html-block::before {
+  content: 'HTML';
+  position: absolute;
+  top: -10px;
+  left: 8px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-descriptionForeground, #6a737d);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.html-block-content {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 1em;
+  line-height: 1.5;
+  color: var(--vscode-editor-foreground);
+}
+
+/* Style sanitized HTML elements within html-block */
+.html-block-content a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: none;
+}
+
+.html-block-content a:hover {
+  text-decoration: underline;
+}
+
+.html-block-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+.html-block-content th,
+.html-block-content td {
+  border: 1px solid var(--vscode-editorIndentGuide-activeBackground, rgba(128, 128, 128, 0.4));
+  padding: 8px;
+  text-align: left;
+}
+
+.html-block-content th {
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  font-weight: 600;
+}

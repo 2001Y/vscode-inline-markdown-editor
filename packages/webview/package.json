@@ -21,10 +21,12 @@
     "@tiptap/extension-text": "^2.1.13",
     "@tiptap/pm": "^2.1.13",
     "@tiptap/starter-kit": "^2.1.13",
-    "diff-match-patch": "^1.0.5"
+    "diff-match-patch": "^1.0.5",
+    "dompurify": "^3.3.1"
   },
   "devDependencies": {
     "@types/diff-match-patch": "^1.0.36",
+    "@types/dompurify": "^3.0.5",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "eslint": "^8.54.0",
