@@ -1,0 +1,378 @@
+/**
+ * Role: Webview styles with VS Code theme following
+ * Responsibility: Style the editor to match VS Code's theme using CSS variables
+ * Invariant: No fixed colors; all colors must use --vscode-* variables
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-editor-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-size: var(--vscode-editor-font-size, 14px);
+  font-weight: var(--vscode-editor-font-weight, normal);
+  line-height: 1.6;
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.editor-container {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 24px;
+}
+
+.inline-markdown-editor-content {
+  outline: none;
+  min-height: 100%;
+}
+
+.inline-markdown-editor-content:focus {
+  outline: none;
+}
+
+/* Headings */
+.inline-markdown-editor-content h1,
+.inline-markdown-editor-content h2,
+.inline-markdown-editor-content h3,
+.inline-markdown-editor-content h4,
+.inline-markdown-editor-content h5,
+.inline-markdown-editor-content h6 {
+  color: var(--vscode-editor-foreground);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.inline-markdown-editor-content h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  padding-bottom: 0.3em;
+}
+
+.inline-markdown-editor-content h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  padding-bottom: 0.3em;
+}
+
+.inline-markdown-editor-content h3 {
+  font-size: 1.25em;
+}
+
+.inline-markdown-editor-content h4 {
+  font-size: 1em;
+}
+
+.inline-markdown-editor-content h5 {
+  font-size: 0.875em;
+}
+
+.inline-markdown-editor-content h6 {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground, #6a737d);
+}
+
+/* Paragraphs */
+.inline-markdown-editor-content p {
+  margin: 0 0 1em 0;
+}
+
+.inline-markdown-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Links */
+.inline-markdown-editor-content a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+.inline-markdown-editor-content a:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
+}
+
+/* Code */
+.inline-markdown-editor-content code {
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  color: var(--vscode-editor-foreground);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+}
+
+.inline-markdown-editor-content pre {
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  color: var(--vscode-editor-foreground);
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.inline-markdown-editor-content pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+
+/* Blockquotes */
+.inline-markdown-editor-content blockquote {
+  margin: 1em 0;
+  padding: 0 1em;
+  border-left: 4px solid var(--vscode-editorIndentGuide-activeBackground, var(--vscode-textLink-foreground));
+  color: var(--vscode-descriptionForeground, inherit);
+}
+
+.inline-markdown-editor-content blockquote p {
+  margin: 0;
+}
+
+/* Lists */
+.inline-markdown-editor-content ul,
+.inline-markdown-editor-content ol {
+  margin: 1em 0;
+  padding-left: 2em;
+}
+
+.inline-markdown-editor-content li {
+  margin: 0.25em 0;
+}
+
+.inline-markdown-editor-content li p {
+  margin: 0;
+}
+
+/* Horizontal Rule */
+.inline-markdown-editor-content hr {
+  border: none;
+  border-top: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  margin: 2em 0;
+}
+
+/* Images */
+.inline-markdown-editor-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* Selection */
+.inline-markdown-editor-content ::selection {
+  background: var(--vscode-editor-selectionBackground);
+}
+
+/* Bold and Italic */
+.inline-markdown-editor-content strong {
+  font-weight: 600;
+}
+
+.inline-markdown-editor-content em {
+  font-style: italic;
+}
+
+/* Strikethrough */
+.inline-markdown-editor-content s {
+  text-decoration: line-through;
+}
+
+/* Tables (if supported) */
+.inline-markdown-editor-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.inline-markdown-editor-content th,
+.inline-markdown-editor-content td {
+  border: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.inline-markdown-editor-content th {
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  font-weight: 600;
+}
+
+/* Sync Indicator */
+.sync-indicator {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transition: opacity 0.2s ease;
+}
+
+.sync-indicator .sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background-color 0.2s ease;
+}
+
+.sync-indicator.idle .sync-dot {
+  background-color: var(--vscode-testing-iconPassed, #4caf50);
+}
+
+.sync-indicator.syncing .sync-dot {
+  background-color: var(--vscode-testing-iconQueued, #ff9800);
+  animation: pulse 1s infinite;
+}
+
+.sync-indicator.error .sync-dot {
+  background-color: var(--vscode-testing-iconFailed, #f44336);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Error Overlay */
+.error-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--vscode-editor-background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.error-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.error-content {
+  text-align: center;
+  max-width: 400px;
+  padding: 24px;
+}
+
+.error-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--vscode-inputValidation-errorBackground, #f44336);
+  color: var(--vscode-inputValidation-errorForeground, white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+  margin: 0 auto 16px;
+}
+
+.error-code {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.error-message {
+  font-size: 14px;
+  color: var(--vscode-editor-foreground);
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.error-action-button {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  transition: background-color 0.1s ease;
+}
+
+.error-action-button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.error-action-button:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+/* Pseudo-virtualization for large documents */
+.inline-markdown-editor-content > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}
+
+/* ProseMirror specific styles */
+.ProseMirror {
+  outline: none;
+}
+
+.ProseMirror-focused {
+  outline: none;
+}
+
+/* Placeholder for empty editor */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--vscode-input-placeholderForeground, rgba(128, 128, 128, 0.5));
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Current line highlight (optional) */
+.ProseMirror .is-current-line {
+  background: var(--vscode-editor-lineHighlightBackground, transparent);
+}
+
+/* Caret color */
+.ProseMirror {
+  caret-color: var(--vscode-editorCursor-foreground);
+}

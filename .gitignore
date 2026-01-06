@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+*.vsix
+.vscode-test/
+packages/extension/media/webview/
+!packages/extension/media/webview/.gitkeep
+*.log
+.DS_Store
