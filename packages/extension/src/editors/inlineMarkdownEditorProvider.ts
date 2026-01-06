@@ -503,7 +503,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     msg: WebviewToExtensionMessage & { type: 'logClient' }
   ): void {
     const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
-    if (!config.get<boolean>('logging', false)) return;
+    if (!config.get<boolean>('logging', false)) {return;}
 
     logger.log(msg.level, `[Webview] ${msg.message}`, {
       clientId,
@@ -852,7 +852,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     const docKey = e.document.uri.toString();
     const state = this.documentStates.get(docKey);
 
-    if (!state) return;
+    if (!state) {return;}
 
     const changes = contentChangeEventsToReplaces(e.document, e.contentChanges);
 
@@ -1097,7 +1097,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     const docKey = document.uri.toString();
     const state = this.documentStates.get(docKey);
 
-    if (!state) return false;
+    if (!state) {return false;}
 
     // Show confirmation dialog for destructive operation (spec 12.1.1)
     if (!skipConfirmation) {

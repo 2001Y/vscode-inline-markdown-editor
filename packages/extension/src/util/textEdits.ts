@@ -36,7 +36,7 @@ export function replacesToWorkspaceEdit(
 }
 
 export function normalizeReplaces(replaces: Replace[]): Replace[] {
-  if (replaces.length === 0) return [];
+  if (replaces.length === 0) {return [];}
 
   const sorted = [...replaces].sort((a, b) => a.start - b.start);
 
@@ -83,7 +83,7 @@ export function calculateChangedChars(replaces: Replace[]): number {
 }
 
 export function calculateChangedRatio(replaces: Replace[], documentLength: number): number {
-  if (documentLength === 0) return replaces.length > 0 ? 1 : 0;
+  if (documentLength === 0) {return replaces.length > 0 ? 1 : 0;}
   const changedChars = calculateChangedChars(replaces);
   return changedChars / documentLength;
 }

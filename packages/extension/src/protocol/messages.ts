@@ -242,20 +242,20 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
   }
 
   if (m.type === 'edit') {
-    if (typeof m.txId !== 'number') return false;
-    if (typeof m.baseVersion !== 'number') return false;
-    if (!Array.isArray(m.changes)) return false;
+    if (typeof m.txId !== 'number') {return false;}
+    if (typeof m.baseVersion !== 'number') {return false;}
+    if (!Array.isArray(m.changes)) {return false;}
     for (const change of m.changes) {
-      if (typeof change !== 'object' || change === null) return false;
-      if (typeof change.start !== 'number') return false;
-      if (typeof change.end !== 'number') return false;
-      if (typeof change.text !== 'string') return false;
+      if (typeof change !== 'object' || change === null) {return false;}
+      if (typeof change.start !== 'number') {return false;}
+      if (typeof change.end !== 'number') {return false;}
+      if (typeof change.text !== 'string') {return false;}
     }
   }
 
   if (m.type === 'logClient') {
-    if (typeof m.level !== 'string') return false;
-    if (typeof m.message !== 'string') return false;
+    if (typeof m.level !== 'string') {return false;}
+    if (typeof m.message !== 'string') {return false;}
   }
 
   return true;

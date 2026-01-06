@@ -127,7 +127,7 @@ export class Logger {
   }
 
   private async setupJsonlPath(): Promise<void> {
-    if (!this.globalStorageUri) return;
+    if (!this.globalStorageUri) {return;}
 
     const logsDir = vscode.Uri.joinPath(this.globalStorageUri, 'logs');
     try {
@@ -199,7 +199,7 @@ export class Logger {
   }
 
   private writeToJsonl(entry: LogEntry): void {
-    if (!this.jsonlEnabled || !this.jsonlPath) return;
+    if (!this.jsonlEnabled || !this.jsonlPath) {return;}
 
     try {
       const line = JSON.stringify(entry) + '\n';
@@ -215,7 +215,7 @@ export class Logger {
   }
 
   private rotateJsonl(): void {
-    if (!this.jsonlPath || !this.globalStorageUri) return;
+    if (!this.jsonlPath || !this.globalStorageUri) {return;}
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const logsDir = vscode.Uri.joinPath(this.globalStorageUri, 'logs').fsPath;
@@ -223,7 +223,7 @@ export class Logger {
   }
 
   log(level: LogLevel, event: string, entry?: Partial<LogEntry>): void {
-    if (!this.shouldLog(level)) return;
+    if (!this.shouldLog(level)) {return;}
 
     this.writeToChannel(level, event, entry as Record<string, unknown>);
 
@@ -267,21 +267,21 @@ export class Logger {
   }
 
   async exportLogs(): Promise<string | undefined> {
-    if (!this.globalStorageUri) return undefined;
+    if (!this.globalStorageUri) {return undefined;}
 
     const logsDir = vscode.Uri.joinPath(this.globalStorageUri, 'logs');
     try {
       const files = await fs.promises.readdir(logsDir.fsPath);
       const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
 
-      if (jsonlFiles.length === 0) return undefined;
+      if (jsonlFiles.length === 0) {return undefined;}
 
       const exportPath = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(`inline-markdown-logs-${Date.now()}.jsonl`),
         filters: { 'JSONL': ['jsonl'] },
       });
 
-      if (!exportPath) return undefined;
+      if (!exportPath) {return undefined;}
 
       let combinedContent = '';
       for (const file of jsonlFiles) {

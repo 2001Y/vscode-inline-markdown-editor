@@ -109,7 +109,7 @@ export function computeDiff(shadowText: string, nextMarkdown: string): DiffResul
 }
 
 function normalizeChanges(changes: Replace[]): Replace[] {
-  if (changes.length === 0) return [];
+  if (changes.length === 0) {return [];}
 
   const sorted = [...changes].sort((a, b) => a.start - b.start);
 
@@ -161,7 +161,7 @@ export function isChangeGuardExceeded(
 }
 
 export function applyChangesToText(text: string, changes: Replace[]): string {
-  if (changes.length === 0) return text;
+  if (changes.length === 0) {return text;}
 
   const sorted = [...changes].sort((a, b) => b.start - a.start);
 

@@ -186,7 +186,7 @@ function createErrorOverlay(parent: HTMLElement): HTMLElement {
 }
 
 function showErrorOverlay(code: string, message: string, remediation: string[]): void {
-  if (!errorOverlay || !syncClient) return;
+  if (!errorOverlay || !syncClient) {return;}
 
   console.log('[ErrorOverlay] Showing error overlay', { code, message, remediation });
 
@@ -194,8 +194,8 @@ function showErrorOverlay(code: string, message: string, remediation: string[]):
   const messageEl = errorOverlay.querySelector('.error-message');
   const actionsEl = errorOverlay.querySelector('.error-actions');
 
-  if (codeEl) codeEl.textContent = code;
-  if (messageEl) messageEl.textContent = message;
+  if (codeEl) {codeEl.textContent = code;}
+  if (messageEl) {messageEl.textContent = message;}
 
   if (actionsEl) {
     actionsEl.innerHTML = '';
@@ -279,7 +279,7 @@ function createSyncIndicator(parent: HTMLElement): HTMLElement {
 }
 
 function updateSyncIndicator(state: SyncState): void {
-  if (!syncIndicator) return;
+  if (!syncIndicator) {return;}
 
   syncIndicator.classList.remove('idle', 'syncing', 'error');
   syncIndicator.classList.add(state);
