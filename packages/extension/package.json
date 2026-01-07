@@ -4,6 +4,11 @@
   "description": "%extension.description%",
   "version": "0.1.0",
   "publisher": "inline-markdown-editor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/2001Y/vscode-inline-markdown-editor.git"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
