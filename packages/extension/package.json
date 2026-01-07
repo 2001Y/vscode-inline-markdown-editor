@@ -1,0 +1,172 @@
+{
+  "name": "vscode-inline-markdown-editor",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.1.0",
+  "publisher": "inline-markdown-editor",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:inlineMarkdownEditor.editor"
+  ],
+  "main": "./out/extension.js",
+  "l10n": "./l10n",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "inlineMarkdownEditor.editor",
+        "displayName": "%customEditor.displayName%",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "inlineMarkdownEditor.resetSession",
+        "title": "%command.resetSession.title%",
+        "category": "Inline Markdown"
+      },
+      {
+        "command": "inlineMarkdownEditor.applyRequiredSettings",
+        "title": "%command.applyRequiredSettings.title%",
+        "category": "Inline Markdown"
+      },
+      {
+        "command": "inlineMarkdownEditor.exportLogs",
+        "title": "%command.exportLogs.title%",
+        "category": "Inline Markdown"
+      }
+    ],
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "inlineMarkdownEditor.sync.debounceMs": {
+          "type": "number",
+          "default": 250,
+          "description": "%configuration.sync.debounceMs.description%"
+        },
+        "inlineMarkdownEditor.sync.timeoutMs": {
+          "type": "number",
+          "default": 3000,
+          "description": "%configuration.sync.timeoutMs.description%"
+        },
+        "inlineMarkdownEditor.sync.changeGuard.maxChangedRatio": {
+          "type": "number",
+          "default": 0.5,
+          "description": "%configuration.sync.changeGuard.maxChangedRatio.description%"
+        },
+        "inlineMarkdownEditor.sync.changeGuard.maxChangedChars": {
+          "type": "number",
+          "default": 50000,
+          "description": "%configuration.sync.changeGuard.maxChangedChars.description%"
+        },
+        "inlineMarkdownEditor.sync.changeGuard.maxHunks": {
+          "type": "number",
+          "default": 200,
+          "description": "%configuration.sync.changeGuard.maxHunks.description%"
+        },
+        "inlineMarkdownEditor.debug.logging": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.debug.logging.description%"
+        },
+        "inlineMarkdownEditor.debug.logLevel": {
+          "type": "string",
+          "default": "INFO",
+          "enum": [
+            "INFO",
+            "DEBUG",
+            "TRACE",
+            "WARN",
+            "ERROR"
+          ],
+          "description": "%configuration.debug.logLevel.description%"
+        },
+        "inlineMarkdownEditor.debug.logToJsonl": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.debug.logToJsonl.description%"
+        },
+        "inlineMarkdownEditor.debug.jsonlMaxBytes": {
+          "type": "number",
+          "default": 5000000,
+          "description": "%configuration.debug.jsonlMaxBytes.description%"
+        },
+        "inlineMarkdownEditor.debug.jsonlMaxFiles": {
+          "type": "number",
+          "default": 20,
+          "description": "%configuration.debug.jsonlMaxFiles.description%"
+        },
+        "inlineMarkdownEditor.debug.jsonlRetentionDays": {
+          "type": "number",
+          "default": 7,
+          "description": "%configuration.debug.jsonlRetentionDays.description%"
+        },
+        "inlineMarkdownEditor.debug.logContent": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.debug.logContent.description%"
+        },
+        "inlineMarkdownEditor.security.allowWorkspaceImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.security.allowWorkspaceImages.description%"
+        },
+        "inlineMarkdownEditor.security.allowRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.allowRemoteImages.description%"
+        },
+        "inlineMarkdownEditor.security.allowInsecureRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.allowInsecureRemoteImages.description%"
+        },
+        "inlineMarkdownEditor.security.renderHtml": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.renderHtml.description%"
+        },
+        "inlineMarkdownEditor.security.confirmExternalLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.security.confirmExternalLinks.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src",
+    "test": "vscode-test",
+    "pretest": "npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.0.3",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0",
+    "mocha": "^11.7.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.52.0"
+  },
+  "dependencies": {
+    "diff-match-patch": "^1.0.5"
+  }
+}
