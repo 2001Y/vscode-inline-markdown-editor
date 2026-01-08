@@ -8,15 +8,17 @@
     "build": "vite build",
     "lint": "eslint src"
   },
-    "dependencies": {
-      "@tiptap/core": "^3.15.1",
-      "@tiptap/extension-image": "^3.15.1",
-      "@tiptap/extension-link": "^3.15.1",
-      "@tiptap/pm": "^3.15.1",
-      "@tiptap/starter-kit": "^3.15.1",
-      "diff-match-patch": "^1.0.5",
-      "dompurify": "^3.3.1"
-    },
+  "dependencies": {
+    "@tiptap/core": "^3.15.1",
+    "@tiptap/extension-image": "^3.15.1",
+    "@tiptap/extension-link": "^3.15.1",
+    "@tiptap/extension-table": "^3.15.3",
+    "@tiptap/markdown": "^3.15.3",
+    "@tiptap/pm": "^3.15.1",
+    "@tiptap/starter-kit": "^3.15.1",
+    "diff-match-patch": "^1.0.5",
+    "dompurify": "^3.3.1"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/diff-match-patch": "^1.0.36",

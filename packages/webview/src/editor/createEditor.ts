@@ -37,16 +37,16 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
+import { Markdown } from '@tiptap/markdown';
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import { RawBlock } from './rawBlockExtension.js';
 import { HtmlBlock } from './htmlBlockExtension.js';
-import { createMarkdownCodec, type MarkdownCodec } from './markdownCodec.js';
-import { computeDiff, isChangeGuardExceeded, type DiffResult } from './diffEngine.js';
+import { computeDiff, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
 import type { Replace } from '../protocol/types.js';
 
 export interface EditorInstance {
   editor: Editor;
-  codec: MarkdownCodec;
   destroy: () => void;
   setContent: (markdown: string) => void;
   applyChanges: (changes: Replace[]) => void;
@@ -61,23 +61,27 @@ export interface CreateEditorOptions {
 
 export function createEditor(options: CreateEditorOptions): EditorInstance {
   const { container, syncClient, onChangeGuardExceeded } = options;
-  const codec = createMarkdownCodec();
 
-    // Tiptap 3.x モダン化:
-    // - StarterKit に Link/Underline/ListKeymap が含まれるようになった
-    // - 重複を避けるため、StarterKit の link を無効化し、カスタム Link を使用
-    // - これにより openOnClick: false などのセキュリティ設定を確実に適用
-    const editor = new Editor({
-      element: container,
-      extensions: [
-        StarterKit.configure({
-          heading: {
-            levels: [1, 2, 3, 4, 5, 6],
-          },
-          // Tiptap 3.x: StarterKit に Link が含まれるため、カスタム Link と重複しないよう無効化
-          link: false,
-        }),
-        Link.configure({
+  // Tiptap 3.x モダン化:
+  // - StarterKit に Link/Underline/ListKeymap が含まれるようになった
+  // - 重複を避けるため、StarterKit の link を無効化し、カスタム Link を使用
+  // - これにより openOnClick: false などのセキュリティ設定を確実に適用
+  // @tiptap/markdown 統合:
+  // - Markdown 拡張で GFM (GitHub Flavored Markdown) を有効化
+  // - RawBlock で frontmatter をサポート
+  // - HtmlBlock で HTML ブロックを保持
+  // - Table 拡張で GFM テーブルをサポート
+  const editor = new Editor({
+    element: container,
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3, 4, 5, 6],
+        },
+        // Tiptap 3.x: StarterKit に Link が含まれるため、カスタム Link と重複しないよう無効化
+        link: false,
+      }),
+      Link.configure({
         openOnClick: false,
         HTMLAttributes: {
           rel: 'noopener noreferrer',
@@ -88,8 +92,20 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         inline: true,
         allowBase64: true,
       }),
+      // GFM テーブルサポート
+      Table.configure({
+        resizable: false,
+      }),
+      TableRow,
+      TableCell,
+      TableHeader,
+      // カスタム拡張（frontmatter, HTML ブロック）
       RawBlock,
       HtmlBlock,
+      // @tiptap/markdown で Markdown パース/シリアライズを統合
+      Markdown.configure({
+        markedOptions: { gfm: true },
+      }),
     ],
     editorProps: {
       attributes: {
@@ -103,7 +119,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       }
 
       syncClient.scheduleEdit(() => {
-        return computeChanges(updatedEditor, codec, syncClient, onChangeGuardExceeded);
+        return computeChanges(updatedEditor, syncClient, onChangeGuardExceeded);
       });
     },
   });
@@ -128,9 +144,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   container.addEventListener('click', onEditorClick);
 
   function setContent(markdown: string): void {
-    const renderHtml = syncClient.getConfig()?.security.renderHtml ?? false;
-    const doc = codec.parse(markdown, { renderHtml });
-    editor.commands.setContent(doc);
+    console.log('[createEditor] setContent', { length: markdown.length });
+    editor.commands.setContent(markdown, { contentType: 'markdown' });
   }
 
   function applyChanges(changes: Replace[]): void {
@@ -148,12 +163,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   }
 
   function getContent(): string {
-    return codec.serialize(editor);
+    return editor.getMarkdown();
   }
 
   return {
     editor,
-    codec,
     destroy,
     setContent,
     applyChanges,
@@ -163,12 +177,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
 
 function computeChanges(
   editor: Editor,
-  codec: MarkdownCodec,
   syncClient: SyncClient,
-  onChangeGuardExceeded?: (metrics: DiffResult['metrics']) => void
+  _onChangeGuardExceeded?: (metrics: DiffResult['metrics']) => void
 ): Replace[] {
   const shadowText = syncClient.getShadowText();
-  const nextMarkdown = codec.serialize(editor);
+  const nextMarkdown = editor.getMarkdown();
 
   if (shadowText === nextMarkdown) {
     return [];
