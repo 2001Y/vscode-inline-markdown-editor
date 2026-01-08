@@ -595,3 +595,132 @@ body {
   display: none;
 }
 
+/* ========================================
+   テーブルコントロール UI
+   ======================================== */
+
+/* テーブルコンテナ - ホバー時にコントロールを表示 */
+.inline-markdown-editor-content table {
+  position: relative;
+}
+
+/* テーブルコントロールオーバーレイ */
+.table-controls-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* + ボタン（行追加/列追加） */
+.table-add-row-btn,
+.table-add-col-btn {
+  position: absolute;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.table-add-row-btn:hover,
+.table-add-col-btn:hover {
+  opacity: 1 !important;
+  transform: scale(1.1);
+  background: var(--vscode-button-hoverBackground);
+}
+
+/* 6点ハンドル（行操作/列操作） */
+.table-row-handle,
+.table-col-handle {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  font-size: 10px;
+  letter-spacing: -2px;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.1s ease;
+  user-select: none;
+  border-radius: 3px;
+}
+
+.table-row-handle {
+  width: 16px;
+  height: 20px;
+}
+
+.table-col-handle {
+  width: 20px;
+  height: 16px;
+  transform: rotate(90deg);
+}
+
+.table-row-handle:hover,
+.table-col-handle:hover {
+  opacity: 1 !important;
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* コンテキストメニュー */
+.table-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  min-width: 140px;
+}
+
+.table-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.1s ease;
+}
+
+.table-context-menu-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.table-context-menu-item:active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+/* テーブルホバー時の視覚フィードバック */
+.inline-markdown-editor-content table:hover {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+/* 行/列選択時のハイライト */
+.inline-markdown-editor-content table tr.selected {
+  background: var(--vscode-editor-selectionBackground);
+}
+
+.inline-markdown-editor-content table td.selected,
+.inline-markdown-editor-content table th.selected {
+  background: var(--vscode-editor-selectionBackground);
+}
+

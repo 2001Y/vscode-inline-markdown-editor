@@ -45,6 +45,7 @@ import FloatingMenu from '@tiptap/extension-floating-menu';
 import Focus from '@tiptap/extension-focus';
 import { RawBlock } from './rawBlockExtension.js';
 import { HtmlBlock } from './htmlBlockExtension.js';
+import { TableControls } from './tableControlsExtension.js';
 import { computeDiff, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
 import type { Replace } from '../protocol/types.js';
@@ -109,6 +110,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       TableRow,
       TableCell,
       TableHeader,
+      // テーブルUI（Notion風 + ボタン、ハンドル、コンテキストメニュー）
+      TableControls,
       // カスタム拡張（frontmatter, HTML ブロック）
       RawBlock,
       HtmlBlock,
@@ -141,10 +144,6 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
           const isTable = editor.isActive('table');
           return !isEmptySelection && !isCodeBlock && !isTable;
         },
-        tippyOptions: {
-          duration: 100,
-          placement: 'top',
-        },
       }),
       FloatingMenu.configure({
         element: floatingMenuElement,
@@ -156,10 +155,6 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
             editor.isActive('paragraph') &&
             selection.$anchor.parent.content.size === 0;
           return isRootDepth && isEmptyParagraph;
-        },
-        tippyOptions: {
-          duration: 100,
-          placement: 'left-start',
         },
       }),
     ],
