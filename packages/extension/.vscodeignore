@@ -1,3 +1,6 @@
+# Parent directory exclusion (npm workspaces issue)
+../**
+
 # Source files (use compiled output instead)
 src/**
 **/*.ts
