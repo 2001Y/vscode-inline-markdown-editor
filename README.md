@@ -24,7 +24,7 @@ Edit Markdown files with a modern WYSIWYG editor powered by [Tiptap](https://tip
 - Code blocks with syntax highlighting
 - Horizontal rules
 - Links and images
-- Tables (when HTML rendering is enabled)
+- **GFM Tables** with full editing support
 
 #### 🔄 Real-Time Bidirectional Sync
 Your changes sync instantly between the rich text editor and the underlying Markdown file. The extension uses a sophisticated synchronization protocol with:
@@ -202,7 +202,7 @@ Visual Studio CodeでMarkdown編集体験を変革する強力な**WYSIWYGエデ
 - シンタックスハイライト付きコードブロック
 - 水平線
 - リンクと画像
-- テーブル（HTMLレンダリング有効時）
+- **GFMテーブル** - 完全な編集サポート
 
 #### 🔄 リアルタイム双方向同期
 リッチテキストエディタと元のMarkdownファイル間で変更が即座に同期されます。高度な同期プロトコルを使用：
@@ -380,7 +380,7 @@ Markdownファイルを初めて開くと、これらの設定を適用するよ
 - 带语法高亮的代码块
 - 水平线
 - 链接和图片
-- 表格（启用 HTML 渲染时）
+- **GFM 表格** - 完整编辑支持
 
 #### 🔄 实时双向同步
 您的更改会在富文本编辑器和底层 Markdown 文件之间即时同步。扩展使用复杂的同步协议：
@@ -539,6 +539,20 @@ code --install-extension inlinemark
 ---
 
 ## 🛠️ Development
+
+### Technical Stack
+
+- **Editor**: [Tiptap](https://tiptap.dev/) - Modern WYSIWYG editor framework
+- **Markdown Codec**: [@tiptap/markdown](https://tiptap.dev/docs/editor/extensions/functionality/markdown) - Bidirectional Markdown ↔ ProseMirror conversion with GFM support
+- **GFM Tables**: [@tiptap/extension-table](https://tiptap.dev/docs/editor/extensions/nodes/table) - GitHub Flavored Markdown table support
+- **Diff Algorithm**: [diff-match-patch](https://github.com/google/diff-match-patch) - G5-lite minimal reformatting
+- **HTML Sanitization**: [DOMPurify](https://github.com/cure53/DOMPurify) - Secure HTML rendering
+- **Build**: Vite (webview) + TypeScript (extension)
+
+### Custom Extensions
+
+- **RawBlock**: Preserves unsupported Markdown syntax (YAML frontmatter, etc.) as editable blocks
+- **HtmlBlock**: Handles HTML blocks with optional DOMPurify sanitization
 
 ```bash
 # Clone the repository

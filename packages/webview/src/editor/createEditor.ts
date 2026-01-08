@@ -92,10 +92,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         inline: true,
         allowBase64: true,
       }),
-      // GFM テーブルサポート
-      Table.configure({
-        resizable: false,
-      }),
+      // GFM テーブルサポート（resizable: false はデフォルト値のため省略）
+      Table,
       TableRow,
       TableCell,
       TableHeader,
@@ -145,7 +143,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
 
   function setContent(markdown: string): void {
     console.log('[createEditor] setContent', { length: markdown.length });
+    console.log('[createEditor] markdown preview:', markdown.slice(0, 500));
     editor.commands.setContent(markdown, { contentType: 'markdown' });
+    // Debug: log the parsed document structure
+    const json = editor.getJSON();
+    console.log('[createEditor] parsed JSON types:', json.content?.map(n => n.type));
   }
 
   function applyChanges(changes: Replace[]): void {

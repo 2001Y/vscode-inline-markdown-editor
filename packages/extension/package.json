@@ -58,14 +58,14 @@
       "editor/title": [
         {
           "command": "inlineMark.reopenWithTextEditor",
-          "when": "activeCustomEditorId == 'inlineMark.editor'",
+          "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
           "group": "navigation@10"
         }
       ],
       "editor/title/context": [
         {
           "command": "inlineMark.reopenWithTextEditor",
-          "when": "activeCustomEditorId == 'inlineMark.editor'",
+          "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
           "group": "navigation@10"
         }
       ]
