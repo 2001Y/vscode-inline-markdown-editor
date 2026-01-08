@@ -1,0 +1,27 @@
+# Source files (use compiled output instead)
+src/**
+**/*.ts
+!**/*.d.ts
+
+# Config files
+.vscode/**
+.vscode-test.mjs
+tsconfig.json
+eslint.config.mjs
+.eslintrc*
+
+# Test files
+test-fixtures/**
+
+# Development files
+*.map
+.gitignore
+
+# Parent directory references (causes vsce errors)
+../**
+
+# Source maps in webview (contain external paths)
+media/webview/*.map
+
+# Node modules (will be bundled or included as needed)
+# Note: vsce will include node_modules by default
