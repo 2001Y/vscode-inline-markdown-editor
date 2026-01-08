@@ -70,13 +70,13 @@ body {
 
 .inline-markdown-editor-content h1 {
   font-size: 2em;
-  border-bottom: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  border-bottom: 1px solid var(--vscode-editorIndentGuide-background);
   padding-bottom: 0.3em;
 }
 
 .inline-markdown-editor-content h2 {
   font-size: 1.5em;
-  border-bottom: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  border-bottom: 1px solid var(--vscode-editorIndentGuide-background);
   padding-bottom: 0.3em;
 }
 
@@ -94,7 +94,7 @@ body {
 
 .inline-markdown-editor-content h6 {
   font-size: 0.85em;
-  color: var(--vscode-descriptionForeground, #6a737d);
+  color: var(--vscode-descriptionForeground);
 }
 
 /* Paragraphs */
@@ -119,7 +119,7 @@ body {
 
 /* Code */
 .inline-markdown-editor-content code {
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  background: var(--vscode-textCodeBlock-background);
   color: var(--vscode-editor-foreground);
   padding: 0.2em 0.4em;
   border-radius: 3px;
@@ -128,7 +128,7 @@ body {
 }
 
 .inline-markdown-editor-content pre {
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  background: var(--vscode-textCodeBlock-background);
   color: var(--vscode-editor-foreground);
   padding: 16px;
   border-radius: 6px;
@@ -147,8 +147,8 @@ body {
 .inline-markdown-editor-content blockquote {
   margin: 1em 0;
   padding: 0 1em;
-  border-left: 4px solid var(--vscode-editorIndentGuide-activeBackground, var(--vscode-textLink-foreground));
-  color: var(--vscode-descriptionForeground, inherit);
+  border-left: 4px solid var(--vscode-editorIndentGuide-activeBackground);
+  color: var(--vscode-descriptionForeground);
 }
 
 .inline-markdown-editor-content blockquote p {
@@ -173,7 +173,7 @@ body {
 /* Horizontal Rule */
 .inline-markdown-editor-content hr {
   border: none;
-  border-top: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  border-top: 1px solid var(--vscode-editorIndentGuide-background);
   margin: 2em 0;
 }
 
@@ -212,13 +212,13 @@ body {
 
 .inline-markdown-editor-content th,
 .inline-markdown-editor-content td {
-  border: 1px solid var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.2));
+  border: 1px solid var(--vscode-editorIndentGuide-background);
   padding: 8px 12px;
   text-align: left;
 }
 
 .inline-markdown-editor-content th {
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  background: var(--vscode-textCodeBlock-background);
   font-weight: 600;
 }
 
@@ -244,16 +244,16 @@ body {
 }
 
 .sync-indicator.idle .sync-dot {
-  background-color: var(--vscode-testing-iconPassed, #4caf50);
+  background-color: var(--vscode-testing-iconPassed);
 }
 
 .sync-indicator.syncing .sync-dot {
-  background-color: var(--vscode-testing-iconQueued, #ff9800);
+  background-color: var(--vscode-testing-iconQueued);
   animation: pulse 1s infinite;
 }
 
 .sync-indicator.error .sync-dot {
-  background-color: var(--vscode-testing-iconFailed, #f44336);
+  background-color: var(--vscode-testing-iconFailed);
 }
 
 @keyframes pulse {
@@ -285,7 +285,7 @@ body {
 /* Placeholder for empty editor */
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: var(--vscode-input-placeholderForeground, rgba(128, 128, 128, 0.5));
+  color: var(--vscode-input-placeholderForeground);
   float: left;
   height: 0;
   pointer-events: none;
@@ -303,8 +303,8 @@ body {
 
 /* RAW Block styles (for frontmatter and unsupported syntax) */
 .raw-block {
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
-  border: 1px dashed var(--vscode-editorIndentGuide-activeBackground, rgba(128, 128, 128, 0.4));
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px dashed var(--vscode-editorIndentGuide-activeBackground);
   border-radius: 4px;
   margin: 1em 0;
   padding: 0;
@@ -317,7 +317,7 @@ body {
   top: -10px;
   left: 8px;
   background: var(--vscode-editor-background);
-  color: var(--vscode-descriptionForeground, #6a737d);
+  color: var(--vscode-descriptionForeground);
   font-size: 10px;
   font-weight: 600;
   padding: 0 4px;
@@ -333,7 +333,7 @@ body {
   white-space: pre-wrap;
   word-wrap: break-word;
   background: transparent;
-  color: var(--vscode-descriptionForeground, #6a737d);
+  color: var(--vscode-descriptionForeground);
 }
 
 /* RAW Block label for NodeView */
@@ -342,7 +342,7 @@ body {
   top: -10px;
   left: 8px;
   background: var(--vscode-editor-background);
-  color: var(--vscode-descriptionForeground, #6a737d);
+  color: var(--vscode-descriptionForeground);
   font-size: 10px;
   font-weight: 600;
   padding: 0 4px;
@@ -370,13 +370,13 @@ body {
 }
 
 .raw-block-textarea:focus {
-  background: var(--vscode-editor-selectionBackground, rgba(128, 128, 128, 0.1));
+  background: var(--vscode-editor-selectionBackground);
 }
 
 /* HTML Block styles (for sanitized HTML when renderHtml=true) */
 .html-block {
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.05));
-  border: 1px solid var(--vscode-editorIndentGuide-activeBackground, rgba(128, 128, 128, 0.2));
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--vscode-editorIndentGuide-activeBackground);
   border-radius: 4px;
   margin: 1em 0;
   padding: 0;
@@ -389,7 +389,7 @@ body {
   top: -10px;
   left: 8px;
   background: var(--vscode-editor-background);
-  color: var(--vscode-descriptionForeground, #6a737d);
+  color: var(--vscode-descriptionForeground);
   font-size: 10px;
   font-weight: 600;
   padding: 0 4px;
@@ -408,7 +408,7 @@ body {
 
 /* Style sanitized HTML elements within html-block */
 .html-block-content a {
-  color: var(--vscode-textLink-foreground, #3794ff);
+  color: var(--vscode-textLink-foreground);
   text-decoration: none;
 }
 
@@ -424,12 +424,12 @@ body {
 
 .html-block-content th,
 .html-block-content td {
-  border: 1px solid var(--vscode-editorIndentGuide-activeBackground, rgba(128, 128, 128, 0.4));
+  border: 1px solid var(--vscode-editorIndentGuide-activeBackground);
   padding: 8px;
   text-align: left;
 }
 
 .html-block-content th {
-  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  background: var(--vscode-textCodeBlock-background);
   font-weight: 600;
 }
