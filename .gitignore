@@ -7,7 +7,7 @@ out/
 **/out/
 dist/
 **/dist/
-packages/extension/media/webview/
+# Note: packages/extension/media/webview/ is tracked (required for extension to work)
 
 # VS Code Extension packaging
 *.vsix
@@ -90,8 +90,9 @@ coverage/
 # Nuxt.js build / generate output
 .nuxt
 
-# Vite
+# Vite (except webview manifest which is needed by extension)
 .vite/
+!packages/extension/media/webview/.vite/
 
 # Rollup
 .rollup.cache/
