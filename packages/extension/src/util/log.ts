@@ -113,13 +113,14 @@ export class Logger {
 
   private updateConfig(): void {
     const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
-    this.loggingEnabled = config.get<boolean>('logging', false);
+    const enabled = config.get<boolean>('enabled', false);
+    this.loggingEnabled = enabled;
     this.logLevel = config.get<LogLevel>('logLevel', 'INFO');
-    this.jsonlEnabled = config.get<boolean>('logToJsonl', false);
+    this.jsonlEnabled = enabled && config.get<boolean>('logToJsonl', false);
     this.jsonlMaxBytes = config.get<number>('jsonlMaxBytes', 5000000);
     this.jsonlMaxFiles = config.get<number>('jsonlMaxFiles', 20);
     this.jsonlRetentionDays = config.get<number>('jsonlRetentionDays', 7);
-    this.logContent = config.get<boolean>('logContent', false);
+    this.logContent = enabled && config.get<boolean>('logContent', false);
 
     if (this.jsonlEnabled && this.globalStorageUri) {
       this.setupJsonlPath();

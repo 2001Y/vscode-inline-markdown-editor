@@ -49,6 +49,7 @@ import {
   type ExtensionToWebviewMessage,
   type WebviewConfig,
   type Replace,
+  type Remediation,
   createReadyMessage,
   createEditMessage,
   createRequestResyncMessage,
@@ -61,6 +62,7 @@ import {
   createRequestResyncWithConfirmMessage,
   createOverwriteSaveWithConfirmMessage,
   createResolveImageMessage,
+  createNotifyHostMessage,
   PROTOCOL_VERSION,
 } from './types.js';
 
@@ -97,13 +99,29 @@ export class SyncClient {
   private inFlightTxId: number | null = null;
   private inFlightTimeout: ReturnType<typeof setTimeout> | null = null;
   private coalescePending = false;
-  private pendingChanges: Replace[] = [];
+  private pendingGetChanges: (() => Replace[]) | null = null;
+  private latestGetChanges: (() => Replace[]) | null = null;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private applyingRemote = false;
-  private pendingRetry: { changes: Replace[]; baseVersion: number } | null = null;
-  private retryCount = 0;
-  private readonly MAX_RETRY_COUNT = 1;
+
+  /**
+   * When we receive `ack(outcome=applied)`, we wait for the corresponding `docChanged(version)`
+   * before sending the next coalesced edit. This avoids computing diffs against a stale shadowText.
+   */
+  private awaitingDocChangedVersion: number | null = null;
+
+  /**
+   * Resync mode:
+   * - preserve: update shadowText/baseVersion but DO NOT overwrite the current editor UI
+   *            (used for automatic recovery after baseVersionMismatch/timeout).
+   *
+   * User-confirmed resync is handled by the extension and will overwrite the editor by default.
+   */
+  private resyncMode: 'preserve' | null = null;
+
+  private baseVersionMismatchRetryCount = 0;
+  private readonly MAX_BASE_VERSION_MISMATCH_RETRY = 1;
 
   constructor(callbacks: SyncClientCallbacks) {
     this.vscode = acquireVsCodeApi();
@@ -174,8 +192,12 @@ export class SyncClient {
     this.i18n = msg.i18n;
 
     this.inFlightTxId = null;
+    this.awaitingDocChangedVersion = null;
     this.coalescePending = false;
-    this.pendingChanges = [];
+    this.pendingGetChanges = null;
+    this.latestGetChanges = null;
+    this.resyncMode = null;
+    this.baseVersionMismatchRetryCount = 0;
     this.clearInFlightTimeout();
 
     this.callbacks.onInit(msg.content, msg.version, msg.config, msg.i18n);
@@ -196,21 +218,32 @@ export class SyncClient {
 
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
-    this.baseVersion = msg.currentVersion;
-    this.retryCount = 0;
-    this.pendingRetry = null;
+    this.baseVersionMismatchRetryCount = 0;
+
+    if (msg.outcome === 'noop') {
+      // No docChanged is expected; update baseVersion directly.
+      this.baseVersion = msg.currentVersion;
+      this.awaitingDocChangedVersion = null;
+    } else {
+      // For outcome=applied, we wait for docChanged(version) to update shadowText/baseVersion.
+      // docChanged may arrive before ack, so if we already have that version, don't wait.
+      this.awaitingDocChangedVersion = this.baseVersion === msg.currentVersion ? null : msg.currentVersion;
+    }
 
     this.log('DEBUG', 'Ack received', { 
       txId: msg.txId, 
       outcome: msg.outcome, 
       version: msg.currentVersion,
-      coalescePending: this.coalescePending
+      coalescePending: this.coalescePending,
+      awaitingDocChangedVersion: this.awaitingDocChangedVersion
     });
 
     if (this.coalescePending) {
-      this.coalescePending = false;
-      this.flushPendingChanges();
-    } else {
+      // If we are still waiting for docChanged, keep pending and flush after docChanged arrives.
+      if (this.awaitingDocChangedVersion === null) {
+        this.flushPendingChanges();
+      }
+    } else if (this.awaitingDocChangedVersion === null) {
       this.callbacks.onSyncStateChange('idle');
     }
   }
@@ -223,48 +256,39 @@ export class SyncClient {
 
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
+    this.awaitingDocChangedVersion = null;
 
     this.log('WARN', 'Nack received', { 
       txId: msg.txId, 
       reason: msg.reason, 
       version: msg.currentVersion,
-      retryCount: this.retryCount,
-      maxRetry: this.MAX_RETRY_COUNT
+      retryCount: this.baseVersionMismatchRetryCount,
+      maxRetry: this.MAX_BASE_VERSION_MISMATCH_RETRY
     });
 
     if (msg.reason === 'baseVersionMismatch') {
-      if (this.retryCount < this.MAX_RETRY_COUNT && this.pendingRetry) {
-        this.log('INFO', 'Auto-retry after baseVersionMismatch - requesting resync first', {
-          retryCount: this.retryCount,
-          pendingChangesCount: this.pendingRetry.changes.length
+      if (this.baseVersionMismatchRetryCount < this.MAX_BASE_VERSION_MISMATCH_RETRY && this.latestGetChanges) {
+        this.baseVersionMismatchRetryCount++;
+        this.coalescePending = true;
+        this.pendingGetChanges = this.latestGetChanges;
+
+        this.log('INFO', 'Auto-recover after baseVersionMismatch - requesting resync (preserve editor)', {
+          retryCount: this.baseVersionMismatchRetryCount,
         });
-        this.retryCount++;
-        this.requestResyncWithRetry();
-      } else {
-        this.log('INFO', 'Max retry exceeded or no pending retry - requesting resync without retry', {
-          retryCount: this.retryCount,
-          hasPendingRetry: !!this.pendingRetry
-        });
-        this.retryCount = 0;
-        this.pendingRetry = null;
+
         this.requestResync();
+      } else {
+        this.baseVersionMismatchRetryCount = 0;
+        this.callbacks.onError(
+          'APPLY_EDIT_FAILED',
+          msg.details || 'baseVersionMismatch',
+          ['resync', 'resetSession']
+        );
       }
     } else {
-      this.retryCount = 0;
-      this.pendingRetry = null;
+      this.baseVersionMismatchRetryCount = 0;
       this.callbacks.onError('APPLY_EDIT_FAILED', msg.details || 'Edit failed', ['resync']);
     }
-  }
-
-  private requestResyncWithRetry(): void {
-    this.clearInFlightTimeout();
-    this.inFlightTxId = null;
-    this.coalescePending = false;
-
-    this.vscode.postMessage(createRequestResyncMessage());
-    this.callbacks.onSyncStateChange('syncing');
-
-    this.log('INFO', 'Resync requested with pending retry');
   }
 
   private handleDocChanged(msg: ExtensionToWebviewMessage & { type: 'docChanged' }): void {
@@ -275,7 +299,6 @@ export class SyncClient {
 
       if (msg.fullContent !== undefined) {
         this.shadowText = msg.fullContent;
-        this.callbacks.onDocChanged(msg.version, [], msg.fullContent);
       } else {
         for (const change of msg.changes) {
           this.shadowText =
@@ -283,7 +306,28 @@ export class SyncClient {
             change.text +
             this.shadowText.slice(change.end);
         }
-        this.callbacks.onDocChanged(msg.version, msg.changes);
+      }
+
+      const shouldApplyToEditor =
+        msg.reason !== 'self' &&
+        !(msg.fullContent !== undefined && this.resyncMode === 'preserve');
+
+      if (shouldApplyToEditor) {
+        if (msg.fullContent !== undefined) {
+          this.callbacks.onDocChanged(msg.version, [], msg.fullContent);
+        } else {
+          this.callbacks.onDocChanged(msg.version, msg.changes);
+        }
+      }
+
+      // Clear resync mode once we received authoritative document content.
+      // (For preserve-resync we updated shadowText but intentionally kept the editor UI unchanged.)
+      if (this.resyncMode !== null) {
+        this.resyncMode = null;
+      }
+
+      if (this.awaitingDocChangedVersion !== null && msg.version === this.awaitingDocChangedVersion) {
+        this.awaitingDocChangedVersion = null;
       }
 
       this.log('DEBUG', 'DocChanged applied', {
@@ -291,21 +335,17 @@ export class SyncClient {
         reason: msg.reason,
         changesCount: msg.changes.length,
         hasFullContent: msg.fullContent !== undefined,
-        hasPendingRetry: !!this.pendingRetry,
-        retryCount: this.retryCount,
+        appliedToEditor: shouldApplyToEditor,
+        awaitingDocChangedVersion: this.awaitingDocChangedVersion,
       });
 
-      if (this.pendingRetry && this.retryCount > 0) {
-        this.log('INFO', 'Executing auto-retry after resync', {
-          retryCount: this.retryCount,
-          pendingChangesCount: this.pendingRetry.changes.length,
-          newBaseVersion: this.baseVersion
-        });
-        const retryChanges = this.pendingRetry.changes;
-        this.pendingRetry = null;
-        setTimeout(() => {
-          this.sendEdit(retryChanges);
-        }, 50);
+      // If we have coalesced edits and we're not waiting on another event, flush now.
+      if (this.inFlightTxId === null && this.awaitingDocChangedVersion === null) {
+        if (this.coalescePending) {
+          this.flushPendingChanges();
+        } else {
+          this.callbacks.onSyncStateChange('idle');
+        }
       }
     } finally {
       this.applyingRemote = false;
@@ -329,20 +369,26 @@ export class SyncClient {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      const changes = getChanges();
-      this.queueEdit(changes);
+      // Store the latest change producer for possible coalesce/retry paths.
+      this.latestGetChanges = getChanges;
+      this.queueEdit(getChanges);
     }, debounceMs);
   }
 
-  private queueEdit(changes: Replace[]): void {
-    if (changes.length === 0) {
+  private queueEdit(getChanges: () => Replace[]): void {
+    // If we cannot send right now, coalesce by keeping only the latest producer.
+    if (this.inFlightTxId !== null || this.awaitingDocChangedVersion !== null) {
+      this.coalescePending = true;
+      this.pendingGetChanges = getChanges;
+      this.log('DEBUG', 'Edit coalesced', {
+        inFlightTxId: this.inFlightTxId,
+        awaitingDocChangedVersion: this.awaitingDocChangedVersion,
+      });
       return;
     }
 
-    if (this.inFlightTxId !== null) {
-      this.coalescePending = true;
-      this.pendingChanges = changes;
-      this.log('DEBUG', 'Edit coalesced', { changesCount: changes.length });
+    const changes = getChanges();
+    if (changes.length === 0) {
       return;
     }
 
@@ -352,8 +398,6 @@ export class SyncClient {
   private sendEdit(changes: Replace[]): void {
     const txId = ++this.txIdCounter;
     this.inFlightTxId = txId;
-
-    this.pendingRetry = { changes, baseVersion: this.baseVersion };
 
     const msg = createEditMessage(txId, this.baseVersion, changes);
     this.vscode.postMessage(msg);
@@ -369,18 +413,34 @@ export class SyncClient {
       txId, 
       baseVersion: this.baseVersion, 
       changesCount: changes.length,
-      retryCount: this.retryCount
+      awaitingDocChangedVersion: this.awaitingDocChangedVersion
     });
   }
 
   private flushPendingChanges(): void {
-    if (this.pendingChanges.length > 0) {
-      const changes = this.pendingChanges;
-      this.pendingChanges = [];
-      this.sendEdit(changes);
-    } else {
+    const getChanges = this.pendingGetChanges;
+    this.pendingGetChanges = null;
+    this.coalescePending = false;
+
+    if (!getChanges) {
       this.callbacks.onSyncStateChange('idle');
+      return;
     }
+
+    // Safety: if we became not-sendable again, keep it pending.
+    if (this.inFlightTxId !== null || this.awaitingDocChangedVersion !== null) {
+      this.coalescePending = true;
+      this.pendingGetChanges = getChanges;
+      return;
+    }
+
+    const changes = getChanges();
+    if (changes.length === 0) {
+      this.callbacks.onSyncStateChange('idle');
+      return;
+    }
+
+    this.sendEdit(changes);
   }
 
   private handleTimeout(txId: number): void {
@@ -404,8 +464,8 @@ export class SyncClient {
   requestResync(): void {
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
-    this.coalescePending = false;
-    this.pendingChanges = [];
+    this.awaitingDocChangedVersion = null;
+    this.resyncMode = 'preserve';
 
     this.vscode.postMessage(createRequestResyncMessage());
     this.callbacks.onSyncStateChange('syncing');
@@ -447,6 +507,20 @@ export class SyncClient {
 
   loadState<T>(): T | undefined {
     return this.vscode.getState() as T | undefined;
+  }
+
+  /**
+   * Surface UX/errors via VS Code native notifications (handled on Extension side).
+   * We intentionally avoid in-webview overlays so the editor area stays fully for Tiptap.
+   */
+  notifyHost(
+    level: 'INFO' | 'WARN' | 'ERROR',
+    code: string,
+    message: string,
+    remediation: Remediation[],
+    details?: Record<string, unknown>
+  ): void {
+    this.vscode.postMessage(createNotifyHostMessage(level, code, message, remediation, details));
   }
 
   openLink(url: string): void {
@@ -498,10 +572,12 @@ export class SyncClient {
     // Clear all state and request fresh init
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
+    this.awaitingDocChangedVersion = null;
     this.coalescePending = false;
-    this.pendingChanges = [];
-    this.pendingRetry = null;
-    this.retryCount = 0;
+    this.pendingGetChanges = null;
+    this.latestGetChanges = null;
+    this.resyncMode = null;
+    this.baseVersionMismatchRetryCount = 0;
     this.baseVersion = 0;
     this.shadowText = '';
     // Send ready message to trigger fresh init from extension
@@ -514,7 +590,7 @@ export class SyncClient {
     message: string,
     details?: Record<string, unknown>
   ): void {
-    if (!this.config?.debug.logging) {
+    if (!this.config?.debug.enabled) {
       return;
     }
 

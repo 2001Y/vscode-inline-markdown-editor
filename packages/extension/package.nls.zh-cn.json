@@ -1,17 +1,18 @@
 {
-  "extension.displayName": "内联 Markdown 编辑器",
+  "extension.displayName": "Inline Markdown Editor",
   "extension.description": "使用 Tiptap 驱动的所见即所得编辑器编辑 Markdown 文件",
-  "customEditor.displayName": "内联 Markdown 编辑器",
+  "customEditor.displayName": "Inline Markdown Editor",
   "command.resetSession.title": "重置编辑器会话",
+  "command.reopenWithTextEditor.title": "使用文本编辑器重新打开",
   "command.applyRequiredSettings.title": "应用必需的 Markdown 设置 (G5)",
   "command.exportLogs.title": "导出日志",
-  "configuration.title": "内联 Markdown 编辑器",
+  "configuration.title": "Inline Markdown Editor",
   "configuration.sync.debounceMs.description": "发送编辑到文档前的防抖延迟（毫秒）",
   "configuration.sync.timeoutMs.description": "等待 ack/nack 响应的超时时间（毫秒）",
   "configuration.sync.changeGuard.maxChangedRatio.description": "触发变更保护的最大变更内容比率",
   "configuration.sync.changeGuard.maxChangedChars.description": "触发变更保护的最大变更字符数",
   "configuration.sync.changeGuard.maxHunks.description": "触发变更保护的最大变更块数",
-  "configuration.debug.logging.description": "启用调试日志",
+  "configuration.debug.enabled.description": "启用调试模式（日志/诊断/可选 JSONL 输出）",
   "configuration.debug.logLevel.description": "日志级别（INFO、DEBUG、TRACE、WARN、ERROR）",
   "configuration.debug.logToJsonl.description": "启用 JSONL 日志输出用于调试",
   "configuration.debug.jsonlMaxBytes.description": "JSONL 日志文件的最大大小（字节）",
@@ -22,5 +23,6 @@
   "configuration.security.allowRemoteImages.description": "允许通过 HTTPS 加载远程图片（仅限受信任的工作区）",
   "configuration.security.allowInsecureRemoteImages.description": "允许通过 HTTP 加载远程图片（强烈不推荐）",
   "configuration.security.renderHtml.description": "渲染 HTML 内容（已净化）而不是显示为原始块",
-  "configuration.security.confirmExternalLinks.description": "打开外部链接前显示确认对话框"
+  "configuration.security.confirmExternalLinks.description": "打开外部链接前显示确认对话框",
+  "configuration.webview.retainContextWhenHidden.description": "在切换标签页时保持 Webview（更好的体验）。关闭可能显著减少内存占用，但返回标签页时编辑器可能会重新渲染。"
 }

@@ -38,11 +38,16 @@ body {
   flex: 1;
   overflow: auto;
   padding: 16px 24px;
+  /* Keep content centered with a readable max width (Japanese-first). */
+  display: flex;
+  justify-content: center;
 }
 
 .inline-markdown-editor-content {
   outline: none;
   min-height: 100%;
+  width: 100%;
+  max-width: 860px;
 }
 
 .inline-markdown-editor-content:focus {
@@ -260,89 +265,6 @@ body {
   }
 }
 
-/* Error Overlay */
-.error-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--vscode-editor-background);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  opacity: 1;
-  transition: opacity 0.2s ease;
-}
-
-.error-overlay.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.error-content {
-  text-align: center;
-  max-width: 400px;
-  padding: 24px;
-}
-
-.error-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--vscode-inputValidation-errorBackground, #f44336);
-  color: var(--vscode-inputValidation-errorForeground, white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  font-weight: bold;
-  margin: 0 auto 16px;
-}
-
-.error-code {
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-  margin-bottom: 8px;
-  font-family: var(--vscode-editor-font-family, monospace);
-}
-
-.error-message {
-  font-size: 14px;
-  color: var(--vscode-editor-foreground);
-  margin-bottom: 24px;
-  line-height: 1.5;
-}
-
-.error-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.error-action-button {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-  transition: background-color 0.1s ease;
-}
-
-.error-action-button:hover {
-  background: var(--vscode-button-hoverBackground);
-}
-
-.error-action-button:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
-}
-
 /* Pseudo-virtualization for large documents */
 .inline-markdown-editor-content > * {
   content-visibility: auto;
@@ -352,6 +274,8 @@ body {
 /* ProseMirror specific styles */
 .ProseMirror {
   outline: none;
+  /* Do not force a fixed height (it breaks scrolling for long docs). */
+  min-height: 100%;
 }
 
 .ProseMirror-focused {

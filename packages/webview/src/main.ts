@@ -12,11 +12,10 @@
  * 4. ack/nack 受信 → 状態更新
  * 5. docChanged 受信 → エディタに差分適用
  * 6. beforeunload → getState/setState でスクロール位置保存
- * 
- * ErrorOverlay (設計書 12.1.1):
- * - エラー発生時に表示
- * - 復旧導線: resync, resetSession, reopenWithTextEditor, copyContent, overwriteSave, exportLogs
- * - 破壊的操作 (overwriteSave, resetSession) は確認ダイアログ必須
+ *
+ * NOTE:
+ * エラー/警告（例: ChangeGuard 超過）は Webview 内オーバーレイではなく
+ * VS Code 標準の通知 UI で表示する（追加方針）。
  * 
  * SyncIndicator:
  * - idle: 同期完了
@@ -30,7 +29,7 @@
 
 import { SyncClient, type SyncState } from './protocol/client.js';
 import { createEditor, type EditorInstance } from './editor/createEditor.js';
-import type { Replace, WebviewConfig } from './protocol/types.js';
+import type { Replace, Remediation, WebviewConfig } from './protocol/types.js';
 import type { ChangeMetrics } from './editor/diffEngine.js';
 import './styles.css';
 
@@ -41,8 +40,14 @@ interface AppState {
 
 let editorInstance: EditorInstance | null = null;
 let syncClient: SyncClient | null = null;
-let errorOverlay: HTMLElement | null = null;
 let syncIndicator: HTMLElement | null = null;
+let editorContainerEl: HTMLElement | null = null;
+
+// Image resolution state (workspace relative paths -> webview URIs)
+const pendingImageRequestsById = new Map<string, string>(); // requestId -> originalSrc
+const pendingImageRequestsBySrc = new Map<string, string>(); // originalSrc -> requestId
+const resolvedImageCache = new Map<string, string>(); // originalSrc -> resolvedSrc
+let imageObserver: MutationObserver | null = null;
 
 function main(): void {
   console.log('[Main] Webview main() starting');
@@ -54,12 +59,11 @@ function main(): void {
   }
 
   console.log('[Main] Creating editor container');
-  const editorContainer = document.createElement('div');
-  editorContainer.className = 'editor-container';
-  appContainer.appendChild(editorContainer);
+  editorContainerEl = document.createElement('div');
+  editorContainerEl.className = 'editor-container';
+  appContainer.appendChild(editorContainerEl);
 
-  console.log('[Main] Creating error overlay and sync indicator');
-  errorOverlay = createErrorOverlay(appContainer);
+  console.log('[Main] Creating sync indicator');
   syncIndicator = createSyncIndicator(appContainer);
 
   console.log('[Main] Creating SyncClient');
@@ -68,6 +72,7 @@ function main(): void {
     onDocChanged: handleDocChanged,
     onError: handleError,
     onSyncStateChange: handleSyncStateChange,
+    onImageResolved: handleImageResolved,
   });
 
   console.log('[Main] Starting SyncClient');
@@ -84,12 +89,11 @@ function handleInit(
   console.log('[handleInit] Init received', { 
     contentLength: content.length, 
     version: _version,
-    configDebugLogging: config.debug.logging,
+    configDebugLogging: config.debug.enabled,
     configDebugLogLevel: config.debug.logLevel
   });
 
-  const editorContainer = document.querySelector('.editor-container') as HTMLElement;
-  if (!editorContainer) {
+  if (!editorContainerEl) {
     console.error('[handleInit] Editor container not found - fatal error');
     return;
   }
@@ -101,21 +105,21 @@ function handleInit(
 
   console.log('[handleInit] Creating new editor instance');
   editorInstance = createEditor({
-    container: editorContainer,
+    container: editorContainerEl,
     syncClient: syncClient!,
     onChangeGuardExceeded: handleChangeGuardExceeded,
   });
 
   console.log('[handleInit] Setting editor content');
   editorInstance.setContent(content);
+  resolveImagesInEditor();
+  setupImageObserver();
 
   const savedState = syncClient?.loadState<AppState>();
   if (savedState?.scrollTop !== undefined) {
     console.log('[handleInit] Restoring scroll position', { scrollTop: savedState.scrollTop });
-    editorContainer.scrollTop = savedState.scrollTop;
+    editorContainerEl.scrollTop = savedState.scrollTop;
   }
-
-  hideErrorOverlay();
 
   console.log('[handleInit] Editor initialization complete', { 
     contentLength: content.length,
@@ -143,9 +147,11 @@ function handleDocChanged(
   if (fullContent !== undefined) {
     console.log('[handleDocChanged] Applying full content replacement', { contentLength: fullContent.length });
     editorInstance.setContent(fullContent);
+    resolveImagesInEditor();
   } else if (changes.length > 0) {
     console.log('[handleDocChanged] Applying incremental changes', { changesCount: changes.length });
     editorInstance.applyChanges(changes);
+    resolveImagesInEditor();
   } else {
     console.log('[handleDocChanged] No changes to apply');
   }
@@ -153,7 +159,8 @@ function handleDocChanged(
 
 function handleError(code: string, message: string, remediation: string[]): void {
   console.error('Error:', code, message);
-  showErrorOverlay(code, message, remediation);
+  // Surface via VS Code native notifications (host)
+  syncClient?.notifyHost('ERROR', code, message, filterRemediations(remediation));
 }
 
 function handleSyncStateChange(state: SyncState): void {
@@ -167,106 +174,81 @@ function handleChangeGuardExceeded(metrics: ChangeMetrics): void {
     Math.round(metrics.changedRatio * 100)
   ) || `Large change detected. ${metrics.changedChars} characters changed (${Math.round(metrics.changedRatio * 100)}%).`;
 
-  showErrorOverlay('CHANGE_GUARD_EXCEEDED', message, ['resync', 'resetSession']);
+  syncClient?.notifyHost('WARN', 'CHANGE_GUARD_EXCEEDED', message, ['resync', 'resetSession']);
 }
 
-function createErrorOverlay(parent: HTMLElement): HTMLElement {
-  const overlay = document.createElement('div');
-  overlay.className = 'error-overlay hidden';
-  overlay.innerHTML = `
-    <div class="error-content">
-      <div class="error-icon">!</div>
-      <div class="error-code"></div>
-      <div class="error-message"></div>
-      <div class="error-actions"></div>
-    </div>
-  `;
-  parent.appendChild(overlay);
-  return overlay;
+function filterRemediations(remediation: string[]): Remediation[] {
+  const valid: Remediation[] = ['resetSession', 'reopenWithTextEditor', 'resync', 'applySettings', 'trustWorkspace'];
+  return remediation.filter((r): r is Remediation => (valid as string[]).includes(r));
 }
 
-function showErrorOverlay(code: string, message: string, remediation: string[]): void {
-  if (!errorOverlay || !syncClient) {return;}
+function setupImageObserver(): void {
+  if (!editorContainerEl || !syncClient) {return;}
+  if (imageObserver) {return;}
 
-  console.log('[ErrorOverlay] Showing error overlay', { code, message, remediation });
+  imageObserver = new MutationObserver(() => {
+    resolveImagesInEditor();
+  });
 
-  const codeEl = errorOverlay.querySelector('.error-code');
-  const messageEl = errorOverlay.querySelector('.error-message');
-  const actionsEl = errorOverlay.querySelector('.error-actions');
+  imageObserver.observe(editorContainerEl, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['src'],
+  });
+}
 
-  if (codeEl) {codeEl.textContent = code;}
-  if (messageEl) {messageEl.textContent = message;}
+function resolveImagesInEditor(): void {
+  if (!editorContainerEl || !syncClient) {return;}
 
-  if (actionsEl) {
-    actionsEl.innerHTML = '';
+  const allowWorkspaceImages = syncClient.getConfig()?.security.allowWorkspaceImages ?? true;
+  if (!allowWorkspaceImages) {return;}
 
-    for (const action of remediation) {
-      const button = document.createElement('button');
-      button.className = 'error-action-button';
+  const images = editorContainerEl.querySelectorAll('img');
+  for (const img of images) {
+    const srcAttr = img.getAttribute('src');
+    if (!srcAttr) {continue;}
 
-      console.log('[ErrorOverlay] Adding action button', { action });
+    // Track the original markdown src so we can reapply after ProseMirror re-renders.
+    const originalSrc = img.dataset.originalSrc ?? srcAttr;
+    img.dataset.originalSrc = originalSrc;
 
-      switch (action) {
-        case 'resync':
-          button.textContent = syncClient.t('Resync');
-          button.onclick = () => {
-            console.log('[ErrorOverlay] Resync clicked - requesting confirmation');
-            syncClient?.requestResyncWithConfirm();
-          };
-          break;
-        case 'resetSession':
-          button.textContent = syncClient.t('Reset Session');
-          button.onclick = () => {
-            console.log('[ErrorOverlay] Reset Session clicked - requesting reset');
-            // Reset session is a hard reset - destroy editor and request fresh init
-            syncClient?.resetSession();
-          };
-          break;
-        case 'reopenWithTextEditor':
-          button.textContent = syncClient.t('Reopen with Text Editor');
-          button.onclick = () => {
-            console.log('[ErrorOverlay] Reopen with Text Editor clicked');
-            syncClient?.reopenWithTextEditor();
-          };
-          break;
-        case 'copyContent':
-          button.textContent = syncClient.t('Copy Content');
-          button.onclick = () => {
-            console.log('[ErrorOverlay] Copy Content clicked');
-            const content = editorInstance?.getContent() || syncClient?.getCurrentContent() || '';
-            syncClient?.copyToClipboard(content);
-          };
-          break;
-        case 'overwriteSave':
-          button.textContent = syncClient.t('Overwrite Save');
-          button.onclick = () => {
-            console.log('[ErrorOverlay] Overwrite Save clicked - requesting confirmation');
-            const content = editorInstance?.getContent() || syncClient?.getCurrentContent() || '';
-            syncClient?.overwriteSaveWithConfirm(content);
-          };
-          break;
-        case 'exportLogs':
-          button.textContent = syncClient.t('Export Logs');
-          button.onclick = () => {
-            console.log('[ErrorOverlay] Export Logs clicked');
-            syncClient?.exportLogs();
-          };
-          break;
-        default:
-          button.textContent = action;
-          console.log('[ErrorOverlay] Unknown action', { action });
+    // Only resolve relative paths (no URI scheme).
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(originalSrc)) {continue;}
+
+    const cached = resolvedImageCache.get(originalSrc);
+    if (cached) {
+      if (img.getAttribute('src') !== cached) {
+        img.setAttribute('src', cached);
       }
-
-      actionsEl.appendChild(button);
+      continue;
     }
-  }
 
-  errorOverlay.classList.remove('hidden');
+    if (pendingImageRequestsBySrc.has(originalSrc)) {continue;}
+
+    const requestId = crypto.randomUUID();
+    pendingImageRequestsById.set(requestId, originalSrc);
+    pendingImageRequestsBySrc.set(originalSrc, requestId);
+    syncClient.resolveImage(requestId, originalSrc);
+  }
 }
 
-function hideErrorOverlay(): void {
-  if (errorOverlay) {
-    errorOverlay.classList.add('hidden');
+function handleImageResolved(requestId: string, resolvedSrc: string): void {
+  const originalSrc = pendingImageRequestsById.get(requestId);
+  if (!originalSrc) {return;}
+
+  pendingImageRequestsById.delete(requestId);
+  pendingImageRequestsBySrc.delete(originalSrc);
+  resolvedImageCache.set(originalSrc, resolvedSrc);
+
+  if (!editorContainerEl) {return;}
+
+  // Apply to all current images with the same original src.
+  const images = editorContainerEl.querySelectorAll('img');
+  for (const img of images) {
+    if (img.dataset.originalSrc === originalSrc) {
+      img.setAttribute('src', resolvedSrc);
+    }
   }
 }
 

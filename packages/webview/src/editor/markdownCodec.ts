@@ -165,7 +165,8 @@ export function createMarkdownCodec(): MarkdownCodec {
             content: [
               {
                 type: 'paragraph',
-                content: [{ type: 'text', text: quoteLines.join('\n') }],
+                // NOTE: keep inline parsing inside blockquotes (links/bold/etc).
+                content: parseInlineContent(quoteLines.join('\n')),
               },
             ],
           });
@@ -179,7 +180,8 @@ export function createMarkdownCodec(): MarkdownCodec {
               content: [
                 {
                   type: 'paragraph',
-                  content: [{ type: 'text', text: itemText }],
+                  // IMPORTANT: parse inline marks inside list items (fixture coverage).
+                  content: parseInlineContent(itemText),
                 },
               ],
             });

@@ -1,17 +1,18 @@
 {
-  "extension.displayName": "インライン Markdown エディタ",
+  "extension.displayName": "Inline Markdown Editor",
   "extension.description": "Tiptap を使用した WYSIWYG エディタで Markdown ファイルを編集",
-  "customEditor.displayName": "インライン Markdown エディタ",
+  "customEditor.displayName": "Inline Markdown Editor",
   "command.resetSession.title": "エディタセッションをリセット",
+  "command.reopenWithTextEditor.title": "テキストエディタで開き直す",
   "command.applyRequiredSettings.title": "必須 Markdown 設定を適用 (G5)",
   "command.exportLogs.title": "ログをエクスポート",
-  "configuration.title": "インライン Markdown エディタ",
+  "configuration.title": "Inline Markdown Editor",
   "configuration.sync.debounceMs.description": "編集をドキュメントに送信する前のデバウンス遅延（ミリ秒）",
   "configuration.sync.timeoutMs.description": "ack/nack 応答を待つタイムアウト（ミリ秒）",
   "configuration.sync.changeGuard.maxChangedRatio.description": "変更ガードをトリガーする変更コンテンツの最大比率",
   "configuration.sync.changeGuard.maxChangedChars.description": "変更ガードをトリガーする変更文字数の最大値",
   "configuration.sync.changeGuard.maxHunks.description": "変更ガードをトリガーする変更ハンク数の最大値",
-  "configuration.debug.logging.description": "デバッグログを有効にする",
+  "configuration.debug.enabled.description": "デバッグモードを有効にする（ログ/診断/必要に応じてJSONL出力）",
   "configuration.debug.logLevel.description": "ログレベル（INFO、DEBUG、TRACE、WARN、ERROR）",
   "configuration.debug.logToJsonl.description": "デバッグ用の JSONL ログ出力を有効にする",
   "configuration.debug.jsonlMaxBytes.description": "JSONL ログファイルの最大サイズ（バイト）",
@@ -22,5 +23,6 @@
   "configuration.security.allowRemoteImages.description": "HTTPS 経由のリモート画像読み込みを許可（信頼されたワークスペースのみ）",
   "configuration.security.allowInsecureRemoteImages.description": "HTTP 経由のリモート画像読み込みを許可（非推奨）",
   "configuration.security.renderHtml.description": "HTML コンテンツをレンダリング（サニタイズ済み）、RAW ブロックとして表示しない",
-  "configuration.security.confirmExternalLinks.description": "外部リンクを開く前に確認ダイアログを表示"
+  "configuration.security.confirmExternalLinks.description": "外部リンクを開く前に確認ダイアログを表示",
+  "configuration.webview.retainContextWhenHidden.description": "タブ切り替え時にWebviewを保持してUXを向上します。OFFにするとメモリ削減につながる可能性がありますが、戻ったときに再描画される場合があります。"
 }

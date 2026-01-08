@@ -108,34 +108,42 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     },
   });
 
+  // Link handling:
+  // - Keep Tiptap's Link.openOnClick=false (security)
+  // - Open links via the extension (openExternal) on Ctrl/Cmd+Click (VS Code convention)
+  const onEditorClick = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest('a') as HTMLAnchorElement | null;
+    if (!anchor) {return;}
+
+    const href = anchor.getAttribute('href');
+    if (!href) {return;}
+
+    if (!event.ctrlKey && !event.metaKey) {return;}
+
+    event.preventDefault();
+    event.stopPropagation();
+    syncClient.openLink(href);
+  };
+  container.addEventListener('click', onEditorClick);
+
   function setContent(markdown: string): void {
-    const doc = codec.parse(markdown);
+    const renderHtml = syncClient.getConfig()?.security.renderHtml ?? false;
+    const doc = codec.parse(markdown, { renderHtml });
     editor.commands.setContent(doc);
-    syncClient.updateShadowText(markdown);
   }
 
   function applyChanges(changes: Replace[]): void {
-    if (changes.length === 0) {
-      return;
-    }
-
-    const currentMarkdown = codec.serialize(editor);
-    let newMarkdown = currentMarkdown;
-
-    const sortedChanges = [...changes].sort((a, b) => b.start - a.start);
-    for (const change of sortedChanges) {
-      const shadowText = syncClient.getShadowText();
-      const adjustedStart = mapOffsetToCurrentText(change.start, shadowText, currentMarkdown);
-      const adjustedEnd = mapOffsetToCurrentText(change.end, shadowText, currentMarkdown);
-
-      newMarkdown = newMarkdown.slice(0, adjustedStart) + change.text + newMarkdown.slice(adjustedEnd);
-    }
-
-    const doc = codec.parse(newMarkdown);
-    editor.commands.setContent(doc);
+    // NOTE:
+    // The authoritative Markdown (`shadowText`) is updated in SyncClient.handleDocChanged().
+    // For non-self docChanged we rebuild the editor from that updated shadowText.
+    // (Self docChanged does NOT reach here; see SyncClient: reason=self short-circuit.)
+    if (changes.length === 0) {return;}
+    setContent(syncClient.getShadowText());
   }
 
   function destroy(): void {
+    container.removeEventListener('click', onEditorClick);
     editor.destroy();
   }
 
@@ -176,15 +184,6 @@ function computeChanges(
     return [];
   }
 
-  syncClient.updateShadowText(nextMarkdown);
-
   return diffResult.changes;
 }
 
-function mapOffsetToCurrentText(
-  offset: number,
-  _shadowText: string,
-  _currentText: string
-): number {
-  return offset;
-}

@@ -114,6 +114,19 @@ export interface OverwriteSaveWithConfirmMessage extends BaseMessage {
   content: string;
 }
 
+/**
+ * Webview → Extension
+ * Used to surface UX messages via VS Code native notifications (not in-webview overlays).
+ */
+export interface NotifyHostMessage extends BaseMessage {
+  type: 'notifyHost';
+  level: 'INFO' | 'WARN' | 'ERROR';
+  code: string;
+  message: string;
+  remediation: Remediation[];
+  details?: Record<string, unknown>;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -126,7 +139,8 @@ export type WebviewToExtensionMessage =
   | ReopenWithTextEditorMessage
   | ExportLogsMessage
   | RequestResyncWithConfirmMessage
-  | OverwriteSaveWithConfirmMessage;
+  | OverwriteSaveWithConfirmMessage
+  | NotifyHostMessage;
 
 export interface InitMessage extends BaseMessage {
   type: 'init';
@@ -155,7 +169,7 @@ export interface WebviewConfig {
     confirmExternalLinks: boolean;
   };
   debug: {
-    logging: boolean;
+    enabled: boolean;
     logLevel: string;
   };
 }
@@ -185,6 +199,12 @@ export interface DocChangedMessage extends BaseMessage {
   reason: 'self' | 'external' | 'undo' | 'redo';
   changes: Replace[];
   fullContent?: string;
+}
+
+export interface ImageResolvedMessage extends BaseMessage {
+  type: 'imageResolved';
+  requestId: string;
+  resolvedSrc: string;
 }
 
 export type ErrorCode =
@@ -218,9 +238,24 @@ export type ExtensionToWebviewMessage =
   | AckMessage
   | NackMessage
   | DocChangedMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | ImageResolvedMessage;
 
-const VALID_WEBVIEW_MESSAGE_TYPES = ['ready', 'edit', 'requestResync', 'logClient', 'openLink', 'copyToClipboard', 'overwriteSave', 'resolveImage', 'reopenWithTextEditor', 'exportLogs', 'requestResyncWithConfirm', 'overwriteSaveWithConfirm'] as const;
+const VALID_WEBVIEW_MESSAGE_TYPES = [
+  'ready',
+  'edit',
+  'requestResync',
+  'logClient',
+  'openLink',
+  'copyToClipboard',
+  'overwriteSave',
+  'resolveImage',
+  'reopenWithTextEditor',
+  'exportLogs',
+  'requestResyncWithConfirm',
+  'overwriteSaveWithConfirm',
+  'notifyHost',
+] as const;
 
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
   if (typeof msg !== 'object' || msg === null) {
@@ -256,6 +291,16 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
   if (m.type === 'logClient') {
     if (typeof m.level !== 'string') {return false;}
     if (typeof m.message !== 'string') {return false;}
+  }
+
+  if (m.type === 'notifyHost') {
+    if (typeof m.level !== 'string') {return false;}
+    if (typeof m.code !== 'string') {return false;}
+    if (typeof m.message !== 'string') {return false;}
+    if (!Array.isArray(m.remediation)) {return false;}
+    for (const r of m.remediation) {
+      if (typeof r !== 'string') {return false;}
+    }
   }
 
   return true;
@@ -358,5 +403,21 @@ export function createErrorMessage(
     code,
     message,
     remediation,
+  };
+}
+
+export function createImageResolvedMessage(
+  requestId: string,
+  resolvedSrc: string,
+  sessionId: string
+): ImageResolvedMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'imageResolved',
+    ts: Date.now(),
+    origin: 'extension',
+    sessionId,
+    requestId,
+    resolvedSrc,
   };
 }

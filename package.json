@@ -12,6 +12,7 @@
     "watch:extension": "npm run watch -w packages/extension",
     "watch:webview": "npm run watch -w packages/webview",
     "lint": "npm run lint -w packages/extension && npm run lint -w packages/webview",
+    "test": "npm run test -w packages/extension",
     "package": "npm run build && cd packages/extension && vsce package"
   },
   "devDependencies": {

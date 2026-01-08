@@ -80,11 +80,16 @@ export function normalizeReplaces(replaces: Replace[]): Replace[] {
 }
 
 export function contentChangeEventToReplace(
-  document: vscode.TextDocument,
+  _document: vscode.TextDocument,
   change: vscode.TextDocumentContentChangeEvent
 ): Replace {
-  const start = positionToOffset(document, change.range.start);
-  const end = positionToOffset(document, change.range.end);
+  // IMPORTANT:
+  // `rangeOffset` / `rangeLength` are offsets in the document *before* the change is applied.
+  // This matches our protocol contract where Replace offsets are based on the "previous text"
+  // (i.e. the receiver's current shadowText) to avoid off-by-one/misaligned patches.
+  // See: 詳細設計.md 9.3 / 10.3
+  const start = change.rangeOffset;
+  const end = change.rangeOffset + change.rangeLength;
   return {
     start,
     end,

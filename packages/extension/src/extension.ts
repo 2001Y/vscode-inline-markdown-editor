@@ -38,6 +38,45 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('inlineMarkdownEditor.reopenWithTextEditor', async () => {
+      // Preferred (best UX): in-place reopen (workbench command)
+      try {
+        await vscode.commands.executeCommand('workbench.action.reopenTextEditor');
+        return;
+      } catch (error) {
+        logger.warn('workbench.action.reopenTextEditor failed; falling back to vscode.openWith', {
+          errorCode: 'REOPEN_TEXT_EDITOR_FAILED',
+          errorStack: String(error),
+        });
+      }
+
+      // Fallback (API command): force built-in text editor (viewType = 'default')
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const input = tab?.input;
+
+      if (input instanceof vscode.TabInputCustom && input.viewType === InlineMarkdownEditorProvider.viewType) {
+        const uri = input.uri;
+        const viewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
+        await vscode.commands.executeCommand('vscode.openWith', uri, 'default', { viewColumn });
+        return;
+      }
+
+      // Fallback of the fallback: if we can't access the tab input, use activeTextEditor when present.
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        await vscode.commands.executeCommand('vscode.openWith', editor.document.uri, 'default', {
+          viewColumn: editor.viewColumn,
+        });
+        return;
+      }
+
+      vscode.window.showWarningMessage(
+        vscode.l10n.t('Cannot reopen with Text Editor: no active editor found.')
+      );
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('inlineMarkdownEditor.applyRequiredSettings', async () => {
       const provider = getProvider(context);
       if (provider) {

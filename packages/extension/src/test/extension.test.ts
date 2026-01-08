@@ -20,6 +20,7 @@ suite('Extension Test Suite', () => {
     const commands = await vscode.commands.getCommands(true);
     
     assert.ok(commands.includes('inlineMarkdownEditor.resetSession'), 'resetSession command should be registered');
+    assert.ok(commands.includes('inlineMarkdownEditor.reopenWithTextEditor'), 'reopenWithTextEditor command should be registered');
     assert.ok(commands.includes('inlineMarkdownEditor.applyRequiredSettings'), 'applyRequiredSettings command should be registered');
     assert.ok(commands.includes('inlineMarkdownEditor.exportLogs'), 'exportLogs command should be registered');
   });
@@ -34,6 +35,6 @@ suite('Extension Test Suite', () => {
     assert.strictEqual(config.get('security.allowRemoteImages'), false, 'allowRemoteImages should default to false');
     assert.strictEqual(config.get('security.renderHtml'), false, 'renderHtml should default to false');
     assert.strictEqual(config.get('security.confirmExternalLinks'), true, 'confirmExternalLinks should default to true');
-    assert.strictEqual(config.get('debug.logging'), false, 'logging should default to false');
+    assert.strictEqual(config.get('debug.enabled'), false, 'debug.enabled should default to false');
   });
 });

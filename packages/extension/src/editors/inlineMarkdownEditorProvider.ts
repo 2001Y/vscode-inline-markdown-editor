@@ -52,6 +52,7 @@ import {
   createNackMessage,
   createDocChangedMessage,
   createErrorMessage,
+  createImageResolvedMessage,
   isValidWebviewMessage,
 } from '../protocol/messages.js';
 import {
@@ -72,7 +73,19 @@ interface DocumentState {
   uri: vscode.Uri;
   sessionId: string;
   panels: Map<string, WebviewPanel>;
-  pendingEdits: Map<number, { clientId: string; baseVersion: number }>;
+  /**
+   * Track which doc version was produced by which client.
+   * Key: TextDocument.version after the edit is applied
+   * Value: originating clientId
+   *
+   * Why:
+   * - We want to tag docChanged as `reason=self` for the originating Webview only,
+   *   so the active editor does NOT re-render itself on every keystroke (cursor jump fix).
+   * - For other Webviews, we still broadcast as `reason=external` and they apply it.
+   *
+   * See 詳細設計.md 9.4/9.5 + 追加方針(カーソル末尾ジャンプ)。
+   */
+  selfChangeVersions: Map<number, string>;
 }
 
 const REQUIRED_MARKDOWN_SETTINGS = {
@@ -102,12 +115,20 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
     const provider = new InlineMarkdownEditorProvider(context);
 
+    const webviewConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.webview');
+    const retainContextWhenHidden = webviewConfig.get<boolean>('retainContextWhenHidden', true);
+
     const providerRegistration = vscode.window.registerCustomEditorProvider(
       InlineMarkdownEditorProvider.viewType,
       provider,
       {
         webviewOptions: {
-          retainContextWhenHidden: false,
+          // UX: Avoid visible "re-render" on tab switching.
+          // Trade-off: higher memory usage while editors are hidden.
+          // See 詳細設計.md 13 (Webview lifecycle) / 追加方針(タブ移動の再描画)。
+          //
+          // Note: this is read at activation time; changes require window reload.
+          retainContextWhenHidden,
         },
         supportsMultipleEditorsPerDocument: true,
       }
@@ -160,7 +181,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         uri: document.uri,
         sessionId: crypto.randomUUID(),
         panels: new Map(),
-        pendingEdits: new Map(),
+        selfChangeVersions: new Map(),
       };
       this.documentStates.set(docKey, state);
     }
@@ -221,23 +242,39 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     const mediaPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'webview');
     const nonce = crypto.randomBytes(16).toString('base64');
 
-    let manifestData: { 'index.js'?: { file: string }; 'index.css'?: { file: string } } = {};
+    type ViteManifestChunk = {
+      file: string;
+      src?: string;
+      isEntry?: boolean;
+      css?: string[];
+    };
+
+    let manifestData: Record<string, ViteManifestChunk> | null = null;
     try {
       const manifestPath = vscode.Uri.joinPath(mediaPath, '.vite', 'manifest.json');
       const manifestContent = await vscode.workspace.fs.readFile(manifestPath);
-      manifestData = JSON.parse(Buffer.from(manifestContent).toString('utf-8'));
-    } catch {
-      manifestData = {
-        'index.js': { file: 'index.js' },
-        'index.css': { file: 'index.css' },
-      };
+      manifestData = JSON.parse(Buffer.from(manifestContent).toString('utf-8')) as Record<
+        string,
+        ViteManifestChunk
+      >;
+    } catch (error) {
+      logger.warn('Failed to read Vite manifest.json', {
+        errorCode: 'WEBVIEW_MANIFEST_READ_FAILED',
+        errorStack: String(error),
+      });
     }
 
-    const scriptFile = manifestData['index.js']?.file || 'index.js';
-    const styleFile = manifestData['index.css']?.file || 'index.css';
+    const entryChunk =
+      manifestData ? Object.values(manifestData).find((chunk) => chunk?.isEntry) : undefined;
 
+    const scriptFile = entryChunk?.file ?? 'index.js';
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, scriptFile));
-    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, styleFile));
+
+    const cssFiles = entryChunk?.css ?? [];
+    const styleLinks = cssFiles
+      .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, file)))
+      .map((uri) => `<link rel="stylesheet" href="${uri}">`)
+      .join('\n  ');
 
     const csp = this.buildCsp(webview, nonce);
 
@@ -247,7 +284,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <link rel="stylesheet" href="${styleUri}">
+  ${styleLinks}
   <title>Inline Markdown Editor</title>
 </head>
 <body>
@@ -344,7 +381,10 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         await this.handleOverwriteSaveWithConfirm(document, clientId, msg);
         break;
       case 'resolveImage':
-        await this.handleResolveImage(document, panel, clientId, msg);
+        await this.handleResolveImage(document, state, panel, clientId, msg);
+        break;
+      case 'notifyHost':
+        await this.handleNotifyHost(document, state, panel, clientId, msg);
         break;
     }
   }
@@ -434,29 +474,45 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       });
     }
 
-    state.pendingEdits.set(txId, { clientId, baseVersion });
+    // Mark the next document version as originating from this client.
+    // onDidChangeTextDocument will use this to send `reason=self` to the originating Webview
+    // (so it can avoid re-render and keep the caret position stable).
+    const expectedVersion = baseVersion + 1;
+    state.selfChangeVersions.set(expectedVersion, clientId);
 
     try {
       const workspaceEdit = replacesToWorkspaceEdit(document, changes);
       const success = await vscode.workspace.applyEdit(workspaceEdit);
 
       if (success) {
-        const ackMessage = createAckMessage(txId, document.version, 'applied', state.sessionId);
+        const ackMessage = createAckMessage(txId, expectedVersion, 'applied', state.sessionId);
         await panel.panel.webview.postMessage(ackMessage);
+
+        if (document.version !== expectedVersion) {
+          logger.warn('Document version mismatch after applyEdit', {
+            clientId,
+            txId,
+            baseVersion,
+            docVersion: document.version,
+            appliedVersion: expectedVersion,
+          });
+        }
 
         logger.info('Edit applied', {
           clientId,
           txId,
-          docVersion: document.version,
+          docVersion: expectedVersion,
           changesCount: changes.length,
         });
       } else {
+        state.selfChangeVersions.delete(expectedVersion);
         const nackMessage = createNackMessage(txId, document.version, 'applyFailed', state.sessionId);
         await panel.panel.webview.postMessage(nackMessage);
 
         logger.error('Edit apply failed', { clientId, txId, docVersion: document.version });
       }
     } catch (error) {
+      state.selfChangeVersions.delete(expectedVersion);
       const nackMessage = createNackMessage(
         txId,
         document.version,
@@ -472,8 +528,6 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         errorCode: 'APPLY_EDIT_FAILED',
         errorStack: String(error),
       });
-    } finally {
-      state.pendingEdits.delete(txId);
     }
   }
 
@@ -504,7 +558,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     msg: WebviewToExtensionMessage & { type: 'logClient' }
   ): void {
     const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
-    if (!config.get<boolean>('logging', false)) {return;}
+    if (!config.get<boolean>('enabled', false)) {return;}
 
     logger.log(msg.level, `[Webview] ${msg.message}`, {
       clientId,
@@ -737,6 +791,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
 
   private async handleResolveImage(
     document: vscode.TextDocument,
+    state: DocumentState,
     panel: WebviewPanel,
     clientId: string,
     msg: WebviewToExtensionMessage & { type: 'resolveImage' }
@@ -758,11 +813,9 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         clientId,
         details: { requestId, src },
       });
-      await panel.panel.webview.postMessage({
-        type: 'imageResolved',
-        requestId,
-        resolvedSrc: src,
-      });
+      await panel.panel.webview.postMessage(
+        createImageResolvedMessage(requestId, src, state.sessionId)
+      );
       return;
     }
 
@@ -772,11 +825,9 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         clientId,
         details: { requestId, src },
       });
-      await panel.panel.webview.postMessage({
-        type: 'imageResolved',
-        requestId,
-        resolvedSrc: src,
-      });
+      await panel.panel.webview.postMessage(
+        createImageResolvedMessage(requestId, src, state.sessionId)
+      );
       return;
     }
 
@@ -809,11 +860,9 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
             clientId,
             details: { requestId, src, resolvedPath: imageUri.fsPath },
           });
-          await panel.panel.webview.postMessage({
-            type: 'imageResolved',
-            requestId,
-            resolvedSrc: src, // 元のパスを返す（解決しない）
-          });
+          await panel.panel.webview.postMessage(
+            createImageResolvedMessage(requestId, src, state.sessionId)
+          );
           return;
         }
       }
@@ -831,11 +880,9 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         details: { requestId, src, resolvedSrc: webviewUri.toString() },
       });
 
-      await panel.panel.webview.postMessage({
-        type: 'imageResolved',
-        requestId,
-        resolvedSrc: webviewUri.toString(),
-      });
+      await panel.panel.webview.postMessage(
+        createImageResolvedMessage(requestId, webviewUri.toString(), state.sessionId)
+      );
     } catch (error) {
       logger.error('Failed to resolve image', {
         clientId,
@@ -845,11 +892,78 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       });
 
       // Return original src on error
-      await panel.panel.webview.postMessage({
-        type: 'imageResolved',
-        requestId,
-        resolvedSrc: src,
-      });
+      await panel.panel.webview.postMessage(
+        createImageResolvedMessage(requestId, src, state.sessionId)
+      );
+    }
+  }
+
+  private async handleNotifyHost(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'notifyHost' }
+  ): Promise<void> {
+    const { level, code, message, remediation, details } = msg;
+
+    logger.info('notifyHost received', {
+      clientId,
+      docUri: document.uri.toString(),
+      details: {
+        level,
+        code,
+        remediation,
+        ...(details ? { details } : {}),
+      },
+    });
+
+    const actionLabelByRemediation: Partial<Record<string, string>> = {
+      resync: vscode.l10n.t('Resync'),
+      resetSession: vscode.l10n.t('Reset Session'),
+      reopenWithTextEditor: vscode.l10n.t('Reopen with Text Editor'),
+      applySettings: vscode.l10n.t('Apply Settings'),
+      trustWorkspace: vscode.l10n.t('Trust Workspace'),
+    };
+
+    const actions = remediation
+      .map((r) => ({
+        remediation: r,
+        label: actionLabelByRemediation[r] ?? r,
+      }))
+      .filter((a) => a.label);
+
+    const show =
+      level === 'ERROR'
+        ? vscode.window.showErrorMessage
+        : level === 'WARN'
+          ? vscode.window.showWarningMessage
+          : vscode.window.showInformationMessage;
+
+    const title = code ? `[${code}] ${message}` : message;
+    const picked = actions.length > 0 ? await show(title, ...actions.map((a) => a.label)) : await show(title);
+    if (!picked) {return;}
+
+    const selected = actions.find((a) => a.label === picked)?.remediation;
+    if (!selected) {return;}
+
+    switch (selected) {
+      case 'resync':
+        // Destructive action → confirm in extension UI.
+        await this.handleRequestResyncWithConfirm(document, state, panel, clientId);
+        break;
+      case 'resetSession':
+        await this.resetSession(document);
+        break;
+      case 'reopenWithTextEditor':
+        await this.handleReopenWithTextEditor(clientId);
+        break;
+      case 'applySettings':
+        await this.applyRequiredSettings();
+        break;
+      case 'trustWorkspace':
+        await vscode.commands.executeCommand('workbench.trust.manage');
+        break;
     }
   }
 
@@ -861,15 +975,20 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
 
     const changes = contentChangeEventsToReplaces(e.document, e.contentChanges);
 
-    const docChangedMessage = createDocChangedMessage(
-      e.document.version,
-      'external',
-      changes,
-      state.sessionId
-    );
+    const selfClientId = state.selfChangeVersions.get(e.document.version);
+    if (selfClientId) {
+      state.selfChangeVersions.delete(e.document.version);
+    }
 
     for (const [, panel] of state.panels) {
       if (panel.ready) {
+        const reason = panel.clientId === selfClientId ? 'self' : 'external';
+        const docChangedMessage = createDocChangedMessage(
+          e.document.version,
+          reason,
+          changes,
+          state.sessionId
+        );
         panel.panel.webview.postMessage(docChangedMessage);
       }
     }
@@ -879,7 +998,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       docUri: docKey,
       docVersion: e.document.version,
       changesCount: changes.length,
-      details: { panelCount: state.panels.size },
+      details: { panelCount: state.panels.size, selfClientId: selfClientId ?? null },
     });
   }
 
@@ -904,7 +1023,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         confirmExternalLinks: securityConfig.get<boolean>('confirmExternalLinks', true),
       },
       debug: {
-        logging: debugConfig.get<boolean>('logging', false),
+        enabled: debugConfig.get<boolean>('enabled', false),
         logLevel: debugConfig.get<string>('logLevel', 'INFO'),
       },
     };
@@ -1122,7 +1241,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     }
 
     state.sessionId = crypto.randomUUID();
-    state.pendingEdits.clear();
+    state.selfChangeVersions.clear();
 
     for (const [, panel] of state.panels) {
       panel.ready = false;

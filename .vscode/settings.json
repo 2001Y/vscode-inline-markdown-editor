@@ -1,0 +1,8 @@
+{
+  "editor.formatOnSave": false,
+  "editor.formatOnType": false,
+  "editor.formatOnPaste": false,
+  "editor.codeActionsOnSave": {},
+  "files.trimTrailingWhitespace": false,
+  "files.insertFinalNewline": false
+}

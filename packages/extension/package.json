@@ -15,9 +15,6 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCustomEditor:inlineMarkdownEditor.editor"
-  ],
   "main": "./out/extension.js",
   "l10n": "./l10n",
   "contributes": {
@@ -40,6 +37,12 @@
         "category": "Inline Markdown"
       },
       {
+        "command": "inlineMarkdownEditor.reopenWithTextEditor",
+        "title": "%command.reopenWithTextEditor.title%",
+        "category": "Inline Markdown",
+        "icon": "$(file-text)"
+      },
+      {
         "command": "inlineMarkdownEditor.applyRequiredSettings",
         "title": "%command.applyRequiredSettings.title%",
         "category": "Inline Markdown"
@@ -50,6 +53,22 @@
         "category": "Inline Markdown"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "inlineMarkdownEditor.reopenWithTextEditor",
+          "when": "activeCustomEditorId == 'inlineMarkdownEditor.editor'",
+          "group": "navigation@10"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "inlineMarkdownEditor.reopenWithTextEditor",
+          "when": "activeCustomEditorId == 'inlineMarkdownEditor.editor'",
+          "group": "navigation@10"
+        }
+      ]
+    },
     "configuration": {
       "title": "%configuration.title%",
       "properties": {
@@ -78,10 +97,10 @@
           "default": 200,
           "description": "%configuration.sync.changeGuard.maxHunks.description%"
         },
-        "inlineMarkdownEditor.debug.logging": {
+        "inlineMarkdownEditor.debug.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "%configuration.debug.logging.description%"
+          "description": "%configuration.debug.enabled.description%"
         },
         "inlineMarkdownEditor.debug.logLevel": {
           "type": "string",
@@ -144,6 +163,11 @@
           "type": "boolean",
           "default": true,
           "description": "%configuration.security.confirmExternalLinks.description%"
+        },
+        "inlineMarkdownEditor.webview.retainContextWhenHidden": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.webview.retainContextWhenHidden.description%"
         }
       }
     }

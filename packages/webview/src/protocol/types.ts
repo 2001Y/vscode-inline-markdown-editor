@@ -69,7 +69,7 @@ export interface WebviewConfig {
     confirmExternalLinks: boolean;
   };
   debug: {
-    logging: boolean;
+    enabled: boolean;
     logLevel: string;
   };
 }
@@ -144,7 +144,9 @@ export interface ErrorMessage {
 }
 
 export interface ImageResolvedMessage {
+  v: number;
   type: 'imageResolved';
+  sessionId?: string;
   requestId: string;
   resolvedSrc: string;
 }
@@ -229,6 +231,16 @@ export interface OverwriteSaveWithConfirmMessage {
   content: string;
 }
 
+export interface NotifyHostMessage {
+  v: number;
+  type: 'notifyHost';
+  level: 'INFO' | 'WARN' | 'ERROR';
+  code: string;
+  message: string;
+  remediation: Remediation[];
+  details?: Record<string, unknown>;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -241,7 +253,8 @@ export type WebviewToExtensionMessage =
   | ReopenWithTextEditorMessage
   | ExportLogsMessage
   | RequestResyncWithConfirmMessage
-  | OverwriteSaveWithConfirmMessage;
+  | OverwriteSaveWithConfirmMessage
+  | NotifyHostMessage;
 
 export function createReadyMessage(): ReadyMessage {
   return {
@@ -344,5 +357,23 @@ export function createOverwriteSaveWithConfirmMessage(content: string): Overwrit
     v: PROTOCOL_VERSION,
     type: 'overwriteSaveWithConfirm',
     content,
+  };
+}
+
+export function createNotifyHostMessage(
+  level: NotifyHostMessage['level'],
+  code: string,
+  message: string,
+  remediation: Remediation[],
+  details?: Record<string, unknown>
+): NotifyHostMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'notifyHost',
+    level,
+    code,
+    message,
+    remediation,
+    details,
   };
 }

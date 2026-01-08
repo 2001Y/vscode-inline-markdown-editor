@@ -10,6 +10,7 @@
   "Editor session has been reset.": "Editor session has been reset.",
   "Logs exported to: {0}": "Logs exported to: {0}",
   "No logs to export.": "No logs to export.",
+  "Cannot reopen with Text Editor: no active editor found.": "Cannot reopen with Text Editor: no active editor found.",
   "Sync timeout. The editor may be out of sync.": "Sync timeout. The editor may be out of sync.",
   "Failed to apply edit: {0}": "Failed to apply edit: {0}",
   "Protocol version mismatch. Please reload the editor.": "Protocol version mismatch. Please reload the editor.",
