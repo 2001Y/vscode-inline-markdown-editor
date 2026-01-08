@@ -176,13 +176,14 @@ function computeChanges(
 
   const diffResult = computeDiff(shadowText, nextMarkdown);
 
-  const config = syncClient.getConfig();
-  if (config && isChangeGuardExceeded(diffResult.metrics, config.changeGuard)) {
-    if (onChangeGuardExceeded) {
-      onChangeGuardExceeded(diffResult.metrics);
-    }
-    return [];
-  }
+  // ChangeGuard: 大規模編集の警告ロジック（一時的にコメントアウト）
+  // const config = syncClient.getConfig();
+  // if (config && isChangeGuardExceeded(diffResult.metrics, config.changeGuard)) {
+  //   if (onChangeGuardExceeded) {
+  //     onChangeGuardExceeded(diffResult.metrics);
+  //   }
+  //   return [];
+  // }
 
   return diffResult.changes;
 }

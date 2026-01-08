@@ -166,14 +166,18 @@ function handleSyncStateChange(state: SyncState): void {
   updateSyncIndicator(state);
 }
 
-function handleChangeGuardExceeded(metrics: ChangeMetrics): void {
-  const message = syncClient?.t(
-    'Large change detected. {0} characters changed ({1}%).',
-    metrics.changedChars,
-    Math.round(metrics.changedRatio * 100)
-  ) || `Large change detected. ${metrics.changedChars} characters changed (${Math.round(metrics.changedRatio * 100)}%).`;
-
-  syncClient?.notifyHost('WARN', 'CHANGE_GUARD_EXCEEDED', message, ['resync', 'resetSession']);
+// ChangeGuard: 大規模編集の警告ロジック（一時的にコメントアウト）
+// function handleChangeGuardExceeded(metrics: ChangeMetrics): void {
+//   const message = syncClient?.t(
+//     'Large change detected. {0} characters changed ({1}%).',
+//     metrics.changedChars,
+//     Math.round(metrics.changedRatio * 100)
+//   ) || `Large change detected. ${metrics.changedChars} characters changed (${Math.round(metrics.changedRatio * 100)}%).`;
+//
+//   syncClient?.notifyHost('WARN', 'CHANGE_GUARD_EXCEEDED', message, ['resync', 'resetSession']);
+// }
+function handleChangeGuardExceeded(_metrics: ChangeMetrics): void {
+  // ChangeGuard disabled - do nothing
 }
 
 function filterRemediations(remediation: string[]): Remediation[] {

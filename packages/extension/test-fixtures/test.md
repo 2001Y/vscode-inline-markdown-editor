@@ -1,114 +1,133 @@
 ---
-title: Test Document
-author: Test Author
+title: テストドキュメント
+author: テスト作成者
+date: 2024-01-01
 ---
 
-# Heading 1
+# 見出し1
 
-This is a test markdown file for the Inline Markdown Editor extension.
+これは inlineMark 拡張機能のテスト用 Markdown ファイルです。
 
-## Heading 2
+## 見出し2
 
-Regular paragraph with **bold text** and *italic text* and `inline code`.
+通常の段落に **太字** と *斜体* と `インラインコード` を含みます。
 
-### Heading 3
+### 見出し3
 
-Combined formatting: **bold with *nested italic* inside**.
+複合フォーマット: **太字の中に *ネストされた斜体* を含む**。
 
-#### Heading 4
+#### 見出し4
 
-This is heading level 4.
+見出しレベル4です。
 
-##### Heading 5
+##### 見出し5
 
-This is heading level 5.
+見出しレベル5です。
 
-###### Heading 6
+###### 見出し6
 
-This is heading level 6.
+見出しレベル6です。
 
-## Bullet Lists
+## 箇条書きリスト
 
-- Simple item
-- **Bold item**
-- *Italic item*
-- `Code item`
-- Item with [link](https://example.com)
+- シンプルな項目
+- **太字の項目**
+- *斜体の項目*
+- `コードの項目`
+- [リンク](https://example.com)を含む項目
 
-## Numbered Lists
+## 番号付きリスト
 
-1. First item
-2. **Bold numbered item**
-3. *Italic numbered item*
-4. `Code numbered item`
-5. Item with [link](https://example.com)
+1. 最初の項目
+2. **太字の番号付き項目**
+3. *斜体の番号付き項目*
+4. `コードの番号付き項目`
+5. [リンク](https://example.com)を含む項目
 
-## Code Block
+## コードブロック
 
 ```javascript
-console.log('Hello, World!');
+console.log('こんにちは、世界！');
 const x = 42;
 ```
 
 ```python
 def hello():
-    print("Hello, World!")
+    print("こんにちは、世界！")
 ```
 
-## Blockquote
+## 引用
 
-> This is a blockquote.
-> It can span multiple lines.
+> これは引用ブロックです。
+> 複数行にまたがることができます。
 
-> Blockquote with **bold** and *italic* text.
+> **太字** と *斜体* を含む引用ブロック。
 
-## Links
+## リンク
 
-[Example Link](https://example.com)
+[サンプルリンク](https://example.com)
 
-[Link with **bold** text](https://example.com)
+[**太字のテキスト**を含むリンク](https://example.com)
 
-## Images
+## 画像
 
-![Alt text](./image.png)
+ワークスペース内の相対パス画像:
 
-![Remote image](https://example.com/image.png)
+![サンプル画像](./images/sample.png)
 
-## Horizontal Rules
+リモート画像（設定で有効化が必要）:
+
+![リモート画像](https://example.com/image.png)
+
+## 水平線
 
 ---
 
-Text between rules.
+区切りの間のテキスト。
 
 ***
 
-More text.
+さらにテキスト。
 
 ___
 
-## Mixed Content
+## 混合コンテンツ
 
-Here's a paragraph with **bold**, *italic*, `code`, and [a link](https://example.com).
+**太字**、*斜体*、`コード`、そして[リンク](https://example.com)を含む段落です。
 
-1. Numbered list with **bold**
-2. And *italic*
-3. And `code`
+1. **太字**を含む番号付きリスト
+2. *斜体*も含む
+3. `コード`も含む
 
-- Bullet list with **bold**
-- And *italic*
-- And `code`
+- **太字**を含む箇条書きリスト
+- *斜体*も含む
+- `コード`も含む
 
-> Blockquote with **bold** and *italic* and `code`.
+> **太字** と *斜体* と `コード` を含む引用ブロック。
 
-## Edge Cases
+## エッジケース
 
-Empty code block:
+空のコードブロック:
 
 ```
 ```
 
-Single character: **a** *b* `c`
+単一文字: **あ** *い* `う`
 
-Multiple spaces:   preserved   here.
+複数のスペース:   ここに保持   されます。
 
-## End of Document
+## 日本語特有のテスト
+
+### ルビ（将来対応予定）
+
+漢字の読み仮名テスト。
+
+### 縦書き（将来対応予定）
+
+横書きのみ対応。
+
+### 長い日本語テキスト
+
+吾輩は猫である。名前はまだ無い。どこで生まれたかとんと見当がつかぬ。何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。
+
+## ドキュメント終了
