@@ -590,16 +590,8 @@ export class SyncClient {
     message: string,
     details?: Record<string, unknown>
   ): void {
+    // デバッグモードが無効の場合は何も出力しない
     if (!this.config?.debug.enabled) {
-      return;
-    }
-
-    const configLevel = this.config.debug.logLevel;
-    const levels = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
-    const msgLevelIndex = levels.indexOf(level);
-    const configLevelIndex = levels.indexOf(configLevel);
-
-    if (msgLevelIndex < configLevelIndex) {
       return;
     }
 
