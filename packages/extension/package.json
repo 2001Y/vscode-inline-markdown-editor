@@ -1,9 +1,9 @@
 {
-  "name": "vscode-inline-markdown-editor",
+  "name": "inlinemark",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
   "version": "0.1.0",
-  "publisher": "inline-markdown-editor",
+  "publisher": "inlinemark",
   "repository": {
     "type": "git",
     "url": "https://github.com/2001Y/vscode-inline-markdown-editor.git"
@@ -20,7 +20,7 @@
   "contributes": {
     "customEditors": [
       {
-        "viewType": "inlineMarkdownEditor.editor",
+        "viewType": "inlineMark.editor",
         "displayName": "%customEditor.displayName%",
         "selector": [
           {
@@ -32,39 +32,39 @@
     ],
     "commands": [
       {
-        "command": "inlineMarkdownEditor.resetSession",
+        "command": "inlineMark.resetSession",
         "title": "%command.resetSession.title%",
-        "category": "Inline Markdown"
+        "category": "inlineMark"
       },
       {
-        "command": "inlineMarkdownEditor.reopenWithTextEditor",
+        "command": "inlineMark.reopenWithTextEditor",
         "title": "%command.reopenWithTextEditor.title%",
-        "category": "Inline Markdown",
+        "category": "inlineMark",
         "icon": "$(file-text)"
       },
       {
-        "command": "inlineMarkdownEditor.applyRequiredSettings",
+        "command": "inlineMark.applyRequiredSettings",
         "title": "%command.applyRequiredSettings.title%",
-        "category": "Inline Markdown"
+        "category": "inlineMark"
       },
       {
-        "command": "inlineMarkdownEditor.exportLogs",
+        "command": "inlineMark.exportLogs",
         "title": "%command.exportLogs.title%",
-        "category": "Inline Markdown"
+        "category": "inlineMark"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "inlineMarkdownEditor.reopenWithTextEditor",
-          "when": "activeCustomEditorId == 'inlineMarkdownEditor.editor'",
+          "command": "inlineMark.reopenWithTextEditor",
+          "when": "activeCustomEditorId == 'inlineMark.editor'",
           "group": "navigation@10"
         }
       ],
       "editor/title/context": [
         {
-          "command": "inlineMarkdownEditor.reopenWithTextEditor",
-          "when": "activeCustomEditorId == 'inlineMarkdownEditor.editor'",
+          "command": "inlineMark.reopenWithTextEditor",
+          "when": "activeCustomEditorId == 'inlineMark.editor'",
           "group": "navigation@10"
         }
       ]
@@ -72,62 +72,62 @@
     "configuration": {
       "title": "%configuration.title%",
       "properties": {
-        "inlineMarkdownEditor.sync.debounceMs": {
+        "inlineMark.sync.debounceMs": {
           "type": "number",
           "default": 250,
           "description": "%configuration.sync.debounceMs.description%"
         },
-        "inlineMarkdownEditor.sync.timeoutMs": {
+        "inlineMark.sync.timeoutMs": {
           "type": "number",
           "default": 3000,
           "description": "%configuration.sync.timeoutMs.description%"
         },
-        "inlineMarkdownEditor.sync.changeGuard.maxChangedRatio": {
+        "inlineMark.sync.changeGuard.maxChangedRatio": {
           "type": "number",
           "default": 0.5,
           "description": "%configuration.sync.changeGuard.maxChangedRatio.description%"
         },
-        "inlineMarkdownEditor.sync.changeGuard.maxChangedChars": {
+        "inlineMark.sync.changeGuard.maxChangedChars": {
           "type": "number",
           "default": 50000,
           "description": "%configuration.sync.changeGuard.maxChangedChars.description%"
         },
-        "inlineMarkdownEditor.sync.changeGuard.maxHunks": {
+        "inlineMark.sync.changeGuard.maxHunks": {
           "type": "number",
           "default": 200,
           "description": "%configuration.sync.changeGuard.maxHunks.description%"
         },
-        "inlineMarkdownEditor.debug.enabled": {
+        "inlineMark.debug.enabled": {
           "type": "boolean",
           "default": false,
           "description": "%configuration.debug.enabled.description%"
         },
-        "inlineMarkdownEditor.security.allowWorkspaceImages": {
+        "inlineMark.security.allowWorkspaceImages": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.security.allowWorkspaceImages.description%"
         },
-        "inlineMarkdownEditor.security.allowRemoteImages": {
+        "inlineMark.security.allowRemoteImages": {
           "type": "boolean",
           "default": false,
           "description": "%configuration.security.allowRemoteImages.description%"
         },
-        "inlineMarkdownEditor.security.allowInsecureRemoteImages": {
+        "inlineMark.security.allowInsecureRemoteImages": {
           "type": "boolean",
           "default": false,
           "description": "%configuration.security.allowInsecureRemoteImages.description%"
         },
-        "inlineMarkdownEditor.security.renderHtml": {
+        "inlineMark.security.renderHtml": {
           "type": "boolean",
           "default": false,
           "description": "%configuration.security.renderHtml.description%"
         },
-        "inlineMarkdownEditor.security.confirmExternalLinks": {
+        "inlineMark.security.confirmExternalLinks": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.security.confirmExternalLinks.description%"
         },
-        "inlineMarkdownEditor.webview.retainContextWhenHidden": {
+        "inlineMark.webview.retainContextWhenHidden": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.webview.retainContextWhenHidden.description%"

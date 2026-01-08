@@ -5,11 +5,11 @@ suite('Extension Test Suite', () => {
   vscode.window.showInformationMessage('Start all tests.');
 
   test('Extension should be present', () => {
-    assert.ok(vscode.extensions.getExtension('inline-markdown-editor.vscode-inline-markdown-editor'));
+    assert.ok(vscode.extensions.getExtension('inlinemark.inlinemark'));
   });
 
   test('Extension should activate on markdown file', async () => {
-    const extension = vscode.extensions.getExtension('inline-markdown-editor.vscode-inline-markdown-editor');
+    const extension = vscode.extensions.getExtension('inlinemark.inlinemark');
     if (extension) {
       await extension.activate();
       assert.strictEqual(extension.isActive, true);
@@ -18,16 +18,16 @@ suite('Extension Test Suite', () => {
 
   test('Commands should be registered', async () => {
     const commands = await vscode.commands.getCommands(true);
-    
-    assert.ok(commands.includes('inlineMarkdownEditor.resetSession'), 'resetSession command should be registered');
-    assert.ok(commands.includes('inlineMarkdownEditor.reopenWithTextEditor'), 'reopenWithTextEditor command should be registered');
-    assert.ok(commands.includes('inlineMarkdownEditor.applyRequiredSettings'), 'applyRequiredSettings command should be registered');
-    assert.ok(commands.includes('inlineMarkdownEditor.exportLogs'), 'exportLogs command should be registered');
+
+    assert.ok(commands.includes('inlineMark.resetSession'), 'resetSession command should be registered');
+    assert.ok(commands.includes('inlineMark.reopenWithTextEditor'), 'reopenWithTextEditor command should be registered');
+    assert.ok(commands.includes('inlineMark.applyRequiredSettings'), 'applyRequiredSettings command should be registered');
+    assert.ok(commands.includes('inlineMark.exportLogs'), 'exportLogs command should be registered');
   });
 
   test('Configuration should have default values', () => {
-    const config = vscode.workspace.getConfiguration('inlineMarkdownEditor');
-    
+    const config = vscode.workspace.getConfiguration('inlineMark');
+
     assert.strictEqual(config.get('sync.debounceMs'), 250, 'debounceMs should default to 250');
     assert.strictEqual(config.get('sync.timeoutMs'), 3000, 'timeoutMs should default to 3000');
     assert.strictEqual(config.get('sync.changeGuard.maxChangedRatio'), 0.5, 'maxChangedRatio should default to 0.5');

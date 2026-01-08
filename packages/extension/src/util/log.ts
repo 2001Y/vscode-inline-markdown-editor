@@ -11,7 +11,7 @@
  *   - 例: /path/to/doc.md → /path/to/_log_inlineMark/doc-{timestamp}.jsonl
  *
  * デバッグオプション (設計書 23.4):
- * - `inlineMarkdownEditor.debug.enabled` を唯一の master switch として扱う
+ * - `inlineMark.debug.enabled` を唯一の master switch として扱う
  * - enabled=true: DEBUG/TRACE ログ、JSONL 出力、内容ログがすべて有効
  * - enabled=false: WARN/ERROR のみ OutputChannel に出力
  *
@@ -74,7 +74,7 @@ export class Logger {
 
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('inlineMarkdownEditor.debug')) {
+        if (e.affectsConfiguration('inlineMark.debug')) {
           this.updateConfig();
         }
       })
@@ -82,7 +82,7 @@ export class Logger {
   }
 
   private updateConfig(): void {
-    const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
+    const config = vscode.workspace.getConfiguration('inlineMark.debug');
     this.debugEnabled = config.get<boolean>('enabled', false);
   }
 
@@ -373,4 +373,4 @@ export class Logger {
   }
 }
 
-export const logger = new Logger('Inline Markdown Editor');
+export const logger = new Logger('inlineMark');
