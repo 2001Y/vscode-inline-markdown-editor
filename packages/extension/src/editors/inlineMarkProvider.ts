@@ -3,7 +3,7 @@
  * 責務: Webview ライフサイクル管理、メッセージパッシング、ドキュメント同期の調整
  * 不変条件: TextDocument が唯一の真実 (source of truth)。全 Webview は同一状態に収束すること
  * 
- * 設計書参照: 6.2, 6.4 (InlineMarkdownEditorProvider の責務)
+ * 設計書参照: 6.2, 6.4 (InlineMarkProvider の責務)
  * 
  * 設計原則 (設計書 4.2):
  * - 原則 A: 真実は常に TextDocument（Webview は入力と表示を担う）
@@ -97,8 +97,8 @@ const REQUIRED_MARKDOWN_SETTINGS = {
   'files.insertFinalNewline': false,
 };
 
-export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProvider {
-  public static readonly viewType = 'inlineMarkdownEditor.editor';
+export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
+  public static readonly viewType = 'inlineMark.editor';
 
   private documentStates = new Map<string, DocumentState>();
   private extensionUri: vscode.Uri;
@@ -113,13 +113,13 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   }
 
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new InlineMarkdownEditorProvider(context);
+    const provider = new InlineMarkProvider(context);
 
-    const webviewConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.webview');
+    const webviewConfig = vscode.workspace.getConfiguration('inlineMark.webview');
     const retainContextWhenHidden = webviewConfig.get<boolean>('retainContextWhenHidden', true);
 
     const providerRegistration = vscode.window.registerCustomEditorProvider(
-      InlineMarkdownEditorProvider.viewType,
+      InlineMarkProvider.viewType,
       provider,
       {
         webviewOptions: {
@@ -223,7 +223,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   }
 
   private getWebviewOptions(): vscode.WebviewOptions {
-    const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
+    const config = vscode.workspace.getConfiguration('inlineMark.security');
     const allowWorkspaceImages = config.get<boolean>('allowWorkspaceImages', true);
 
     const localResourceRoots: vscode.Uri[] = [
@@ -289,7 +289,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   ${styleLinks}
-  <title>Inline Markdown Editor</title>
+  <title>inlineMark</title>
 </head>
 <body>
   <div id="app"></div>
@@ -299,7 +299,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   }
 
   private buildCsp(webview: vscode.Webview, nonce: string): string {
-    const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
+    const config = vscode.workspace.getConfiguration('inlineMark.security');
     const allowRemoteImages = config.get<boolean>('allowRemoteImages', false);
     const allowInsecureRemoteImages = config.get<boolean>('allowInsecureRemoteImages', false);
 
@@ -561,7 +561,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     clientId: string,
     msg: WebviewToExtensionMessage & { type: 'logClient' }
   ): void {
-    const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
+    const config = vscode.workspace.getConfiguration('inlineMark.debug');
     if (!config.get<boolean>('enabled', false)) {return;}
 
     logger.log(msg.level, `[Webview] ${msg.message}`, {
@@ -592,7 +592,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     }
 
     // Check if confirmation is required for external links
-    const securityConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
+    const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
     const confirmExternalLinks = securityConfig.get<boolean>('confirmExternalLinks', true);
 
     if (confirmExternalLinks) {
@@ -725,7 +725,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   private async handleExportLogs(clientId: string): Promise<void> {
     logger.info('Export logs requested', { clientId });
     try {
-      await vscode.commands.executeCommand('inlineMarkdownEditor.exportLogs');
+      await vscode.commands.executeCommand('inlineMark.exportLogs');
       logger.info('Export logs command executed', { clientId });
     } catch (error) {
       logger.error('Failed to export logs', {
@@ -809,7 +809,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     });
 
     // Check if workspace images are allowed
-    const securityConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
+    const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
     const allowWorkspaceImages = securityConfig.get<boolean>('allowWorkspaceImages', true);
 
     if (!allowWorkspaceImages) {
@@ -1007,9 +1007,9 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   }
 
   private getWebviewConfig(): WebviewConfig {
-    const syncConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.sync');
-    const securityConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.security');
-    const debugConfig = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
+    const syncConfig = vscode.workspace.getConfiguration('inlineMark.sync');
+    const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
+    const debugConfig = vscode.workspace.getConfiguration('inlineMark.debug');
 
     return {
       debounceMs: syncConfig.get<number>('debounceMs', 250),
@@ -1037,7 +1037,7 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
     maxChangedChars: number;
     maxHunks: number;
   } {
-    const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.sync.changeGuard');
+    const config = vscode.workspace.getConfiguration('inlineMark.sync.changeGuard');
     return {
       maxChangedRatio: config.get<number>('maxChangedRatio', 0.5),
       maxChangedChars: config.get<number>('maxChangedChars', 50000),

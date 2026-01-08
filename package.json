@@ -1,5 +1,5 @@
 {
-  "name": "vscode-inline-markdown-editor-monorepo",
+  "name": "inlinemark-monorepo",
   "private": true,
   "workspaces": [
     "packages/*"

@@ -12,16 +12,26 @@ eslint.config.mjs
 
 # Test files
 test-fixtures/**
+out/test/**
 
 # Development files
 *.map
 .gitignore
 
-# Parent directory references (causes vsce errors)
-../**
-
 # Source maps in webview (contain external paths)
 media/webview/*.map
 
-# Node modules (will be bundled or included as needed)
-# Note: vsce will include node_modules by default
+# Exclude dev dependencies from node_modules
+node_modules/.bin/**
+node_modules/eslint/**
+node_modules/@eslint/**
+node_modules/@types/**
+node_modules/@typescript-eslint/**
+node_modules/typescript/**
+node_modules/mocha/**
+node_modules/@vscode/test-*/**
+node_modules/eslint-*/**
+node_modules/espree/**
+node_modules/globals/**
+node_modules/file-entry-cache/**
+node_modules/flat-cache/**
