@@ -433,3 +433,165 @@ body {
   background: var(--vscode-textCodeBlock-background);
   font-weight: 600;
 }
+
+/* ========================================
+   Notion/Slack風 UI コンポーネント
+   ======================================== */
+
+/* Placeholder - 空のノード用プレースホルダー */
+.ProseMirror .is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--vscode-input-placeholderForeground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.ProseMirror .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--vscode-input-placeholderForeground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* Focus - ブロック選択時のハイライト */
+.ProseMirror .has-focus {
+  border-radius: 2px;
+  box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+}
+
+/* BubbleMenu - 選択時フォーマットツールバー */
+.bubble-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+}
+
+.bubble-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.1s ease;
+}
+
+.bubble-menu-button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.bubble-menu-button.is-active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.bubble-menu-button:active {
+  background: var(--vscode-button-hoverBackground);
+}
+
+/* FloatingMenu - 空行メニュー（+ボタン） */
+.floating-menu {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  z-index: 100;
+}
+
+.floating-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-editor-foreground);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 300;
+  transition: all 0.1s ease;
+  opacity: 0.6;
+}
+
+.floating-menu-trigger:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-focusBorder);
+}
+
+/* FloatingMenu サブメニュー */
+.floating-menu-submenu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  padding: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  max-width: 280px;
+}
+
+.floating-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 8px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.1s ease;
+}
+
+.floating-menu-button:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-editorWidget-border);
+}
+
+.floating-menu-button:active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+/* Tippy.js（BubbleMenu/FloatingMenuが使用）のスタイル調整 */
+.tippy-box {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.tippy-content {
+  padding: 0;
+}
+
+.tippy-arrow {
+  display: none;
+}
+
