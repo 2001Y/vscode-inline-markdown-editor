@@ -70,7 +70,6 @@ export interface WebviewConfig {
   };
   debug: {
     enabled: boolean;
-    logLevel: string;
   };
 }
 

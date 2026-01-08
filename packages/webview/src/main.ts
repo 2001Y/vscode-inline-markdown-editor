@@ -86,11 +86,10 @@ function handleInit(
   config: WebviewConfig,
   _i18n: Record<string, string>
 ): void {
-  console.log('[handleInit] Init received', { 
-    contentLength: content.length, 
+  console.log('[handleInit] Init received', {
+    contentLength: content.length,
     version: _version,
-    configDebugLogging: config.debug.enabled,
-    configDebugLogLevel: config.debug.logLevel
+    configDebugEnabled: config.debug.enabled
   });
 
   if (!editorContainerEl) {

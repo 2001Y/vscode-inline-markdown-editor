@@ -102,43 +102,6 @@
           "default": false,
           "description": "%configuration.debug.enabled.description%"
         },
-        "inlineMarkdownEditor.debug.logLevel": {
-          "type": "string",
-          "default": "INFO",
-          "enum": [
-            "INFO",
-            "DEBUG",
-            "TRACE",
-            "WARN",
-            "ERROR"
-          ],
-          "description": "%configuration.debug.logLevel.description%"
-        },
-        "inlineMarkdownEditor.debug.logToJsonl": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.debug.logToJsonl.description%"
-        },
-        "inlineMarkdownEditor.debug.jsonlMaxBytes": {
-          "type": "number",
-          "default": 5000000,
-          "description": "%configuration.debug.jsonlMaxBytes.description%"
-        },
-        "inlineMarkdownEditor.debug.jsonlMaxFiles": {
-          "type": "number",
-          "default": 20,
-          "description": "%configuration.debug.jsonlMaxFiles.description%"
-        },
-        "inlineMarkdownEditor.debug.jsonlRetentionDays": {
-          "type": "number",
-          "default": 7,
-          "description": "%configuration.debug.jsonlRetentionDays.description%"
-        },
-        "inlineMarkdownEditor.debug.logContent": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.debug.logContent.description%"
-        },
         "inlineMarkdownEditor.security.allowWorkspaceImages": {
           "type": "boolean",
           "default": true,

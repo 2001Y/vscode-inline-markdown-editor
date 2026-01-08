@@ -2,16 +2,22 @@
  * 役割: 拡張機能のロギングユーティリティ
  * 責務: OutputChannel ロギングとオプションの JSONL ファイルロギングを提供
  * 不変条件: ログ出力は設定で制御可能であること
- * 
+ *
  * 設計書参照: 15 (ログ/診断)
- * 
+ *
  * 出力先 (設計書 15.1):
  * - OutputChannel: すぐ見たいログ（エラー/重要イベント）
- * - JSONL: 再現性・共有性のための構造化ログ（デフォルト無効）
- * 
+ * - JSONL: 処理中ファイルと同階層の `_log_inlineMark/` フォルダに出力
+ *   - 例: /path/to/doc.md → /path/to/_log_inlineMark/doc-{timestamp}.jsonl
+ *
+ * デバッグオプション (設計書 23.4):
+ * - `inlineMarkdownEditor.debug.enabled` を唯一の master switch として扱う
+ * - enabled=true: DEBUG/TRACE ログ、JSONL 出力、内容ログがすべて有効
+ * - enabled=false: WARN/ERROR のみ OutputChannel に出力
+ *
  * ログレベル (設計書 15.2):
  * INFO / DEBUG / TRACE / WARN / ERROR
- * 
+ *
  * 記録項目 (設計書 15.3):
  * - ts (ISO8601), level, event
  * - sessionId, clientId, docUri
@@ -19,33 +25,6 @@
  * - changes (件数、総文字数、範囲サマリ)
  * - durationMs
  * - errorCode, errorStack (ERROR の場合)
- * 
- * 内容ログの方針 (設計書 15.4):
- * - デフォルトは全文 Markdown をログに残さない
- * - debug.logContent=true の場合のみ内容を記録
- * 
- * JSONL ローテーション (設計書 15.7):
- * - 最大ファイルサイズ: jsonlMaxBytes (default: 5MB)
- * - 最大ファイル数: jsonlMaxFiles (default: 20)
- * - 保持期間: jsonlRetentionDays (default: 7日)
- * 
- * Export Logs のマスキング (設計書 15.8):
- * - パスは workspace 相対またはハッシュ化
- * - 内容は原則含めない（debug.logContent の許可が必要）
- * 
- * LogEntry の例:
- * {
- *   "ts": "2026-01-06T12:00:00.000Z",
- *   "level": "INFO",
- *   "event": "Edit applied",
- *   "sessionId": "uuid",
- *   "clientId": "client-1",
- *   "docUri": "file:///path/to/doc.md",
- *   "docVersion": 13,
- *   "txId": 101,
- *   "changesCount": 2,
- *   "durationMs": 15
- * }
  */
 
 import * as vscode from 'vscode';
@@ -53,14 +32,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export type LogLevel = 'INFO' | 'DEBUG' | 'TRACE' | 'WARN' | 'ERROR';
-
-const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
-  TRACE: 0,
-  DEBUG: 1,
-  INFO: 2,
-  WARN: 3,
-  ERROR: 4,
-};
 
 export interface LogEntry {
   ts: string;
@@ -82,24 +53,23 @@ export interface LogEntry {
   details?: Record<string, unknown>;
 }
 
+/** ドキュメントごとの JSONL ログファイル情報 */
+interface DocLogInfo {
+  jsonlPath: string;
+  docBaseName: string;
+}
+
 export class Logger {
   private outputChannel: vscode.OutputChannel;
-  private logLevel: LogLevel = 'INFO';
-  private loggingEnabled = false;
-  private jsonlEnabled = false;
-  private jsonlPath: string | undefined;
-  private jsonlMaxBytes = 5000000;
-  private jsonlMaxFiles = 20;
-  private jsonlRetentionDays = 7;
-  private logContent = false;
-  private globalStorageUri: vscode.Uri | undefined;
+  private debugEnabled = false;
+  /** ドキュメント URI → JSONL ファイルパスのマップ */
+  private docLogMap = new Map<string, DocLogInfo>();
 
   constructor(channelName: string) {
     this.outputChannel = vscode.window.createOutputChannel(channelName);
   }
 
   initialize(context: vscode.ExtensionContext): void {
-    this.globalStorageUri = context.globalStorageUri;
     this.updateConfig();
 
     context.subscriptions.push(
@@ -113,85 +83,64 @@ export class Logger {
 
   private updateConfig(): void {
     const config = vscode.workspace.getConfiguration('inlineMarkdownEditor.debug');
-    const enabled = config.get<boolean>('enabled', false);
-    this.loggingEnabled = enabled;
-    this.logLevel = config.get<LogLevel>('logLevel', 'INFO');
-    this.jsonlEnabled = enabled && config.get<boolean>('logToJsonl', false);
-    this.jsonlMaxBytes = config.get<number>('jsonlMaxBytes', 5000000);
-    this.jsonlMaxFiles = config.get<number>('jsonlMaxFiles', 20);
-    this.jsonlRetentionDays = config.get<number>('jsonlRetentionDays', 7);
-    this.logContent = enabled && config.get<boolean>('logContent', false);
-
-    if (this.jsonlEnabled && this.globalStorageUri) {
-      this.setupJsonlPath();
-    }
+    this.debugEnabled = config.get<boolean>('enabled', false);
   }
 
-  private async setupJsonlPath(): Promise<void> {
-    if (!this.globalStorageUri) {return;}
+  /**
+   * ドキュメント用の JSONL ログパスを設定
+   * 出力先: ドキュメントと同階層の `_log_inlineMark/` フォルダ
+   */
+  setupDocumentLog(docUri: vscode.Uri): void {
+    if (!this.debugEnabled) { return; }
+    if (this.docLogMap.has(docUri.toString())) { return; }
 
-    const logsDir = vscode.Uri.joinPath(this.globalStorageUri, 'logs');
     try {
-      await vscode.workspace.fs.createDirectory(logsDir);
+      const docDir = path.dirname(docUri.fsPath);
+      const docBaseName = path.basename(docUri.fsPath, path.extname(docUri.fsPath));
+      const logsDir = path.join(docDir, '_log_inlineMark');
+
+      // ログディレクトリを作成
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      this.jsonlPath = path.join(logsDir.fsPath, `session-${timestamp}.jsonl`);
-      await this.cleanupOldLogs(logsDir.fsPath);
+      const jsonlPath = path.join(logsDir, `${docBaseName}-${timestamp}.jsonl`);
+
+      this.docLogMap.set(docUri.toString(), { jsonlPath, docBaseName });
+      this.info('JSONL logging started', { docUri: docUri.toString(), details: { jsonlPath } });
     } catch (error) {
       this.error('Failed to setup JSONL logging', { details: { error: String(error) } });
     }
   }
 
-  private async cleanupOldLogs(logsDir: string): Promise<void> {
-    try {
-      const files = await fs.promises.readdir(logsDir);
-      const jsonlFiles = files
-        .filter((f) => f.endsWith('.jsonl'))
-        .map((f) => ({
-          name: f,
-          path: path.join(logsDir, f),
-          stat: fs.statSync(path.join(logsDir, f)),
-        }))
-        .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
-
-      const cutoffDate = Date.now() - this.jsonlRetentionDays * 24 * 60 * 60 * 1000;
-
-      for (let i = 0; i < jsonlFiles.length; i++) {
-        const file = jsonlFiles[i];
-        if (i >= this.jsonlMaxFiles || file.stat.mtimeMs < cutoffDate) {
-          await fs.promises.unlink(file.path);
-        }
-      }
-    } catch (_error) {
-      // Ignore cleanup errors
-    }
+  /**
+   * ドキュメントのログを終了
+   */
+  cleanupDocumentLog(docUri: vscode.Uri): void {
+    this.docLogMap.delete(docUri.toString());
   }
 
   private shouldLog(level: LogLevel): boolean {
-    if (!this.loggingEnabled && level !== 'ERROR' && level !== 'WARN') {
+    // WARN/ERROR は常に出力
+    if (level === 'WARN' || level === 'ERROR') {
+      return true;
+    }
+    // debug.enabled=false の場合は DEBUG/TRACE/INFO を出さない
+    if (!this.debugEnabled) {
       return false;
     }
-    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this.logLevel];
+    // debug.enabled=true の場合は全レベル出力
+    return true;
   }
 
   private formatMessage(level: LogLevel, event: string, details?: Record<string, unknown>): string {
     const timestamp = new Date().toISOString();
     let message = `[${timestamp}] [${level}] ${event}`;
     if (details && Object.keys(details).length > 0) {
-      const safeDetails = this.logContent ? details : this.maskContent(details);
-      message += ` ${JSON.stringify(safeDetails)}`;
+      message += ` ${JSON.stringify(details)}`;
     }
     return message;
-  }
-
-  private maskContent(details: Record<string, unknown>): Record<string, unknown> {
-    const masked = { ...details };
-    if ('content' in masked && typeof masked.content === 'string') {
-      masked.content = `[${(masked.content as string).length} chars]`;
-    }
-    if ('fullContent' in masked && typeof masked.fullContent === 'string') {
-      masked.fullContent = `[${(masked.fullContent as string).length} chars]`;
-    }
-    return masked;
   }
 
   private writeToChannel(level: LogLevel, event: string, details?: Record<string, unknown>): void {
@@ -200,35 +149,29 @@ export class Logger {
   }
 
   private writeToJsonl(entry: LogEntry): void {
-    if (!this.jsonlEnabled || !this.jsonlPath) {return;}
+    if (!this.debugEnabled) { return; }
+
+    // docUri が指定されている場合、そのドキュメントのログファイルに書き込む
+    const docUri = entry.docUri;
+    if (!docUri) { return; }
+
+    const docLog = this.docLogMap.get(docUri);
+    if (!docLog) { return; }
 
     try {
       const line = JSON.stringify(entry) + '\n';
-      fs.appendFileSync(this.jsonlPath, line);
-
-      const stats = fs.statSync(this.jsonlPath);
-      if (stats.size > this.jsonlMaxBytes) {
-        this.rotateJsonl();
-      }
+      fs.appendFileSync(docLog.jsonlPath, line);
     } catch (_error) {
       // Ignore JSONL write errors
     }
   }
 
-  private rotateJsonl(): void {
-    if (!this.jsonlPath || !this.globalStorageUri) {return;}
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const logsDir = vscode.Uri.joinPath(this.globalStorageUri, 'logs').fsPath;
-    this.jsonlPath = path.join(logsDir, `session-${timestamp}.jsonl`);
-  }
-
   log(level: LogLevel, event: string, entry?: Partial<LogEntry>): void {
-    if (!this.shouldLog(level)) {return;}
+    if (!this.shouldLog(level)) { return; }
 
     this.writeToChannel(level, event, entry as Record<string, unknown>);
 
-    if (this.jsonlEnabled) {
+    if (this.debugEnabled && entry?.docUri) {
       const fullEntry: LogEntry = {
         ts: new Date().toISOString(),
         level,
@@ -263,38 +206,56 @@ export class Logger {
     this.outputChannel.show();
   }
 
-  getJsonlPath(): string | undefined {
-    return this.jsonlPath;
+  /**
+   * デバッグモードが有効かどうか
+   */
+  isDebugEnabled(): boolean {
+    return this.debugEnabled;
   }
 
   /**
-   * Export Logs のマスキング (設計書 15.8):
-   * - パスは workspace 相対またはハッシュ化
-   * - 内容は原則含めない（debug.logContent の許可が必要）
-   * - docUri は file:///... を含むため、ワークスペース相対パスに変換
+   * 指定ドキュメントの JSONL ログパスを取得
+   */
+  getJsonlPath(docUri?: vscode.Uri): string | undefined {
+    if (!docUri) { return undefined; }
+    return this.docLogMap.get(docUri.toString())?.jsonlPath;
+  }
+
+  /**
+   * Export Logs: ワークスペース内の全 _log_inlineMark フォルダからログを収集
    */
   async exportLogs(): Promise<string | undefined> {
-    if (!this.globalStorageUri) {return undefined;}
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showWarningMessage('No workspace folder open');
+      return undefined;
+    }
 
-    const logsDir = vscode.Uri.joinPath(this.globalStorageUri, 'logs');
     try {
-      const files = await fs.promises.readdir(logsDir.fsPath);
-      const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+      // ワークスペース内の _log_inlineMark フォルダを検索
+      const logFiles: string[] = [];
+      for (const folder of workspaceFolders) {
+        const pattern = new vscode.RelativePattern(folder, '**/_log_inlineMark/*.jsonl');
+        const files = await vscode.workspace.findFiles(pattern);
+        logFiles.push(...files.map(f => f.fsPath));
+      }
 
-      if (jsonlFiles.length === 0) {return undefined;}
+      if (logFiles.length === 0) {
+        vscode.window.showInformationMessage('No log files found in _log_inlineMark folders');
+        return undefined;
+      }
 
       const exportPath = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(`inline-markdown-logs-${Date.now()}.jsonl`),
         filters: { 'JSONL': ['jsonl'] },
       });
 
-      if (!exportPath) {return undefined;}
+      if (!exportPath) { return undefined; }
 
       let combinedContent = '';
-      for (const file of jsonlFiles) {
-        const content = await fs.promises.readFile(path.join(logsDir.fsPath, file), 'utf-8');
-        // 設計書 15.8: Export 時にパスをマスキング
-        const maskedContent = this.maskExportContent(content);
+      for (const file of logFiles) {
+        const content = await fs.promises.readFile(file, 'utf-8');
+        const maskedContent = this.maskExportContent(content, workspaceFolders);
         combinedContent += maskedContent;
       }
 
@@ -308,12 +269,11 @@ export class Logger {
 
   /**
    * Export 用のマスキング処理 (設計書 15.8)
-   * - docUri を workspace 相対パスに変換
-   * - errorStack 内のパスもマスキング
-   * - details 内の content/fullContent は既にマスキング済み
    */
-  private maskExportContent(content: string): string {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
+  private maskExportContent(
+    content: string,
+    workspaceFolders: readonly vscode.WorkspaceFolder[]
+  ): string {
     const lines = content.split('\n');
     const maskedLines: string[] = [];
 
@@ -325,7 +285,7 @@ export class Logger {
 
       try {
         const entry = JSON.parse(line) as LogEntry;
-        
+
         // docUri をワークスペース相対パスに変換
         if (entry.docUri) {
           entry.docUri = this.maskPath(entry.docUri, workspaceFolders);
@@ -343,7 +303,6 @@ export class Logger {
 
         maskedLines.push(JSON.stringify(entry));
       } catch {
-        // JSON パースに失敗した行はそのまま出力（ただしパスをマスキング）
         maskedLines.push(this.maskPathsInString(line, workspaceFolders));
       }
     }
@@ -353,18 +312,11 @@ export class Logger {
 
   /**
    * パスをワークスペース相対パスに変換
-   * file:///path/to/workspace/file.md → workspace://file.md
    */
   private maskPath(
     uriString: string,
-    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined
+    workspaceFolders: readonly vscode.WorkspaceFolder[]
   ): string {
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      // ワークスペースがない場合はファイル名のみを残す
-      const match = uriString.match(/[/\\]([^/\\]+)$/);
-      return match ? `[file]/${match[1]}` : '[masked-path]';
-    }
-
     for (const folder of workspaceFolders) {
       const folderUri = folder.uri.toString();
       if (uriString.startsWith(folderUri)) {
@@ -373,7 +325,6 @@ export class Logger {
       }
     }
 
-    // ワークスペース外のパスはファイル名のみを残す
     const match = uriString.match(/[/\\]([^/\\]+)$/);
     return match ? `[external]/${match[1]}` : '[masked-path]';
   }
@@ -383,14 +334,12 @@ export class Logger {
    */
   private maskPathsInString(
     str: string,
-    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined
+    workspaceFolders: readonly vscode.WorkspaceFolder[]
   ): string {
-    // file:// URI をマスキング
     let result = str.replace(/file:\/\/\/[^\s"']+/g, (match) => {
       return this.maskPath(match, workspaceFolders);
     });
 
-    // 絶対パス（Unix/Windows）をマスキング
     result = result.replace(/(?:\/[a-zA-Z0-9_.-]+)+\.[a-zA-Z]+/g, (match) => {
       const fileName = match.split('/').pop() || '[file]';
       return `[path]/${fileName}`;
@@ -404,16 +353,14 @@ export class Logger {
    */
   private maskDetailsForExport(
     details: Record<string, unknown>,
-    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined
+    workspaceFolders: readonly vscode.WorkspaceFolder[]
   ): Record<string, unknown> {
     const masked = { ...details };
 
-    // url フィールドのマスキング（file:// の場合のみ）
     if (typeof masked.url === 'string' && masked.url.startsWith('file://')) {
       masked.url = this.maskPath(masked.url, workspaceFolders);
     }
 
-    // path フィールドのマスキング
     if (typeof masked.path === 'string') {
       masked.path = this.maskPath(masked.path, workspaceFolders);
     }

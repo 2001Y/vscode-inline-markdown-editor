@@ -184,6 +184,8 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
         selfChangeVersions: new Map(),
       };
       this.documentStates.set(docKey, state);
+      // デバッグモード時は JSONL ログを開始
+      logger.setupDocumentLog(document.uri);
     }
 
     const clientId = crypto.randomUUID();
@@ -206,6 +208,8 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       state?.panels.delete(clientId);
       if (state?.panels.size === 0) {
         this.documentStates.delete(docKey);
+        // ドキュメントのログを終了
+        logger.cleanupDocumentLog(document.uri);
       }
       logger.debug('Webview disposed', { clientId, docUri: docKey });
     });
@@ -1024,7 +1028,6 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
       },
       debug: {
         enabled: debugConfig.get<boolean>('enabled', false),
-        logLevel: debugConfig.get<string>('logLevel', 'INFO'),
       },
     };
   }
