@@ -3,7 +3,7 @@
  * 責務: Webview ライフサイクル管理、メッセージパッシング、ドキュメント同期の調整
  * 不変条件: TextDocument が唯一の真実 (source of truth)。全 Webview は同一状態に収束すること
  * 
- * 設計書参照: 6.2, 6.4 (InlineMarkdownEditorProvider の責務)
+ * 設計書参照: 6.2, 6.4 (InlineMarkProvider の責務)
  * 
  * 設計原則 (設計書 4.2):
  * - 原則 A: 真実は常に TextDocument（Webview は入力と表示を担う）
@@ -97,7 +97,7 @@ const REQUIRED_MARKDOWN_SETTINGS = {
   'files.insertFinalNewline': false,
 };
 
-export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProvider {
+export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'inlineMark.editor';
 
   private documentStates = new Map<string, DocumentState>();
@@ -113,13 +113,13 @@ export class InlineMarkdownEditorProvider implements vscode.CustomTextEditorProv
   }
 
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new InlineMarkdownEditorProvider(context);
+    const provider = new InlineMarkProvider(context);
 
     const webviewConfig = vscode.workspace.getConfiguration('inlineMark.webview');
     const retainContextWhenHidden = webviewConfig.get<boolean>('retainContextWhenHidden', true);
 
     const providerRegistration = vscode.window.registerCustomEditorProvider(
-      InlineMarkdownEditorProvider.viewType,
+      InlineMarkProvider.viewType,
       provider,
       {
         webviewOptions: {

@@ -16,14 +16,14 @@
  */
 
 import * as vscode from 'vscode';
-import { InlineMarkdownEditorProvider } from './editors/inlineMarkdownEditorProvider.js';
+import { InlineMarkProvider } from './editors/inlineMarkProvider.js';
 import { logger } from './util/log.js';
 
 export function activate(context: vscode.ExtensionContext): void {
   logger.initialize(context);
   logger.info('Extension activating');
 
-  InlineMarkdownEditorProvider.register(context);
+  InlineMarkProvider.register(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.resetSession', async () => {
@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
       const input = tab?.input;
 
-      if (input instanceof vscode.TabInputCustom && input.viewType === InlineMarkdownEditorProvider.viewType) {
+      if (input instanceof vscode.TabInputCustom && input.viewType === InlineMarkProvider.viewType) {
         const uri = input.uri;
         const viewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
         await vscode.commands.executeCommand('vscode.openWith', uri, 'default', { viewColumn });
@@ -106,11 +106,11 @@ export function deactivate(): void {
   logger.dispose();
 }
 
-let providerInstance: InlineMarkdownEditorProvider | undefined;
+let providerInstance: InlineMarkProvider | undefined;
 
-function getProvider(context: vscode.ExtensionContext): InlineMarkdownEditorProvider | undefined {
+function getProvider(context: vscode.ExtensionContext): InlineMarkProvider | undefined {
   if (!providerInstance) {
-    providerInstance = new InlineMarkdownEditorProvider(context);
+    providerInstance = new InlineMarkProvider(context);
   }
   return providerInstance;
 }
