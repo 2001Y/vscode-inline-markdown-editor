@@ -127,6 +127,15 @@ export interface NotifyHostMessage extends BaseMessage {
   details?: Record<string, unknown>;
 }
 
+/**
+ * Webview → Extension
+ * Used to notify menu visibility state change for context key management.
+ */
+export interface MenuStateChangeMessage extends BaseMessage {
+  type: 'menuStateChange';
+  visible: boolean;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -140,7 +149,8 @@ export type WebviewToExtensionMessage =
   | ExportLogsMessage
   | RequestResyncWithConfirmMessage
   | OverwriteSaveWithConfirmMessage
-  | NotifyHostMessage;
+  | NotifyHostMessage
+  | MenuStateChangeMessage;
 
 export interface InitMessage extends BaseMessage {
   type: 'init';
@@ -254,6 +264,7 @@ const VALID_WEBVIEW_MESSAGE_TYPES = [
   'requestResyncWithConfirm',
   'overwriteSaveWithConfirm',
   'notifyHost',
+  'menuStateChange',
 ] as const;
 
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {

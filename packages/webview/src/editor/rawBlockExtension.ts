@@ -106,9 +106,20 @@ export const RawBlock = Node.create<RawBlockOptions>({
       dom.setAttribute('data-type', 'raw-block');
       dom.className = 'raw-block';
 
+      // Create label with info button
       const label = document.createElement('span');
-      label.className = 'raw-block-label';
-      label.textContent = 'RAW';
+      label.className = 'block-label';
+
+      const labelText = document.createElement('span');
+      labelText.textContent = 'RAW';
+      label.appendChild(labelText);
+
+      const infoBtn = document.createElement('span');
+      infoBtn.className = 'block-label-info';
+      infoBtn.textContent = 'i';
+      infoBtn.setAttribute('data-tooltip', 'Markdownとして解析できなかった部分です');
+      label.appendChild(infoBtn);
+
       dom.appendChild(label);
 
       const textarea = document.createElement('textarea');

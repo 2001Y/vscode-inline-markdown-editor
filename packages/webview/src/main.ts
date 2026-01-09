@@ -31,6 +31,7 @@ import { SyncClient, type SyncState } from './protocol/client.js';
 import { createEditor, type EditorInstance } from './editor/createEditor.js';
 import type { Replace, Remediation, WebviewConfig } from './protocol/types.js';
 import type { ChangeMetrics } from './editor/diffEngine.js';
+import { executeCommand, type CommandName } from './editor/commands.js';
 import './styles.css';
 
 interface AppState {
@@ -279,6 +280,22 @@ window.addEventListener('beforeunload', () => {
         scrollLeft: editorContainer.scrollLeft,
       });
     }
+  }
+});
+
+/**
+ * VSCode keybindings からのコマンドを処理
+ * SyncClientのプロトコルとは別に、シンプルなコマンド実行用
+ */
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (msg?.type === 'editorCommand' && msg.command) {
+    if (!editorInstance) {
+      console.warn('[Main] Editor command received but no editor instance');
+      return;
+    }
+    console.log('[Main] Executing editor command:', msg.command);
+    executeCommand(editorInstance.editor, msg.command as CommandName);
   }
 });
 

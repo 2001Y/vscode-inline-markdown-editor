@@ -390,7 +390,20 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       case 'notifyHost':
         await this.handleNotifyHost(document, state, panel, clientId, msg);
         break;
+      case 'menuStateChange':
+        this.handleMenuStateChange(msg);
+        break;
     }
+  }
+
+  /**
+   * Handle menu state change from webview for context key management
+   */
+  private handleMenuStateChange(msg: { visible?: boolean }): void {
+    const visible = msg.visible ?? false;
+    // Set context key for keybinding when clause
+    vscode.commands.executeCommand('setContext', 'inlineMark.menuVisible', visible);
+    logger.debug('Menu state changed', { details: { visible } });
   }
 
   private async handleReady(
@@ -1269,6 +1282,44 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     vscode.window.showInformationMessage(vscode.l10n.t('Editor session has been reset.'));
     logger.info('Session reset', { sessionId: state.sessionId, docUri: docKey });
     return true;
+  }
+
+  /**
+   * エディタコマンドをアクティブなWebviewに送信
+   * VSCode keybindingsから呼び出される
+   */
+  public sendEditorCommand(command: string): void {
+    // 現在アクティブなタブからWebviewパネルを取得
+    const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    if (!activeTab) {
+      logger.debug('sendEditorCommand: no active tab', { details: { command } });
+      return;
+    }
+
+    const input = activeTab.input;
+    if (!(input instanceof vscode.TabInputCustom) || input.viewType !== InlineMarkProvider.viewType) {
+      logger.debug('sendEditorCommand: active tab is not inlineMark editor', { details: { command } });
+      return;
+    }
+
+    // DocumentStateからパネルを探す
+    const docKey = input.uri.toString();
+    const state = this.documentStates.get(docKey);
+    if (!state) {
+      logger.debug('sendEditorCommand: no document state', { docUri: docKey, details: { command } });
+      return;
+    }
+
+    // 全パネルにコマンドを送信（通常は1つ）
+    for (const [, panel] of state.panels) {
+      if (panel.ready) {
+        panel.panel.webview.postMessage({
+          type: 'editorCommand',
+          command,
+        });
+        logger.debug('sendEditorCommand: sent', { clientId: panel.clientId, details: { command } });
+      }
+    }
   }
 
   dispose(): void {

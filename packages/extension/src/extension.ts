@@ -98,6 +98,40 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // エディタコマンド: VSCode keybindings → Webview postMessage → Tiptap command
+  // コマンド名とTiptapコマンド名のマッピング
+  const editorCommands = [
+    'toggleBold',
+    'toggleItalic',
+    'toggleStrike',
+    'toggleCode',
+    'toggleUnderline',
+    'toggleHeading1',
+    'toggleHeading2',
+    'toggleHeading3',
+    'toggleHeading4',
+    'toggleHeading5',
+    'toggleHeading6',
+    'toggleBulletList',
+    'toggleOrderedList',
+    'toggleBlockquote',
+    'toggleCodeBlock',
+    'undo',
+    'redo',
+  ];
+
+  // 全エディタコマンドを登録
+  for (const command of editorCommands) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(`inlineMark.${command}`, () => {
+        const provider = getProvider(context);
+        if (provider) {
+          provider.sendEditorCommand(command);
+        }
+      })
+    );
+  }
+
   logger.info('Extension activated');
 }
 

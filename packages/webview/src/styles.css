@@ -308,21 +308,77 @@ body {
   border-radius: 4px;
   margin: 1em 0;
   padding: 0;
+  padding-top: 24px; /* Space for label */
   position: relative;
 }
 
-.raw-block::before {
-  content: 'RAW';
+/* Block label (used for RAW, code language, filename) */
+.block-label {
   position: absolute;
-  top: -10px;
-  left: 8px;
-  background: var(--vscode-editor-background);
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--vscode-textCodeBlock-background);
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
   font-weight: 600;
-  padding: 0 4px;
+  padding: 2px 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  border-right: 1px dashed var(--vscode-editorIndentGuide-activeBackground);
+  border-bottom: 1px dashed var(--vscode-editorIndentGuide-activeBackground);
+  border-radius: 4px 0 4px 0;
+}
+
+/* Info button for RAW blocks */
+.block-label-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+  color: var(--vscode-editor-background);
+  font-size: 8px;
+  font-weight: bold;
+  cursor: help;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.block-label-info:hover {
+  opacity: 1;
+}
+
+/* Tooltip for info button */
+.block-label-info::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  padding: 4px 8px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-editorWidget-foreground);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+
+.block-label-info:hover::after {
+  opacity: 1;
 }
 
 .raw-block-content {
@@ -334,20 +390,6 @@ body {
   word-wrap: break-word;
   background: transparent;
   color: var(--vscode-descriptionForeground);
-}
-
-/* RAW Block label for NodeView */
-.raw-block-label {
-  position: absolute;
-  top: -10px;
-  left: 8px;
-  background: var(--vscode-editor-background);
-  color: var(--vscode-descriptionForeground);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 0 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 /* RAW Block editable textarea */
@@ -513,6 +555,23 @@ body {
   background: var(--vscode-button-hoverBackground);
 }
 
+/* Bubble Menu button style variations (CSP-safe) */
+.bubble-menu-bold {
+  font-weight: bold;
+}
+
+.bubble-menu-italic {
+  font-style: italic;
+}
+
+.bubble-menu-strike {
+  text-decoration: line-through;
+}
+
+.bubble-menu-code {
+  font-family: monospace;
+}
+
 /* FloatingMenu - 空行メニュー（+ボタン） */
 .floating-menu {
   /* 初期状態: Floating UIが位置設定するまで非表示 */
@@ -521,8 +580,9 @@ body {
   top: 0;
   visibility: hidden;
   opacity: 0;
-  /* レイアウト */
+  /* レイアウト - 縦方向（サブメニューは下に展開） */
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
   gap: 4px;
   z-index: 100;
@@ -553,24 +613,25 @@ body {
   border-color: var(--vscode-focusBorder);
 }
 
-/* FloatingMenu サブメニュー */
+/* FloatingMenu サブメニュー（下向きドロップダウン） */
 .floating-menu-submenu {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-editorWidget-border);
   border-radius: 6px;
-  padding: 6px;
+  padding: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  max-width: 280px;
+  min-width: 160px;
 }
 
 .floating-menu-button {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 32px;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
   height: 28px;
   padding: 0 8px;
   margin: 0;
@@ -582,6 +643,7 @@ body {
   font-size: 12px;
   font-weight: 500;
   transition: all 0.1s ease;
+  white-space: nowrap;
 }
 
 .floating-menu-button:hover {
@@ -592,6 +654,20 @@ body {
 .floating-menu-button:active {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
+}
+
+.floating-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.floating-menu-label {
+  flex: 1;
+  text-align: left;
 }
 
 /* Tippy.js（BubbleMenu/FloatingMenuが使用）のスタイル調整 */
@@ -610,100 +686,137 @@ body {
 }
 
 /* ========================================
-   テーブルコントロール UI
+   スラッシュコマンドメニュー
    ======================================== */
 
-/* テーブルコンテナ - ホバー時にコントロールを表示 */
-.inline-markdown-editor-content table {
-  position: relative;
+.slash-command-popup {
+  position: fixed;
+  z-index: 200;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
-/* テーブルコントロールオーバーレイ */
-.table-controls-overlay {
-  position: absolute;
-  pointer-events: none;
-  z-index: 50;
+.slash-command-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  margin: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.1s ease;
 }
 
-/* + ボタン（行追加/列追加） */
-.table-add-row-btn,
-.table-add-col-btn {
-  position: absolute;
-  pointer-events: auto;
-  width: 16px;
-  height: 16px;
+.slash-command-item:hover,
+.slash-command-item.is-selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.slash-command-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.slash-command-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.slash-command-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.slash-command-description {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.8;
+}
+
+/* ========================================
+   テーブルコントロール UI (固定位置 - BlockHandles方式)
+   ======================================== */
+
+/* テーブル + ボタン（共通スタイル） */
+.table-add-btn {
+  position: fixed;
+  left: var(--btn-x, 0);
+  top: var(--btn-y, 0);
+  width: 20px;
+  height: 20px;
   border: none;
   border-radius: 50%;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
+  font-size: 14px;
+  font-weight: 300;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s ease, transform 0.1s ease;
+  z-index: 100;
 }
 
-.table-add-row-btn:hover,
-.table-add-col-btn:hover {
+.table-add-btn.is-visible {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+
+.table-add-btn:hover {
   opacity: 1 !important;
   transform: scale(1.1);
   background: var(--vscode-button-hoverBackground);
 }
 
-/* 6点ハンドル（行操作/列操作） */
-.table-row-handle,
-.table-col-handle {
-  position: absolute;
-  pointer-events: auto;
-  cursor: grab;
-  font-size: 10px;
-  letter-spacing: -2px;
-  color: var(--vscode-descriptionForeground);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s ease, background-color 0.1s ease;
-  user-select: none;
-  border-radius: 3px;
-}
-
-.table-row-handle {
-  width: 16px;
-  height: 20px;
-}
-
-.table-col-handle {
-  width: 20px;
-  height: 16px;
-  transform: rotate(90deg);
-}
-
-.table-row-handle:hover,
-.table-col-handle:hover {
-  opacity: 1 !important;
-  background: var(--vscode-list-hoverBackground);
-}
-
-/* コンテキストメニュー */
+/* テーブルコンテキストメニュー */
 .table-context-menu {
   position: fixed;
+  left: var(--menu-x, 0);
+  top: var(--menu-y, 0);
   z-index: 1000;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-editorWidget-border);
   border-radius: 6px;
   padding: 4px 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  min-width: 150px;
+  display: none;
+}
+
+.table-context-menu.is-visible {
+  display: block;
 }
 
 .table-context-menu-item {
   display: block;
   width: 100%;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   color: var(--vscode-editor-foreground);
@@ -722,47 +835,72 @@ body {
   color: var(--vscode-list-activeSelectionForeground);
 }
 
-/* テーブルホバー時の視覚フィードバック */
-.inline-markdown-editor-content table:hover {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
-}
-
-/* 行/列選択時のハイライト */
-.inline-markdown-editor-content table tr.selected {
-  background: var(--vscode-editor-selectionBackground);
-}
-
-.inline-markdown-editor-content table td.selected,
-.inline-markdown-editor-content table th.selected {
-  background: var(--vscode-editor-selectionBackground);
+.table-context-menu-separator {
+  height: 1px;
+  background: var(--vscode-editorWidget-border);
+  margin: 4px 0;
 }
 
 /* ========================================
    ブロックハンドル UI
    ======================================== */
 
+/* ブロックハンドルコンテナ（+ボタンと6点ハンドルの親） */
+.block-handle-container {
+  position: fixed;
+  left: var(--handle-x, 0);
+  top: var(--handle-y, 0);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+
+.block-handle-container.is-visible,
+.block-handle-container:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* +ボタン（ブロック追加） */
+.block-add-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.block-add-btn:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
 /* ブロックハンドル（6点ドラッグ） */
 .block-handle {
-  position: absolute;
   width: 20px;
   height: 24px;
   cursor: grab;
-  font-size: 10px;
-  letter-spacing: -2px;
   color: var(--vscode-descriptionForeground);
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s ease, background-color 0.1s ease;
+  transition: background-color 0.1s ease;
   user-select: none;
   border-radius: 3px;
-  z-index: 10;
 }
 
 .block-handle:hover {
-  opacity: 1 !important;
   background: var(--vscode-list-hoverBackground);
 }
 
@@ -773,6 +911,8 @@ body {
 /* ブロックコンテキストメニュー */
 .block-context-menu {
   position: fixed;
+  left: var(--menu-x, 0);
+  top: var(--menu-y, 0);
   z-index: 1000;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-editorWidget-border);
@@ -780,10 +920,17 @@ body {
   padding: 4px 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   min-width: 140px;
+  display: none;
+}
+
+.block-context-menu.is-visible {
+  display: block;
 }
 
 .block-context-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 6px 12px;
   border: none;
@@ -793,6 +940,20 @@ body {
   cursor: pointer;
   font-size: 13px;
   transition: background-color 0.1s ease;
+}
+
+.block-context-menu-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.block-context-menu-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .block-context-menu-item:hover:not(:disabled) {
@@ -810,10 +971,16 @@ body {
   position: absolute;
   left: 0;
   right: 0;
+  top: var(--indicator-top, 0);
   height: 2px;
   background: var(--vscode-focusBorder);
   pointer-events: none;
   z-index: 100;
+  display: none;
+}
+
+.block-drop-indicator.is-visible {
+  display: block;
 }
 
 /* ドラッグ中のブロック */
@@ -821,5 +988,221 @@ body {
   opacity: 0.5;
   outline: 2px dashed var(--vscode-focusBorder);
   outline-offset: 2px;
+}
+
+/* ドラッグ画像（ゴースト） */
+.block-drag-image {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  opacity: 0.8;
+  background: var(--vscode-editor-background);
+  border: 2px solid var(--vscode-focusBorder);
+  border-radius: 4px;
+  padding: 8px;
+  max-width: 400px;
+  overflow: hidden;
+}
+
+/* ブロックタイプ選択メニュー（floating-menu-submenuスタイルを採用） */
+.block-type-menu {
+  position: fixed;
+  left: var(--menu-x, 0);
+  top: var(--menu-y, 0);
+  z-index: 1000;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  min-width: 160px;
+  display: none;
+}
+
+.block-type-menu.is-visible {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.block-type-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.1s ease;
+  white-space: nowrap;
+}
+
+.block-type-menu-item:hover,
+.block-type-menu-item.is-selected {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-editorWidget-border);
+}
+
+.block-type-menu-item.is-selected {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.block-type-menu-item:active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.block-type-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+/* ========================================
+   テーブル行/列ハンドル UI
+   ======================================== */
+
+/* 行ハンドルコンテナ */
+.table-row-handles {
+  position: fixed;
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.table-row-handles.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 個別の行ハンドル */
+.table-row-handle {
+  position: fixed;
+  left: var(--handle-x, 0);
+  top: var(--handle-y, 0);
+  width: 20px;
+  height: 20px;
+  cursor: grab;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  opacity: 0.5;
+  transition: opacity 0.1s ease, background-color 0.1s ease;
+}
+
+.table-row-handle:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.table-row-handle:active {
+  cursor: grabbing;
+}
+
+.table-row-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 列ハンドルコンテナ */
+.table-col-handles {
+  position: fixed;
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.table-col-handles.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 個別の列ハンドル */
+.table-col-handle {
+  position: fixed;
+  left: var(--handle-x, 0);
+  top: var(--handle-y, 0);
+  width: 24px;
+  height: 16px;
+  cursor: grab;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  opacity: 0.5;
+  transition: opacity 0.1s ease, background-color 0.1s ease;
+}
+
+.table-col-handle:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.table-col-handle:active {
+  cursor: grabbing;
+}
+
+.table-col-handle svg {
+  width: 14px;
+  height: 10px;
+}
+
+/* テーブルドロップインジケーター */
+.table-drop-indicator {
+  position: fixed;
+  z-index: 150;
+  background: var(--vscode-focusBorder);
+  pointer-events: none;
+  display: none;
+}
+
+.table-drop-indicator.is-visible {
+  display: block;
+}
+
+/* 行ドロップインジケーター（水平線） */
+.table-drop-indicator-row {
+  left: var(--indicator-x, 0);
+  top: var(--indicator-y, 0);
+  width: var(--indicator-width, 100px);
+  height: 2px;
+}
+
+/* 列ドロップインジケーター（垂直線） */
+.table-drop-indicator-col {
+  left: var(--indicator-x, 0);
+  top: var(--indicator-y, 0);
+  width: 2px;
+  height: var(--indicator-height, 100px);
+}
+
+/* テーブルセルのドラッグ中ハイライト */
+.inline-markdown-editor-content table tr.is-dragging {
+  opacity: 0.5;
+  outline: 2px dashed var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.inline-markdown-editor-content table td.is-dragging,
+.inline-markdown-editor-content table th.is-dragging {
+  opacity: 0.5;
+  background: var(--vscode-editor-selectionBackground);
 }
 

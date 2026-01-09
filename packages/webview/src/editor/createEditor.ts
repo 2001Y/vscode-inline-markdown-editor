@@ -41,12 +41,25 @@ import { Markdown } from '@tiptap/markdown';
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import Placeholder from '@tiptap/extension-placeholder';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
-import FloatingMenu from '@tiptap/extension-floating-menu';
 import Focus from '@tiptap/extension-focus';
 import { RawBlock } from './rawBlockExtension.js';
 import { HtmlBlock } from './htmlBlockExtension.js';
 import { TableControls } from './tableControlsExtension.js';
 import { BlockHandles } from './blockHandlesExtension.js';
+import {
+  BoldNoShortcut,
+  ItalicNoShortcut,
+  StrikeNoShortcut,
+  CodeNoShortcut,
+  UnderlineNoShortcut,
+  HeadingNoShortcut,
+  BulletListNoShortcut,
+  OrderedListNoShortcut,
+  BlockquoteNoShortcut,
+  CodeBlockNoShortcut,
+  HistoryNoShortcut,
+} from './disableKeyboardShortcuts.js';
+import { t } from './i18n.js';
 import { computeDiff, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
 import type { Replace } from '../protocol/types.js';
@@ -72,10 +85,6 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   const bubbleMenuElement = createBubbleMenuElement();
   container.appendChild(bubbleMenuElement);
 
-  // UI要素の作成: FloatingMenu（空行メニュー）
-  const floatingMenuElement = createFloatingMenuElement();
-  container.appendChild(floatingMenuElement);
-
   // Tiptap 3.x モダン化:
   // - StarterKit に Link/Underline/ListKeymap が含まれるようになった
   // - 重複を避けるため、StarterKit の link を無効化し、カスタム Link を使用
@@ -85,16 +94,40 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   // - RawBlock で frontmatter をサポート
   // - HtmlBlock で HTML ブロックを保持
   // - Table 拡張で GFM テーブルをサポート
+  // VSCodeキーバインドで全ショートカットを管理するため、
+  // StarterKitの拡張を無効化し、ショートカット無しバージョンを使用
   const editor = new Editor({
     element: container,
     extensions: [
       StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3, 4, 5, 6],
-        },
-        // Tiptap 3.x: StarterKit に Link が含まれるため、カスタム Link と重複しないよう無効化
+        // ショートカット無しバージョンを使用するため、デフォルトを無効化
+        bold: false,
+        italic: false,
+        strike: false,
+        code: false,
+        heading: false,
+        bulletList: false,
+        orderedList: false,
+        blockquote: false,
+        codeBlock: false,
+        // Tiptap 3.x: history → undoRedo
+        undoRedo: false,
+        // Tiptap 3.x: StarterKit に Link/Underline が含まれるため無効化
         link: false,
+        underline: false,
       }),
+      // ショートカット無効化した拡張を追加
+      BoldNoShortcut,
+      ItalicNoShortcut,
+      StrikeNoShortcut,
+      CodeNoShortcut,
+      UnderlineNoShortcut,
+      HeadingNoShortcut.configure({ levels: [1, 2, 3, 4, 5, 6] }),
+      BulletListNoShortcut,
+      OrderedListNoShortcut,
+      BlockquoteNoShortcut,
+      CodeBlockNoShortcut,
+      HistoryNoShortcut,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
@@ -122,13 +155,14 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       Markdown.configure({
         markedOptions: { gfm: true },
       }),
-      // Notion/Slack風UI拡張
+      // Notion/Slack風UI拡張（多言語対応）
       Placeholder.configure({
         placeholder: ({ node }) => {
+          const translations = t();
           if (node.type.name === 'heading') {
-            return 'Heading...';
+            return translations.placeholder.heading;
           }
-          return "Type '/' for commands...";
+          return translations.placeholder.paragraph;
         },
         emptyEditorClass: 'is-editor-empty',
         emptyNodeClass: 'is-empty',
@@ -148,18 +182,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
           return !isEmptySelection && !isCodeBlock && !isTable;
         },
       }),
-      FloatingMenu.configure({
-        element: floatingMenuElement,
-        shouldShow: ({ editor, state }) => {
-          // 空の段落にカーソルがある場合のみ表示
-          const { selection } = state;
-          const isRootDepth = selection.$anchor.depth === 1;
-          const isEmptyParagraph =
-            editor.isActive('paragraph') &&
-            selection.$anchor.parent.content.size === 0;
-          return isRootDepth && isEmptyParagraph;
-        },
-      }),
+      // Note: FloatingMenu removed - block type selection is handled by BlockHandles + button
     ],
     editorProps: {
       attributes: {
@@ -180,9 +203,6 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
 
   // BubbleMenuボタンのイベントハンドラー設定
   setupBubbleMenuHandlers(bubbleMenuElement, editor);
-
-  // FloatingMenuボタンのイベントハンドラー設定
-  setupFloatingMenuHandlers(floatingMenuElement, editor);
 
   // Link handling:
   // - Keep Tiptap's Link.openOnClick=false (security)
@@ -224,7 +244,6 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   function destroy(): void {
     container.removeEventListener('click', onEditorClick);
     bubbleMenuElement.remove();
-    floatingMenuElement.remove();
     editor.destroy();
   }
 
@@ -270,85 +289,31 @@ function computeChanges(
 /**
  * BubbleMenu（選択時ツールバー）のHTML要素を作成
  * フォーマットボタン: 太字、斜体、コード、リンク
+ * Note: CSP対応のため、inline styleではなくCSS classを使用
  */
 function createBubbleMenuElement(): HTMLElement {
   const menu = document.createElement('div');
   menu.className = 'bubble-menu';
 
-  // 太字ボタン
+  // 太字ボタン（CSS class: bubble-menu-bold）
   const boldBtn = createMenuButton('B', 'bold', 'toggleBold', '太字 (Ctrl+B)');
-  boldBtn.style.fontWeight = 'bold';
+  boldBtn.classList.add('bubble-menu-bold');
   menu.appendChild(boldBtn);
 
-  // 斜体ボタン
+  // 斜体ボタン（CSS class: bubble-menu-italic）
   const italicBtn = createMenuButton('I', 'italic', 'toggleItalic', '斜体 (Ctrl+I)');
-  italicBtn.style.fontStyle = 'italic';
+  italicBtn.classList.add('bubble-menu-italic');
   menu.appendChild(italicBtn);
 
-  // 取り消し線ボタン
+  // 取り消し線ボタン（CSS class: bubble-menu-strike）
   const strikeBtn = createMenuButton('S', 'strike', 'toggleStrike', '取り消し線');
-  strikeBtn.style.textDecoration = 'line-through';
+  strikeBtn.classList.add('bubble-menu-strike');
   menu.appendChild(strikeBtn);
 
-  // コードボタン
+  // コードボタン（CSS class: bubble-menu-code）
   const codeBtn = createMenuButton('</>', 'code', 'toggleCode', 'インラインコード (Ctrl+E)');
-  codeBtn.style.fontFamily = 'monospace';
+  codeBtn.classList.add('bubble-menu-code');
   menu.appendChild(codeBtn);
-
-  return menu;
-}
-
-/**
- * FloatingMenu（空行メニュー）のHTML要素を作成
- * ブロック挿入ボタン: 見出し、リスト、コードブロック、テーブル
- */
-function createFloatingMenuElement(): HTMLElement {
-  const menu = document.createElement('div');
-  menu.className = 'floating-menu';
-
-  // +ボタン（メインボタン）
-  const plusBtn = document.createElement('button');
-  plusBtn.type = 'button';
-  plusBtn.className = 'floating-menu-trigger';
-  plusBtn.textContent = '+';
-  plusBtn.title = "ブロックを挿入 (Type '/' for commands)";
-  menu.appendChild(plusBtn);
-
-  // サブメニュー（クリックで展開）
-  const submenu = document.createElement('div');
-  submenu.className = 'floating-menu-submenu';
-  submenu.style.display = 'none';
-
-  // 見出しボタン
-  submenu.appendChild(createBlockButton('H1', 'heading1', '見出し1'));
-  submenu.appendChild(createBlockButton('H2', 'heading2', '見出し2'));
-  submenu.appendChild(createBlockButton('H3', 'heading3', '見出し3'));
-
-  // リストボタン
-  submenu.appendChild(createBlockButton('•', 'bulletList', '箇条書きリスト'));
-  submenu.appendChild(createBlockButton('1.', 'orderedList', '番号付きリスト'));
-
-  // コードブロックボタン
-  submenu.appendChild(createBlockButton('{ }', 'codeBlock', 'コードブロック'));
-
-  // 引用ボタン
-  submenu.appendChild(createBlockButton('>', 'blockquote', '引用'));
-
-  // テーブルボタン
-  submenu.appendChild(createBlockButton('⊞', 'table', 'テーブル'));
-
-  // 水平線ボタン
-  submenu.appendChild(createBlockButton('—', 'horizontalRule', '水平線'));
-
-  menu.appendChild(submenu);
-
-  // +ボタンのクリックでサブメニューを表示/非表示
-  plusBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const isVisible = submenu.style.display !== 'none';
-    submenu.style.display = isVisible ? 'none' : 'flex';
-  });
 
   return menu;
 }
@@ -369,23 +334,6 @@ function createMenuButton(
   btn.title = title;
   btn.dataset.mark = markName;
   btn.dataset.command = _command;
-  return btn;
-}
-
-/**
- * FloatingMenu用のブロック挿入ボタンを作成
- */
-function createBlockButton(
-  label: string,
-  blockType: string,
-  title: string
-): HTMLElement {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'floating-menu-button';
-  btn.textContent = label;
-  btn.title = title;
-  btn.dataset.blockType = blockType;
   return btn;
 }
 
@@ -445,57 +393,4 @@ function updateBubbleMenuActiveState(menu: HTMLElement, editor: Editor): void {
   });
 }
 
-/**
- * FloatingMenuのボタンにイベントハンドラーを設定
- */
-function setupFloatingMenuHandlers(menu: HTMLElement, editor: Editor): void {
-  menu.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
-    const btn = target.closest('.floating-menu-button') as HTMLElement | null;
-    if (!btn) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const blockType = btn.dataset.blockType;
-    if (!blockType) return;
-
-    // ブロックを挿入
-    switch (blockType) {
-      case 'heading1':
-        editor.chain().focus().toggleHeading({ level: 1 }).run();
-        break;
-      case 'heading2':
-        editor.chain().focus().toggleHeading({ level: 2 }).run();
-        break;
-      case 'heading3':
-        editor.chain().focus().toggleHeading({ level: 3 }).run();
-        break;
-      case 'bulletList':
-        editor.chain().focus().toggleBulletList().run();
-        break;
-      case 'orderedList':
-        editor.chain().focus().toggleOrderedList().run();
-        break;
-      case 'codeBlock':
-        editor.chain().focus().toggleCodeBlock().run();
-        break;
-      case 'blockquote':
-        editor.chain().focus().toggleBlockquote().run();
-        break;
-      case 'table':
-        editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-        break;
-      case 'horizontalRule':
-        editor.chain().focus().setHorizontalRule().run();
-        break;
-    }
-
-    // サブメニューを閉じる
-    const submenu = menu.querySelector('.floating-menu-submenu') as HTMLElement | null;
-    if (submenu) {
-      submenu.style.display = 'none';
-    }
-  });
-}
 
