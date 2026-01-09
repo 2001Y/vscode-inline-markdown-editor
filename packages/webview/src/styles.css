@@ -465,6 +465,13 @@ body {
 
 /* BubbleMenu - 選択時フォーマットツールバー */
 .bubble-menu {
+  /* 初期状態: Floating UIが位置設定するまで非表示 */
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  opacity: 0;
+  /* レイアウト */
   display: flex;
   align-items: center;
   gap: 2px;
@@ -508,6 +515,13 @@ body {
 
 /* FloatingMenu - 空行メニュー（+ボタン） */
 .floating-menu {
+  /* 初期状態: Floating UIが位置設定するまで非表示 */
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  opacity: 0;
+  /* レイアウト */
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -722,5 +736,90 @@ body {
 .inline-markdown-editor-content table td.selected,
 .inline-markdown-editor-content table th.selected {
   background: var(--vscode-editor-selectionBackground);
+}
+
+/* ========================================
+   ブロックハンドル UI
+   ======================================== */
+
+/* ブロックハンドル（6点ドラッグ） */
+.block-handle {
+  position: absolute;
+  width: 20px;
+  height: 24px;
+  cursor: grab;
+  font-size: 10px;
+  letter-spacing: -2px;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.1s ease;
+  user-select: none;
+  border-radius: 3px;
+  z-index: 10;
+}
+
+.block-handle:hover {
+  opacity: 1 !important;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.block-handle:active {
+  cursor: grabbing;
+}
+
+/* ブロックコンテキストメニュー */
+.block-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  min-width: 140px;
+}
+
+.block-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.1s ease;
+}
+
+.block-context-menu-item:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.block-context-menu-item:disabled {
+  color: var(--vscode-disabledForeground);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ドロップインジケーター */
+.block-drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--vscode-focusBorder);
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* ドラッグ中のブロック */
+.is-dragging {
+  opacity: 0.5;
+  outline: 2px dashed var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 

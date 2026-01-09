@@ -46,6 +46,7 @@ import Focus from '@tiptap/extension-focus';
 import { RawBlock } from './rawBlockExtension.js';
 import { HtmlBlock } from './htmlBlockExtension.js';
 import { TableControls } from './tableControlsExtension.js';
+import { BlockHandles } from './blockHandlesExtension.js';
 import { computeDiff, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
 import type { Replace } from '../protocol/types.js';
@@ -112,6 +113,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       TableHeader,
       // テーブルUI（Notion風 + ボタン、ハンドル、コンテキストメニュー）
       TableControls,
+      // ブロックハンドル（全ブロック共通の6点ドラッグハンドル）
+      BlockHandles,
       // カスタム拡張（frontmatter, HTML ブロック）
       RawBlock,
       HtmlBlock,

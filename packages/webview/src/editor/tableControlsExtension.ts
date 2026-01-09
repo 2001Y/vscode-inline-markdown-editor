@@ -8,6 +8,15 @@
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
+import { DEBUG } from './debug.js';
+
+const MODULE = 'TableControls';
+
+// Layout constants
+const HANDLE_OFFSET = 24; // Space for row/column handles
+const HANDLE_SIZE = 20;
+const BUTTON_SIZE = 16;
+const HIDE_DELAY_MS = 150; // Delay before hiding overlay
 
 export const TableControlsPluginKey = new PluginKey('tableControls');
 
@@ -21,6 +30,7 @@ function createControlsOverlay(): HTMLElement {
     position: absolute;
     pointer-events: none;
     z-index: 50;
+    display: none;
   `;
   return overlay;
 }
@@ -28,18 +38,17 @@ function createControlsOverlay(): HTMLElement {
 /**
  * Create add row button
  */
-function createAddRowButton(rowIndex: number, position: 'before' | 'after'): HTMLElement {
+function createAddRowButton(position: 'after'): HTMLElement {
   const btn = document.createElement('button');
   btn.className = 'table-add-row-btn';
-  btn.dataset.row = String(rowIndex);
   btn.dataset.position = position;
   btn.innerHTML = '+';
-  btn.title = position === 'before' ? '上に行を追加' : '下に行を追加';
+  btn.title = '下に行を追加';
   btn.style.cssText = `
     position: absolute;
     pointer-events: auto;
-    width: 16px;
-    height: 16px;
+    width: ${BUTTON_SIZE}px;
+    height: ${BUTTON_SIZE}px;
     border: none;
     border-radius: 50%;
     background: var(--vscode-button-background);
@@ -50,8 +59,8 @@ function createAddRowButton(rowIndex: number, position: 'before' | 'after'): HTM
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
-    transition: opacity 0.15s ease;
+    opacity: 0.6;
+    transition: opacity 0.15s ease, transform 0.1s ease;
   `;
   return btn;
 }
@@ -59,18 +68,17 @@ function createAddRowButton(rowIndex: number, position: 'before' | 'after'): HTM
 /**
  * Create add column button
  */
-function createAddColumnButton(colIndex: number, position: 'before' | 'after'): HTMLElement {
+function createAddColumnButton(position: 'after'): HTMLElement {
   const btn = document.createElement('button');
   btn.className = 'table-add-col-btn';
-  btn.dataset.col = String(colIndex);
   btn.dataset.position = position;
   btn.innerHTML = '+';
-  btn.title = position === 'before' ? '左に列を追加' : '右に列を追加';
+  btn.title = '右に列を追加';
   btn.style.cssText = `
     position: absolute;
     pointer-events: auto;
-    width: 16px;
-    height: 16px;
+    width: ${BUTTON_SIZE}px;
+    height: ${BUTTON_SIZE}px;
     border: none;
     border-radius: 50%;
     background: var(--vscode-button-background);
@@ -81,8 +89,8 @@ function createAddColumnButton(colIndex: number, position: 'before' | 'after'): 
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
-    transition: opacity 0.15s ease;
+    opacity: 0.6;
+    transition: opacity 0.15s ease, transform 0.1s ease;
   `;
   return btn;
 }
@@ -99,8 +107,8 @@ function createRowHandle(rowIndex: number): HTMLElement {
   handle.style.cssText = `
     position: absolute;
     pointer-events: auto;
-    width: 16px;
-    height: 20px;
+    width: ${HANDLE_SIZE}px;
+    height: ${HANDLE_SIZE}px;
     cursor: grab;
     font-size: 10px;
     letter-spacing: -2px;
@@ -111,6 +119,7 @@ function createRowHandle(rowIndex: number): HTMLElement {
     opacity: 0;
     transition: opacity 0.15s ease;
     user-select: none;
+    border-radius: 3px;
   `;
   return handle;
 }
@@ -127,8 +136,8 @@ function createColumnHandle(colIndex: number): HTMLElement {
   handle.style.cssText = `
     position: absolute;
     pointer-events: auto;
-    width: 20px;
-    height: 16px;
+    width: ${HANDLE_SIZE}px;
+    height: ${HANDLE_SIZE}px;
     cursor: grab;
     font-size: 10px;
     letter-spacing: -2px;
@@ -139,6 +148,7 @@ function createColumnHandle(colIndex: number): HTMLElement {
     opacity: 0;
     transition: opacity 0.15s ease;
     user-select: none;
+    border-radius: 3px;
     transform: rotate(90deg);
   `;
   return handle;
@@ -200,16 +210,48 @@ export const TableControls = Extension.create<TableControlsOptions>({
     let currentTable: HTMLElement | null = null;
     let hoveredRow: number | null = null;
     let hoveredCol: number | null = null;
+    let hideTimeoutId: number | null = null;
+    let scrollContainer: HTMLElement | null = null;
+
+    const cancelHideTimeout = () => {
+      if (hideTimeoutId !== null) {
+        clearTimeout(hideTimeoutId);
+        hideTimeoutId = null;
+      }
+    };
+
+    const scheduleHide = () => {
+      cancelHideTimeout();
+      hideTimeoutId = window.setTimeout(() => {
+        if (overlay) {
+          DEBUG.log(MODULE, 'Hiding overlay (timeout)');
+          overlay.style.display = 'none';
+        }
+        currentTable = null;
+        hoveredRow = null;
+        hoveredCol = null;
+        hideTimeoutId = null;
+      }, HIDE_DELAY_MS);
+    };
+
+    const showOverlay = () => {
+      cancelHideTimeout();
+      if (overlay) {
+        overlay.style.display = 'block';
+      }
+    };
 
     const hideContextMenu = () => {
       if (contextMenu) {
         contextMenu.style.display = 'none';
+        DEBUG.log(MODULE, 'Context menu hidden');
       }
     };
 
     const showContextMenu = (x: number, y: number, type: 'row' | 'column', index: number) => {
       if (!contextMenu) return;
 
+      DEBUG.log(MODULE, 'Showing context menu', { type, index, x, y });
       contextMenu.innerHTML = '';
 
       if (type === 'row') {
@@ -228,34 +270,75 @@ export const TableControls = Extension.create<TableControlsOptions>({
         contextMenu.appendChild(createMenuItem('列を削除', `deleteCol:${index}`));
       }
 
-      contextMenu.style.left = `${x}px`;
-      contextMenu.style.top = `${y}px`;
+      // Position menu ensuring it stays in viewport
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const menuWidth = 150;
+      const menuHeight = 120;
+
+      let menuX = x;
+      let menuY = y;
+
+      if (x + menuWidth > viewportWidth) {
+        menuX = viewportWidth - menuWidth - 10;
+      }
+      if (y + menuHeight > viewportHeight) {
+        menuY = viewportHeight - menuHeight - 10;
+      }
+
+      contextMenu.style.left = `${menuX}px`;
+      contextMenu.style.top = `${menuY}px`;
       contextMenu.style.display = 'block';
     };
 
     const handleContextMenuAction = (action: string) => {
-      const [command] = action.split(':');
+      const [command, indexStr] = action.split(':');
+      const index = parseInt(indexStr, 10);
+      DEBUG.log(MODULE, 'Context menu action', { command, index });
 
-      switch (command) {
-        case 'addRowBefore':
-          editor.chain().focus().addRowBefore().run();
-          break;
-        case 'addRowAfter':
-          editor.chain().focus().addRowAfter().run();
-          break;
-        case 'deleteRow':
-          editor.chain().focus().deleteRow().run();
-          break;
-        case 'addColBefore':
-          editor.chain().focus().addColumnBefore().run();
-          break;
-        case 'addColAfter':
-          editor.chain().focus().addColumnAfter().run();
-          break;
-        case 'deleteCol':
-          editor.chain().focus().deleteColumn().run();
-          break;
+      // First, select the appropriate cell in the target row/column
+      if (currentTable) {
+        const rows = currentTable.querySelectorAll('tr');
+        if (command.includes('Row') && rows[index]) {
+          const firstCell = rows[index].querySelector('td, th');
+          if (firstCell) {
+            // Click to focus the cell
+            (firstCell as HTMLElement).click();
+          }
+        } else if (command.includes('Col')) {
+          const firstRow = rows[0];
+          if (firstRow) {
+            const cells = firstRow.querySelectorAll('td, th');
+            if (cells[index]) {
+              (cells[index] as HTMLElement).click();
+            }
+          }
+        }
       }
+
+      // Execute the command
+      setTimeout(() => {
+        switch (command) {
+          case 'addRowBefore':
+            editor.chain().focus().addRowBefore().run();
+            break;
+          case 'addRowAfter':
+            editor.chain().focus().addRowAfter().run();
+            break;
+          case 'deleteRow':
+            editor.chain().focus().deleteRow().run();
+            break;
+          case 'addColBefore':
+            editor.chain().focus().addColumnBefore().run();
+            break;
+          case 'addColAfter':
+            editor.chain().focus().addColumnAfter().run();
+            break;
+          case 'deleteCol':
+            editor.chain().focus().deleteColumn().run();
+            break;
+        }
+      }, 10);
 
       hideContextMenu();
     };
@@ -263,17 +346,30 @@ export const TableControls = Extension.create<TableControlsOptions>({
     const updateControls = (view: EditorView) => {
       if (!overlay || !currentTable) return;
 
-      // Store in local const for TypeScript narrowing
       const overlayEl = overlay;
       const tableElement = currentTable;
       const tableRect = tableElement.getBoundingClientRect();
-      const editorRect = view.dom.getBoundingClientRect();
 
-      // Position overlay relative to the table
-      overlayEl.style.left = `${tableRect.left - editorRect.left - 24}px`;
-      overlayEl.style.top = `${tableRect.top - editorRect.top - 20}px`;
-      overlayEl.style.width = `${tableRect.width + 48}px`;
-      overlayEl.style.height = `${tableRect.height + 40}px`;
+      // Get the editor container (which is the scroll container)
+      const editorContainer = view.dom.closest('.editor-container') as HTMLElement;
+      if (!editorContainer) {
+        DEBUG.warn(MODULE, 'Editor container not found');
+        return;
+      }
+      const containerRect = editorContainer.getBoundingClientRect();
+
+      // Calculate position relative to the editor container
+      const left = tableRect.left - containerRect.left + editorContainer.scrollLeft - HANDLE_OFFSET;
+      const top = tableRect.top - containerRect.top + editorContainer.scrollTop - HANDLE_OFFSET;
+
+      overlayEl.style.left = `${left}px`;
+      overlayEl.style.top = `${top}px`;
+      overlayEl.style.width = `${tableRect.width + HANDLE_OFFSET * 2}px`;
+      overlayEl.style.height = `${tableRect.height + HANDLE_OFFSET * 2}px`;
+
+      DEBUG.log(MODULE, 'Updated overlay position', {
+        left, top, width: tableRect.width, height: tableRect.height
+      });
 
       // Clear existing controls
       overlayEl.innerHTML = '';
@@ -285,60 +381,71 @@ export const TableControls = Extension.create<TableControlsOptions>({
       // Add row controls (left side)
       rows.forEach((row, rowIndex) => {
         const rowRect = row.getBoundingClientRect();
-        const y = rowRect.top - tableRect.top + rowRect.height / 2;
+        const y = rowRect.top - tableRect.top + rowRect.height / 2 - HANDLE_SIZE / 2 + HANDLE_OFFSET;
 
         // Row handle (6-dot)
         const handle = createRowHandle(rowIndex);
-        handle.style.left = '0px';
-        handle.style.top = `${y + 20 - 10}px`;
+        handle.style.left = `${(HANDLE_OFFSET - HANDLE_SIZE) / 2}px`;
+        handle.style.top = `${y}px`;
         if (hoveredRow === rowIndex) {
           handle.style.opacity = '1';
         }
         overlayEl.appendChild(handle);
-
-        // Add row button (bottom edge)
-        if (rowIndex === rows.length - 1) {
-          const addBtn = createAddRowButton(rowIndex, 'after');
-          addBtn.style.left = `${tableRect.width / 2 + 24 - 8}px`;
-          addBtn.style.top = `${y + rowRect.height / 2 + 20 + 2}px`;
-          addBtn.style.opacity = '0.7';
-          overlayEl.appendChild(addBtn);
-        }
       });
+
+      // Add row button (bottom center)
+      if (rows.length > 0) {
+        const addRowBtn = createAddRowButton('after');
+        addRowBtn.style.left = `${tableRect.width / 2 + HANDLE_OFFSET - BUTTON_SIZE / 2}px`;
+        addRowBtn.style.top = `${tableRect.height + HANDLE_OFFSET + 2}px`;
+        overlayEl.appendChild(addRowBtn);
+      }
 
       // Add column controls (top side)
       cells.forEach((cell, colIndex) => {
         const cellRect = cell.getBoundingClientRect();
-        const x = cellRect.left - tableRect.left + cellRect.width / 2;
+        const x = cellRect.left - tableRect.left + cellRect.width / 2 - HANDLE_SIZE / 2 + HANDLE_OFFSET;
 
         // Column handle (6-dot)
         const handle = createColumnHandle(colIndex);
-        handle.style.left = `${x + 24 - 10}px`;
-        handle.style.top = '0px';
+        handle.style.left = `${x}px`;
+        handle.style.top = `${(HANDLE_OFFSET - HANDLE_SIZE) / 2}px`;
         if (hoveredCol === colIndex) {
           handle.style.opacity = '1';
         }
         overlayEl.appendChild(handle);
-
-        // Add column button (right edge)
-        if (colIndex === cells.length - 1) {
-          const addBtn = createAddColumnButton(colIndex, 'after');
-          addBtn.style.left = `${cellRect.right - tableRect.left + 24 + 2}px`;
-          addBtn.style.top = `${tableRect.height / 2 + 20 - 8}px`;
-          addBtn.style.opacity = '0.7';
-          overlayEl.appendChild(addBtn);
-        }
       });
+
+      // Add column button (right center)
+      if (cells.length > 0) {
+        const addColBtn = createAddColumnButton('after');
+        addColBtn.style.left = `${tableRect.width + HANDLE_OFFSET + 2}px`;
+        addColBtn.style.top = `${tableRect.height / 2 + HANDLE_OFFSET - BUTTON_SIZE / 2}px`;
+        overlayEl.appendChild(addColBtn);
+      }
     };
 
     return [
       new Plugin({
         key: TableControlsPluginKey,
         view(view) {
+          DEBUG.log(MODULE, 'Plugin initialized');
+
+          // Find scroll container
+          scrollContainer = view.dom.closest('.editor-container') as HTMLElement;
+          if (!scrollContainer) {
+            DEBUG.warn(MODULE, 'Scroll container not found');
+          }
+
           // Create overlay
           overlay = createControlsOverlay();
-          overlay.style.display = 'none';
-          view.dom.parentElement?.appendChild(overlay);
+          // Append to editor container (not view.dom.parentElement) for proper positioning
+          if (scrollContainer) {
+            scrollContainer.style.position = 'relative'; // Ensure positioning context
+            scrollContainer.appendChild(overlay);
+          } else {
+            view.dom.parentElement?.appendChild(overlay);
+          }
 
           // Create context menu
           contextMenu = createContextMenu();
@@ -349,38 +456,48 @@ export const TableControls = Extension.create<TableControlsOptions>({
             const target = e.target as HTMLElement;
             const table = target.closest('table');
 
-            if (table && overlay) {
+            if (table) {
+              if (currentTable !== table) {
+                DEBUG.log(MODULE, 'Mouse entered table');
+              }
               currentTable = table;
-              overlay.style.display = 'block';
+              showOverlay();
 
               // Detect hovered row/col
               const cell = target.closest('td, th');
               if (cell) {
                 const row = cell.closest('tr');
-                if (row && row.parentElement) {
-                  const rows = Array.from(row.parentElement.querySelectorAll('tr'));
-                  hoveredRow = rows.indexOf(row);
-
-                  const cells = Array.from(row.querySelectorAll('td, th'));
-                  hoveredCol = cells.indexOf(cell);
+                if (row) {
+                  const tbody = row.parentElement;
+                  if (tbody) {
+                    const allRows = Array.from(tbody.querySelectorAll('tr'));
+                    hoveredRow = allRows.indexOf(row);
+                    const rowCells = Array.from(row.querySelectorAll('td, th'));
+                    hoveredCol = rowCells.indexOf(cell);
+                  }
                 }
               }
 
               updateControls(view);
-            } else if (!target.closest('.table-controls-overlay') && !target.closest('.table-context-menu')) {
-              if (overlay) {
-                overlay.style.display = 'none';
-              }
-              currentTable = null;
-              hoveredRow = null;
-              hoveredCol = null;
+            } else if (target.closest('.table-controls-overlay')) {
+              // Mouse is on overlay - keep showing
+              showOverlay();
+            } else if (!target.closest('.table-context-menu')) {
+              // Mouse left table and overlay - schedule hide
+              scheduleHide();
             }
+          };
+
+          const onOverlayMouseEnter = () => {
+            cancelHideTimeout();
+          };
+
+          const onOverlayMouseLeave = () => {
+            scheduleHide();
           };
 
           const onOverlayMouseOver = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
-
-            // Show handles/buttons on hover
             if (target.classList.contains('table-row-handle') ||
                 target.classList.contains('table-col-handle') ||
                 target.classList.contains('table-add-row-btn') ||
@@ -391,40 +508,46 @@ export const TableControls = Extension.create<TableControlsOptions>({
 
           const onOverlayMouseOut = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
-
-            // Hide handles/buttons unless hovered
             if (target.classList.contains('table-row-handle') ||
                 target.classList.contains('table-col-handle')) {
-              const row = target.dataset.row;
-              const col = target.dataset.col;
-              if ((row !== undefined && parseInt(row, 10) !== hoveredRow) ||
-                  (col !== undefined && parseInt(col, 10) !== hoveredCol)) {
-                target.style.opacity = '0';
-              }
+              target.style.opacity = '0';
             }
           };
 
           const onOverlayClick = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
 
-            // Handle add row/column buttons
             if (target.classList.contains('table-add-row-btn')) {
               e.preventDefault();
               e.stopPropagation();
-              const position = target.dataset.position;
-              if (position === 'before') {
-                editor.chain().focus().addRowBefore().run();
-              } else {
-                editor.chain().focus().addRowAfter().run();
+              DEBUG.log(MODULE, 'Add row button clicked');
+
+              // Click into the last cell to ensure we're in the table
+              if (currentTable) {
+                const lastRow = currentTable.querySelector('tr:last-child');
+                const lastCell = lastRow?.querySelector('td, th');
+                if (lastCell) {
+                  (lastCell as HTMLElement).click();
+                  setTimeout(() => {
+                    editor.chain().focus().addRowAfter().run();
+                  }, 10);
+                }
               }
             } else if (target.classList.contains('table-add-col-btn')) {
               e.preventDefault();
               e.stopPropagation();
-              const position = target.dataset.position;
-              if (position === 'before') {
-                editor.chain().focus().addColumnBefore().run();
-              } else {
-                editor.chain().focus().addColumnAfter().run();
+              DEBUG.log(MODULE, 'Add column button clicked');
+
+              // Click into the last column to ensure we're in the table
+              if (currentTable) {
+                const firstRow = currentTable.querySelector('tr');
+                const lastCell = firstRow?.querySelector('td:last-child, th:last-child');
+                if (lastCell) {
+                  (lastCell as HTMLElement).click();
+                  setTimeout(() => {
+                    editor.chain().focus().addColumnAfter().run();
+                  }, 10);
+                }
               }
             }
           };
@@ -432,11 +555,9 @@ export const TableControls = Extension.create<TableControlsOptions>({
           const onOverlayContextMenu = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
 
-            // Handle right-click on handles
             if (target.classList.contains('table-row-handle')) {
               e.preventDefault();
               const rowIndex = parseInt(target.dataset.row || '0', 10);
-              // Select the row first
               showContextMenu(e.clientX, e.clientY, 'row', rowIndex);
             } else if (target.classList.contains('table-col-handle')) {
               e.preventDefault();
@@ -464,14 +585,24 @@ export const TableControls = Extension.create<TableControlsOptions>({
             }
           };
 
+          const onScroll = () => {
+            if (currentTable && overlay?.style.display !== 'none') {
+              DEBUG.log(MODULE, 'Scroll event - updating controls');
+              updateControls(view);
+            }
+          };
+
           // Add event listeners
           view.dom.addEventListener('mousemove', onMouseMove);
+          overlay?.addEventListener('mouseenter', onOverlayMouseEnter);
+          overlay?.addEventListener('mouseleave', onOverlayMouseLeave);
           overlay?.addEventListener('mouseover', onOverlayMouseOver);
           overlay?.addEventListener('mouseout', onOverlayMouseOut);
           overlay?.addEventListener('click', onOverlayClick);
           overlay?.addEventListener('contextmenu', onOverlayContextMenu);
           contextMenu?.addEventListener('click', onContextMenuClick);
           document.addEventListener('click', onDocumentClick);
+          scrollContainer?.addEventListener('scroll', onScroll);
 
           return {
             update(view) {
@@ -480,13 +611,18 @@ export const TableControls = Extension.create<TableControlsOptions>({
               }
             },
             destroy() {
+              DEBUG.log(MODULE, 'Plugin destroyed');
+              cancelHideTimeout();
               view.dom.removeEventListener('mousemove', onMouseMove);
+              overlay?.removeEventListener('mouseenter', onOverlayMouseEnter);
+              overlay?.removeEventListener('mouseleave', onOverlayMouseLeave);
               overlay?.removeEventListener('mouseover', onOverlayMouseOver);
               overlay?.removeEventListener('mouseout', onOverlayMouseOut);
               overlay?.removeEventListener('click', onOverlayClick);
               overlay?.removeEventListener('contextmenu', onOverlayContextMenu);
               contextMenu?.removeEventListener('click', onContextMenuClick);
               document.removeEventListener('click', onDocumentClick);
+              scrollContainer?.removeEventListener('scroll', onScroll);
               overlay?.remove();
               contextMenu?.remove();
             },
