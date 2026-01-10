@@ -6,6 +6,8 @@
   "command.reopenWithTextEditor.title": "使用文本编辑器重新打开",
   "command.applyRequiredSettings.title": "应用必需的 Markdown 设置 (G5)",
   "command.exportLogs.title": "导出日志",
+  "command.indentListItem.title": "列表缩进",
+  "command.outdentListItem.title": "列表取消缩进",
   "configuration.title": "inlineMark",
   "configuration.sync.debounceMs.description": "发送编辑到文档前的防抖延迟（毫秒）",
   "configuration.sync.timeoutMs.description": "等待 ack/nack 响应的超时时间（毫秒）",

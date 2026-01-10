@@ -10,17 +10,54 @@
  */
 
 import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey } from 'prosemirror-state';
-import type { EditorView } from 'prosemirror-view';
+import { Plugin, PluginKey, Selection } from 'prosemirror-state';
+import type { Node as ProseMirrorNode } from 'prosemirror-model';
+import { TableMap, cellAround, findTable, moveTableColumn, moveTableRow } from '@tiptap/pm/tables';
 import { t } from './i18n.js';
 import { DEBUG } from './debug.js';
 import { icons } from './icons.js';
+import { closeMenu, openMenu, registerMenu } from './menuManager.js';
 
 const MODULE = 'TableControls';
 
+const logInfo = (msg: string, data?: Record<string, unknown>): void => {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
+  } else {
+    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
+  }
+};
+
+const logSuccess = (msg: string, data?: Record<string, unknown>): void => {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`, data);
+  } else {
+    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`);
+  }
+};
+
+const logWarning = (msg: string, data?: Record<string, unknown>): void => {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
+  } else {
+    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
+  }
+};
+
+const logError = (msg: string, data?: Record<string, unknown>): void => {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`, data);
+  } else {
+    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`);
+  }
+};
+
 export const TableControlsPluginKey = new PluginKey('tableControls');
 
-const HIDE_DELAY_MS = 150;
 const ROW_HANDLE_WIDTH = 20;
 const COL_HANDLE_HEIGHT = 16;
 
@@ -64,116 +101,264 @@ export const TableControls = Extension.create({
           let activeTable: HTMLTableElement | null = null;
           let activeRowIndex: number | null = null;
           let activeColIndex: number | null = null;
-          let hideTimeout: number | null = null;
+          let activeCellPos: number | null = null;
+          let activeCell: HTMLElement | null = null;
           let isDraggingRow = false;
           let isDraggingCol = false;
-          let dragSourceRowIndex: number | null = null;
-          let dragSourceColIndex: number | null = null;
+          let dragState: {
+            axis: 'row' | 'col';
+            anchorCellPos: number;
+            tablePos: number;
+            tableStart: number;
+            tableNode: ProseMirrorNode;
+            map: TableMap;
+            fromIndex: number;
+            previewBoundary: number | null;
+            handle: HTMLElement;
+            startedAt: number;
+          } | null = null;
+          let activePointerId: number | null = null;
+          let hideTimeoutId: number | null = null;
+          const HIDE_DELAY_MS = 150;
 
-          // Cancel scheduled hide
-          const cancelHideTimeout = () => {
-            if (hideTimeout !== null) {
-              clearTimeout(hideTimeout);
-              hideTimeout = null;
+          /**
+           * Resolve cell info from DOM element (hover-based)
+           */
+          const resolveCellFromDOM = (cellDom: HTMLElement, table: HTMLTableElement) => {
+            const row = cellDom.closest('tr') as HTMLTableRowElement | null;
+            if (!row) return null;
+
+            const rows = Array.from(table.querySelectorAll('tr'));
+            const rowIndex = rows.indexOf(row);
+            if (rowIndex < 0) return null;
+
+            const cells = Array.from(row.querySelectorAll('th, td'));
+            const colIndex = cells.indexOf(cellDom);
+            if (colIndex < 0) return null;
+
+            // Get ProseMirror position for the cell
+            const cellStartPos = resolveCellStartPosFromDom(cellDom);
+
+            return {
+              table,
+              rowIndex,
+              colIndex,
+              cellDom,
+              cellStartPos,
+              cellInsidePos: cellStartPos === null ? null : cellStartPos + 1,
+            };
+          };
+
+          const resolveCellStartPosFromDom = (cellDom: HTMLElement): number | null => {
+            try {
+              const pos = view.posAtDOM(cellDom, 0);
+              if (pos < 0) return null;
+              const $pos = view.state.doc.resolve(pos);
+              const $cell = cellAround($pos);
+              if (!$cell) {
+                return null;
+              }
+              return $cell.pos;
+            } catch (err) {
+              DEBUG.error(MODULE, 'Cell start position resolve failed', err);
+              logError('Cell start position resolve failed');
+              return null;
             }
           };
 
-          // Schedule hide with delay (prevents flicker)
+          const resolveCellInsidePosFromDom = (cellDom: HTMLElement): number | null => {
+            const startPos = resolveCellStartPosFromDom(cellDom);
+            if (startPos === null) return null;
+            return startPos + 1;
+          };
+
+          const resolveTextSelectionInCell = (cellPos: number): Selection | null => {
+            const $pos = view.state.doc.resolve(cellPos);
+            return Selection.findFrom($pos, 1, true) ?? Selection.findFrom($pos, -1, true);
+          };
+
+          const focusCellSelection = (cellPos: number): boolean => {
+            const selection = resolveTextSelectionInCell(cellPos);
+            if (!selection) {
+              DEBUG.error(MODULE, 'Cell selection resolve failed', { cellPos });
+              logError('Cell selection resolve failed', { cellPos });
+              return false;
+            }
+            view.dispatch(view.state.tr.setSelection(selection));
+            return true;
+          };
+
+          const resolveCellPosFromRow = (table: HTMLTableElement, rowIndex: number): number | null => {
+            const rows = table.querySelectorAll('tr');
+            const row = rows[rowIndex] as HTMLTableRowElement | undefined;
+            if (!row) return null;
+            const cell = row.querySelector('td, th') as HTMLElement | null;
+            if (!cell) return null;
+            return resolveCellStartPosFromDom(cell);
+          };
+
+          const resolveCellPosFromCol = (table: HTMLTableElement, colIndex: number): number | null => {
+            const firstRow = table.querySelector('tr') as HTMLTableRowElement | null;
+            if (!firstRow) return null;
+            const cells = firstRow.querySelectorAll('td, th');
+            const cell = cells[colIndex] as HTMLElement | undefined;
+            if (!cell) return null;
+            return resolveCellStartPosFromDom(cell);
+          };
+
+          const cancelHideTimeout = () => {
+            if (hideTimeoutId !== null) {
+              clearTimeout(hideTimeoutId);
+              hideTimeoutId = null;
+            }
+          };
+
           const scheduleHide = () => {
             cancelHideTimeout();
-            hideTimeout = window.setTimeout(() => {
-              DEBUG.log(MODULE, 'Scheduled hide executing');
+            hideTimeoutId = window.setTimeout(() => {
               if (!isDraggingRow && !isDraggingCol) {
-                addRowBtn.classList.remove('is-visible');
-                addColBtn.classList.remove('is-visible');
-                rowHandlesContainer.classList.remove('is-visible');
-                colHandlesContainer.classList.remove('is-visible');
-                activeTable = null;
+                hideControls();
               }
-              hideTimeout = null;
             }, HIDE_DELAY_MS);
           };
 
-          // Update button positions based on table bounding rect
-          const updateButtonPositions = (table: HTMLTableElement) => {
-            const rect = table.getBoundingClientRect();
-
-            // Row button: below table, horizontally centered
-            const rowBtnX = rect.left + rect.width / 2 - 10; // 10 = half button width
-            const rowBtnY = rect.bottom + 4;
+          const updateButtonPositions = (tableRect: DOMRect) => {
+            const rowBtnX = tableRect.left;
+            const rowBtnY = tableRect.bottom + 4;
             addRowBtn.style.setProperty('--btn-x', `${rowBtnX}px`);
             addRowBtn.style.setProperty('--btn-y', `${rowBtnY}px`);
+            addRowBtn.style.setProperty('--btn-w', `${tableRect.width}px`);
+            addRowBtn.style.setProperty('--btn-h', '18px');
 
-            // Column button: right of table, vertically centered
-            const colBtnX = rect.right + 4;
-            const colBtnY = rect.top + rect.height / 2 - 10;
+            const colBtnX = tableRect.right + 4;
+            const colBtnY = tableRect.top;
             addColBtn.style.setProperty('--btn-x', `${colBtnX}px`);
             addColBtn.style.setProperty('--btn-y', `${colBtnY}px`);
+            addColBtn.style.setProperty('--btn-w', '18px');
+            addColBtn.style.setProperty('--btn-h', `${tableRect.height}px`);
           };
 
-          // Update row handles positions and count
-          const updateRowHandles = (table: HTMLTableElement) => {
-            const rows = table.querySelectorAll('tr');
-            const tableRect = table.getBoundingClientRect();
-
-            // Clear existing handles
+          const updateRowHandles = (table: HTMLTableElement, rowIndex: number | null) => {
             rowHandlesContainer.innerHTML = '';
 
-            // Create handle for each row
-            rows.forEach((row, index) => {
-              const rowRect = row.getBoundingClientRect();
-              const handle = createRowHandle(index);
+            if (rowIndex === null) {
+              rowHandlesContainer.classList.remove('is-visible');
+              return;
+            }
 
-              // Position handle to the left of the row
-              const handleX = tableRect.left - ROW_HANDLE_WIDTH - 4;
-              const handleY = rowRect.top + (rowRect.height - 20) / 2;
+            const rows = table.querySelectorAll('tr');
+            const row = rows[rowIndex];
+            if (!row) {
+              rowHandlesContainer.classList.remove('is-visible');
+              return;
+            }
 
-              handle.style.setProperty('--handle-x', `${handleX}px`);
-              handle.style.setProperty('--handle-y', `${handleY}px`);
+            const tableRect = table.getBoundingClientRect();
+            const rowRect = row.getBoundingClientRect();
+            const cellPos = resolveCellPosFromRow(table, rowIndex);
+            if (cellPos === null) {
+              DEBUG.error(MODULE, 'Row handle cell pos missing', { rowIndex });
+              logError('Row handle cell pos missing', { rowIndex });
+              rowHandlesContainer.classList.remove('is-visible');
+              return;
+            }
+            const handle = createRowHandle(rowIndex, cellPos);
+            handle.addEventListener('pointerenter', onControlsMouseEnter);
+            handle.addEventListener('pointerleave', onControlsMouseLeave);
 
-              rowHandlesContainer.appendChild(handle);
-            });
+            const handleX = tableRect.left - ROW_HANDLE_WIDTH - 4;
+            const handleY = rowRect.top + (rowRect.height - 20) / 2;
+
+            handle.style.setProperty('--handle-x', `${handleX}px`);
+            handle.style.setProperty('--handle-y', `${handleY}px`);
+
+            rowHandlesContainer.appendChild(handle);
+            rowHandlesContainer.classList.add('is-visible');
           };
 
-          // Update column handles positions and count
-          const updateColHandles = (table: HTMLTableElement) => {
-            const firstRow = table.querySelector('tr');
-            if (!firstRow) return;
-
-            const cells = firstRow.querySelectorAll('th, td');
-            const tableRect = table.getBoundingClientRect();
-
-            // Clear existing handles
+          const updateColHandles = (tableRect: DOMRect, cellRect: DOMRect, colIndex: number | null) => {
             colHandlesContainer.innerHTML = '';
 
-            // Create handle for each column
-            cells.forEach((cell, index) => {
-              const cellRect = cell.getBoundingClientRect();
-              const handle = createColHandle(index);
+            if (colIndex === null) {
+              colHandlesContainer.classList.remove('is-visible');
+              return;
+            }
 
-              // Position handle above the column
-              const handleX = cellRect.left + (cellRect.width - 24) / 2;
-              const handleY = tableRect.top - COL_HANDLE_HEIGHT - 4;
+            if (!activeTable) {
+              colHandlesContainer.classList.remove('is-visible');
+              return;
+            }
+            const cellPos = resolveCellPosFromCol(activeTable, colIndex);
+            if (cellPos === null) {
+              DEBUG.error(MODULE, 'Column handle cell pos missing', { colIndex });
+              logError('Column handle cell pos missing', { colIndex });
+              colHandlesContainer.classList.remove('is-visible');
+              return;
+            }
+            const handle = createColHandle(colIndex, cellPos);
+            handle.addEventListener('pointerenter', onControlsMouseEnter);
+            handle.addEventListener('pointerleave', onControlsMouseLeave);
+            const handleX = cellRect.left + (cellRect.width - 24) / 2;
+            const handleY = tableRect.top - COL_HANDLE_HEIGHT - 4;
 
-              handle.style.setProperty('--handle-x', `${handleX}px`);
-              handle.style.setProperty('--handle-y', `${handleY}px`);
+            handle.style.setProperty('--handle-x', `${handleX}px`);
+            handle.style.setProperty('--handle-y', `${handleY}px`);
 
-              colHandlesContainer.appendChild(handle);
-            });
+            colHandlesContainer.appendChild(handle);
+            colHandlesContainer.classList.add('is-visible');
           };
 
-          // Show controls for a table
-          const showControls = (table: HTMLTableElement) => {
-            cancelHideTimeout();
-            activeTable = table;
-            updateButtonPositions(table);
-            updateRowHandles(table);
-            updateColHandles(table);
+          const showControls = () => {
             addRowBtn.classList.add('is-visible');
             addColBtn.classList.add('is-visible');
-            rowHandlesContainer.classList.add('is-visible');
-            colHandlesContainer.classList.add('is-visible');
-            DEBUG.log(MODULE, 'Controls shown for table');
+          };
+
+          const hideControls = () => {
+            addRowBtn.classList.remove('is-visible');
+            addColBtn.classList.remove('is-visible');
+            rowHandlesContainer.classList.remove('is-visible');
+            colHandlesContainer.classList.remove('is-visible');
+            activeTable = null;
+            activeRowIndex = null;
+            activeColIndex = null;
+            activeCellPos = null;
+            activeCell = null;
+          };
+
+          /**
+           * Update controls based on hover position (primary method)
+           */
+          const updateControlsFromHover = (cellDom: HTMLElement, table: HTMLTableElement) => {
+            const cellInfo = resolveCellFromDOM(cellDom, table);
+            if (!cellInfo) {
+              DEBUG.warn(MODULE, 'Could not resolve cell info from DOM');
+              return;
+            }
+
+            const { rowIndex, colIndex, cellStartPos, cellInsidePos } = cellInfo;
+            const tableRect = table.getBoundingClientRect();
+            const cellRect = cellDom.getBoundingClientRect();
+
+            activeTable = table;
+            activeRowIndex = rowIndex;
+            activeColIndex = colIndex;
+            activeCell = cellDom;
+
+            // Use the cell position from DOM, or fall back to trying selection-based
+            if (cellStartPos === null || cellInsidePos === null) {
+              DEBUG.error(MODULE, 'Cell position not resolved from hover');
+              logError('Cell position not resolved from hover');
+              hideControls();
+              return;
+            }
+            activeCellPos = cellInsidePos;
+
+            updateButtonPositions(tableRect);
+            updateRowHandles(table, rowIndex);
+            updateColHandles(tableRect, cellRect, colIndex);
+            showControls();
+
+            DEBUG.log(MODULE, 'Controls updated from hover', { rowIndex, colIndex, cellPos: activeCellPos });
           };
 
           // Context menu handlers
@@ -202,12 +387,16 @@ export const TableControls = Extension.create({
             contextMenu.style.setProperty('--menu-x', `${menuX}px`);
             contextMenu.style.setProperty('--menu-y', `${menuY}px`);
             contextMenu.classList.add('is-visible');
+            openMenu('tableContext');
             DEBUG.log(MODULE, 'Context menu shown', { x: menuX, y: menuY, type });
           };
 
           const hideContextMenu = () => {
             contextMenu.classList.remove('is-visible');
+            closeMenu('tableContext', { skipHide: true });
           };
+
+          registerMenu('tableContext', hideContextMenu);
 
           const handleMenuAction = (action: string) => {
             if (!activeTable) return;
@@ -254,373 +443,306 @@ export const TableControls = Extension.create({
             hideContextMenu();
           };
 
+          const resolveEdgeCellPos = (table: HTMLTableElement, edge: 'row' | 'col'): number | null => {
+            const rows = Array.from(table.querySelectorAll('tr'));
+            if (rows.length === 0) return null;
+
+            if (edge === 'row') {
+              const lastRow = rows[rows.length - 1];
+              const cells = Array.from(lastRow.querySelectorAll('td, th'));
+              const lastCell = cells[cells.length - 1] as HTMLElement | undefined;
+              if (!lastCell) return null;
+              return resolveCellInsidePosFromDom(lastCell);
+            }
+
+            const firstRow = rows[0];
+            const firstRowCells = Array.from(firstRow.querySelectorAll('td, th'));
+            const lastCell = firstRowCells[firstRowCells.length - 1] as HTMLElement | undefined;
+            if (!lastCell) return null;
+            return resolveCellInsidePosFromDom(lastCell);
+          };
+
+          const clampBoundary = (value: number, max: number): number => {
+            if (value < 0) return 0;
+            if (value > max) return max;
+            return value;
+          };
+
+          const updateDropIndicator = (axis: 'row' | 'col', boundary: number) => {
+            if (!dragState) return;
+            const tableDom = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
+            if (!tableDom) {
+              DEBUG.error(MODULE, 'Drop indicator failed: table DOM missing');
+              logError('Drop indicator failed: table DOM missing', { tablePos: dragState.tablePos });
+              return;
+            }
+
+            const rect = tableDom.getBoundingClientRect();
+
+            if (axis === 'row') {
+              let y = rect.top;
+              if (boundary <= 0) {
+                y = rect.top;
+              } else if (boundary >= dragState.map.height) {
+                y = rect.bottom;
+              } else {
+                const cellPos = dragState.tableStart + dragState.map.positionAt(boundary, 0, dragState.tableNode);
+                const cellDom = view.nodeDOM(cellPos) as HTMLElement | null;
+                if (!cellDom) {
+                  DEBUG.error(MODULE, 'Drop indicator failed: row cell DOM missing', { boundary });
+                  logError('Drop indicator failed: row cell DOM missing', { boundary });
+                  return;
+                }
+                y = cellDom.getBoundingClientRect().top;
+              }
+
+              rowDropIndicator.style.setProperty('--indicator-x', `${rect.left}px`);
+              rowDropIndicator.style.setProperty('--indicator-y', `${y}px`);
+              rowDropIndicator.style.setProperty('--indicator-width', `${rect.width}px`);
+              rowDropIndicator.classList.add('is-visible');
+              colDropIndicator.classList.remove('is-visible');
+              return;
+            }
+
+            let x = rect.left;
+            if (boundary <= 0) {
+              x = rect.left;
+            } else if (boundary >= dragState.map.width) {
+              x = rect.right;
+            } else {
+              const cellPos = dragState.tableStart + dragState.map.positionAt(0, boundary, dragState.tableNode);
+              const cellDom = view.nodeDOM(cellPos) as HTMLElement | null;
+              if (!cellDom) {
+                DEBUG.error(MODULE, 'Drop indicator failed: column cell DOM missing', { boundary });
+                logError('Drop indicator failed: column cell DOM missing', { boundary });
+                return;
+              }
+              x = cellDom.getBoundingClientRect().left;
+            }
+
+            colDropIndicator.style.setProperty('--indicator-x', `${x}px`);
+            colDropIndicator.style.setProperty('--indicator-y', `${rect.top}px`);
+            colDropIndicator.style.setProperty('--indicator-height', `${rect.height}px`);
+            colDropIndicator.classList.add('is-visible');
+            rowDropIndicator.classList.remove('is-visible');
+          };
+
+          const clearDragState = () => {
+            if (dragState && activePointerId !== null) {
+              try {
+                dragState.handle.releasePointerCapture(activePointerId);
+              } catch {
+                // ignore
+              }
+            }
+            dragState = null;
+            activePointerId = null;
+            isDraggingRow = false;
+            isDraggingCol = false;
+            rowDropIndicator.classList.remove('is-visible');
+            colDropIndicator.classList.remove('is-visible');
+          };
+
+          const startPointerDrag = (axis: 'row' | 'col', anchorCellPos: number, handle: HTMLElement, pointerId: number) => {
+            const $cell = view.state.doc.resolve(anchorCellPos);
+            const table = findTable($cell);
+            if (!table) {
+              DEBUG.error(MODULE, 'Table drag start failed: table not found');
+              logError('Table drag start failed: table not found', { axis, anchorCellPos });
+              return;
+            }
+            const tableDom = view.nodeDOM(table.pos) as HTMLTableElement | null;
+            if (!tableDom) {
+              DEBUG.error(MODULE, 'Table drag start failed: table DOM missing');
+              logError('Table drag start failed: table DOM missing', { axis, anchorCellPos, tablePos: table.pos });
+              return;
+            }
+
+            const map = TableMap.get(table.node);
+            const cellOffset = anchorCellPos - table.start;
+            if (cellOffset < 0) {
+              DEBUG.error(MODULE, 'Table drag start failed: invalid cell offset', { anchorCellPos, tableStart: table.start });
+              logError('Table drag start failed: invalid cell offset', { axis, anchorCellPos, tableStart: table.start });
+              return;
+            }
+            const rect = map.findCell(cellOffset);
+            const fromIndex = axis === 'row' ? rect.top : rect.left;
+
+            dragState = {
+              axis,
+              anchorCellPos,
+              tablePos: table.pos,
+              tableStart: table.start,
+              tableNode: table.node,
+              map,
+              fromIndex,
+              previewBoundary: fromIndex,
+              handle,
+              startedAt: Date.now(),
+            };
+            activePointerId = pointerId;
+            handle.setPointerCapture(pointerId);
+
+            activeTable = tableDom;
+            activeCellPos = anchorCellPos;
+            isDraggingRow = axis === 'row';
+            isDraggingCol = axis === 'col';
+
+            updateDropIndicator(axis, fromIndex);
+            logInfo('Table drag started', { axis, fromIndex, anchorCellPos });
+            DEBUG.log(MODULE, 'Table drag started', { axis, fromIndex });
+          };
+
+          const updatePointerDrag = (e: PointerEvent) => {
+            if (!dragState || activePointerId !== e.pointerId) return;
+
+            const coords = view.posAtCoords({ left: e.clientX, top: e.clientY });
+            let boundary: number | null = null;
+
+            if (coords) {
+              const $pos = view.state.doc.resolve(coords.pos);
+              const $cell = cellAround($pos);
+              if ($cell) {
+                const table = findTable($cell);
+                if (table && table.pos === dragState.tablePos) {
+                  const rect = dragState.map.findCell($cell.pos - table.start);
+                  const cellStart = table.start + dragState.map.positionAt(rect.top, rect.left, table.node);
+                  const cellDom = view.nodeDOM(cellStart) as HTMLElement | null;
+                  if (!cellDom) {
+                    DEBUG.error(MODULE, 'Table drag update failed: cell DOM missing');
+                    logError('Table drag update failed: cell DOM missing', {
+                      axis: dragState.axis,
+                      row: rect.top,
+                      col: rect.left,
+                    });
+                    clearDragState();
+                    return;
+                  }
+                  const cellRect = cellDom.getBoundingClientRect();
+                  if (dragState.axis === 'row') {
+                    boundary = e.clientY < cellRect.top + cellRect.height / 2 ? rect.top : rect.bottom;
+                  } else {
+                    boundary = e.clientX < cellRect.left + cellRect.width / 2 ? rect.left : rect.right;
+                  }
+                }
+              }
+            }
+
+            if (boundary === null) {
+              const tableDom = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
+              if (!tableDom) {
+                DEBUG.error(MODULE, 'Table drag update failed: table DOM missing');
+                logError('Table drag update failed: table DOM missing', {
+                  axis: dragState.axis,
+                  tablePos: dragState.tablePos,
+                });
+                clearDragState();
+                return;
+              }
+              const rect = tableDom.getBoundingClientRect();
+              if (dragState.axis === 'row') {
+                if (e.clientY < rect.top) boundary = 0;
+                else if (e.clientY > rect.bottom) boundary = dragState.map.height;
+              } else {
+                if (e.clientX < rect.left) boundary = 0;
+                else if (e.clientX > rect.right) boundary = dragState.map.width;
+              }
+            }
+
+            if (boundary === null) {
+              return;
+            }
+
+            const max = dragState.axis === 'row' ? dragState.map.height : dragState.map.width;
+            const nextBoundary = clampBoundary(boundary, max);
+
+            if (nextBoundary !== dragState.previewBoundary) {
+              dragState.previewBoundary = nextBoundary;
+              updateDropIndicator(dragState.axis, nextBoundary);
+              DEBUG.log(MODULE, 'Table drag preview', { axis: dragState.axis, boundary: nextBoundary });
+            }
+          };
+
+          const finishPointerDrag = () => {
+            if (!dragState) return;
+
+            const { axis, anchorCellPos, fromIndex, previewBoundary, startedAt } = dragState;
+            const max = axis === 'row' ? dragState.map.height : dragState.map.width;
+            const boundary = previewBoundary === null ? fromIndex : clampBoundary(previewBoundary, max);
+            const toIndex = boundary > fromIndex ? boundary - 1 : boundary;
+            const durationMs = Date.now() - startedAt;
+
+            if (toIndex === fromIndex) {
+              logInfo('Table drag noop', { axis, fromIndex, toIndex, durationMs });
+              DEBUG.log(MODULE, 'Table drag noop', { axis, fromIndex, toIndex });
+              clearDragState();
+              return;
+            }
+
+            if (!focusCellSelection(anchorCellPos + 1)) {
+              logError('Table drag failed: cell selection focus failed', { axis, fromIndex, toIndex });
+              clearDragState();
+              return;
+            }
+
+            const command = axis === 'row'
+              ? moveTableRow({ from: fromIndex, to: toIndex, pos: anchorCellPos })
+              : moveTableColumn({ from: fromIndex, to: toIndex, pos: anchorCellPos });
+            const moved = command(view.state, view.dispatch);
+            if (!moved) {
+              DEBUG.error(MODULE, 'Table move failed', { axis, fromIndex, toIndex });
+              logError('Table drag failed', { axis, fromIndex, toIndex, durationMs });
+            } else {
+              DEBUG.log(MODULE, 'Table moved', { axis, fromIndex, toIndex });
+              logSuccess('Table drag moved', { axis, fromIndex, toIndex, durationMs });
+            }
+
+            clearDragState();
+          };
+
           // Event listeners
-          const onMouseOver = (e: MouseEvent) => {
-            const target = e.target as HTMLElement;
-            const table = target.closest('table') as HTMLTableElement;
-
-            if (table) {
-              DEBUG.log(MODULE, 'MouseOver on table', {
-                targetTag: target.tagName,
-                isNewTable: table !== activeTable
-              });
-              showControls(table);
-            }
-          };
-
-          const onMouseLeave = (e: MouseEvent) => {
-            const relatedTarget = e.relatedTarget as HTMLElement;
-
-            // Don't hide if moving within table or to buttons
-            if (relatedTarget?.closest('table') === activeTable) {
-              return;
-            }
-            if (relatedTarget?.classList.contains('table-add-btn')) {
-              cancelHideTimeout();
-              return;
-            }
-
-            scheduleHide();
-          };
-
-          const onButtonMouseEnter = () => {
-            cancelHideTimeout();
-          };
-
-          const onButtonMouseLeave = () => {
-            scheduleHide();
-          };
-
           const onRowBtnClick = (e: MouseEvent) => {
             e.preventDefault();
             e.stopPropagation();
-            if (!activeTable) return;
-
-            DEBUG.log(MODULE, 'Row button clicked');
-            // Find the last cell in the last row and set selection there
-            const lastRow = activeTable.querySelector('tr:last-child');
-            const lastCell = lastRow?.querySelector('td:last-child, th:last-child') as HTMLElement;
-            if (lastCell) {
-              // Use ProseMirror's posAtDOM to get the position
-              const pos = view.posAtDOM(lastCell, 0);
-              if (pos !== null && pos >= 0) {
-                editor.chain().focus().setTextSelection(pos).addRowAfter().run();
-                DEBUG.log(MODULE, 'Row added after position', { pos });
-              }
+            if (!activeTable) {
+              logWarning('Row add button click ignored: no active table');
+              return;
             }
+
+            const edgePos = resolveEdgeCellPos(activeTable, 'row');
+            if (edgePos === null) {
+              logError('Row add button failed: edge cell missing');
+              return;
+            }
+
+            DEBUG.log(MODULE, 'Row button clicked (append)', { pos: edgePos });
+            if (!focusCellSelection(edgePos)) {
+              logError('Row add button failed: selection focus failed', { pos: edgePos });
+              return;
+            }
+            editor.chain().focus().addRowAfter().run();
           };
 
           const onColBtnClick = (e: MouseEvent) => {
             e.preventDefault();
             e.stopPropagation();
-            if (!activeTable) return;
-
-            DEBUG.log(MODULE, 'Col button clicked');
-            // Find the last cell in the first row and set selection there
-            const firstRow = activeTable.querySelector('tr:first-child');
-            const lastCell = firstRow?.querySelector('td:last-child, th:last-child') as HTMLElement;
-            if (lastCell) {
-              // Use ProseMirror's posAtDOM to get the position
-              const pos = view.posAtDOM(lastCell, 0);
-              if (pos !== null && pos >= 0) {
-                editor.chain().focus().setTextSelection(pos).addColumnAfter().run();
-                DEBUG.log(MODULE, 'Column added after position', { pos });
-              }
-            }
-          };
-
-          // Row handle drag start
-          const onRowDragStart = (e: DragEvent) => {
-            const target = e.target as HTMLElement;
-            const handle = target.closest('.table-row-handle') as HTMLElement;
-            if (!handle || !activeTable) return;
-
-            isDraggingRow = true;
-            dragSourceRowIndex = parseInt(handle.dataset.rowIndex || '0', 10);
-
-            e.dataTransfer?.setData('text/plain', '');
-            e.dataTransfer!.effectAllowed = 'move';
-
-            // Highlight source row
-            const rows = activeTable.querySelectorAll('tr');
-            if (rows[dragSourceRowIndex]) {
-              rows[dragSourceRowIndex].classList.add('is-dragging');
+            if (!activeTable) {
+              logWarning('Column add button click ignored: no active table');
+              return;
             }
 
-            DEBUG.log(MODULE, 'Row drag started', { rowIndex: dragSourceRowIndex });
-          };
-
-          // Row handle drag over
-          const onRowDragOver = (e: DragEvent) => {
-            if (!isDraggingRow || !activeTable) return;
-
-            e.preventDefault();
-            e.dataTransfer!.dropEffect = 'move';
-
-            const rows = activeTable.querySelectorAll('tr');
-            const tableRect = activeTable.getBoundingClientRect();
-            let targetRowIndex = -1;
-            let insertBefore = true;
-
-            // Find target row based on mouse Y position
-            for (let i = 0; i < rows.length; i++) {
-              const rowRect = rows[i].getBoundingClientRect();
-              const midY = rowRect.top + rowRect.height / 2;
-
-              if (e.clientY < midY) {
-                targetRowIndex = i;
-                insertBefore = true;
-                break;
-              } else if (i === rows.length - 1) {
-                targetRowIndex = i;
-                insertBefore = false;
-              }
+            const edgePos = resolveEdgeCellPos(activeTable, 'col');
+            if (edgePos === null) {
+              logError('Column add button failed: edge cell missing');
+              return;
             }
 
-            // Update drop indicator position
-            if (targetRowIndex >= 0) {
-              const rowRect = rows[targetRowIndex].getBoundingClientRect();
-              const indicatorY = insertBefore ? rowRect.top : rowRect.bottom;
-
-              rowDropIndicator.style.setProperty('--indicator-x', `${tableRect.left}px`);
-              rowDropIndicator.style.setProperty('--indicator-y', `${indicatorY}px`);
-              rowDropIndicator.style.setProperty('--indicator-width', `${tableRect.width}px`);
-              rowDropIndicator.classList.add('is-visible');
+            DEBUG.log(MODULE, 'Col button clicked (append)', { pos: edgePos });
+            if (!focusCellSelection(edgePos)) {
+              logError('Column add button failed: selection focus failed', { pos: edgePos });
+              return;
             }
-          };
-
-          // Row handle drop
-          const onRowDrop = (e: DragEvent) => {
-            e.preventDefault();
-            if (!isDraggingRow || !activeTable || dragSourceRowIndex === null) return;
-
-            const rows = activeTable.querySelectorAll('tr');
-            let targetRowIndex = -1;
-            let insertBefore = true;
-
-            // Find target row
-            for (let i = 0; i < rows.length; i++) {
-              const rowRect = rows[i].getBoundingClientRect();
-              const midY = rowRect.top + rowRect.height / 2;
-
-              if (e.clientY < midY) {
-                targetRowIndex = i;
-                insertBefore = true;
-                break;
-              } else if (i === rows.length - 1) {
-                targetRowIndex = i;
-                insertBefore = false;
-              }
-            }
-
-            // Calculate actual target index
-            let finalTargetIndex = insertBefore ? targetRowIndex : targetRowIndex + 1;
-
-            // Don't move if dropping at same position
-            if (finalTargetIndex !== dragSourceRowIndex && finalTargetIndex !== dragSourceRowIndex + 1) {
-              DEBUG.log(MODULE, 'Moving row', { from: dragSourceRowIndex, to: finalTargetIndex });
-
-              // Focus on source row's first cell
-              const sourceRow = rows[dragSourceRowIndex];
-              const sourceCell = sourceRow?.querySelector('td, th') as HTMLElement;
-
-              if (sourceCell) {
-                const pos = view.posAtDOM(sourceCell, 0);
-                if (pos !== null && pos >= 0) {
-                  // Adjust for header row (index 0 is usually header)
-                  const moveSteps = finalTargetIndex - dragSourceRowIndex;
-
-                  if (moveSteps > 0) {
-                    // Moving down
-                    for (let i = 0; i < moveSteps; i++) {
-                      editor.chain().focus().setTextSelection(pos).run();
-                      setTimeout(() => {
-                        // Use goToNextRow and swap pattern
-                        // For simplicity, we delete and re-insert
-                      }, 0);
-                    }
-                  } else {
-                    // Moving up
-                    for (let i = 0; i < Math.abs(moveSteps); i++) {
-                      editor.chain().focus().setTextSelection(pos).run();
-                    }
-                  }
-
-                  // For now, just log the operation - full row reordering requires complex ProseMirror operations
-                  DEBUG.log(MODULE, 'Row move requested', { from: dragSourceRowIndex, to: finalTargetIndex, steps: moveSteps });
-                }
-              }
-            }
-
-            // Cleanup
-            rowDropIndicator.classList.remove('is-visible');
-            rows[dragSourceRowIndex]?.classList.remove('is-dragging');
-            isDraggingRow = false;
-            dragSourceRowIndex = null;
-
-            // Re-show controls
-            if (activeTable) {
-              showControls(activeTable);
-            }
-          };
-
-          // Row handle drag end
-          const onRowDragEnd = () => {
-            if (activeTable && dragSourceRowIndex !== null) {
-              const rows = activeTable.querySelectorAll('tr');
-              rows[dragSourceRowIndex]?.classList.remove('is-dragging');
-            }
-            rowDropIndicator.classList.remove('is-visible');
-            isDraggingRow = false;
-            dragSourceRowIndex = null;
-          };
-
-          // Column handle drag start
-          const onColDragStart = (e: DragEvent) => {
-            const target = e.target as HTMLElement;
-            const handle = target.closest('.table-col-handle') as HTMLElement;
-            if (!handle || !activeTable) return;
-
-            isDraggingCol = true;
-            dragSourceColIndex = parseInt(handle.dataset.colIndex || '0', 10);
-
-            e.dataTransfer?.setData('text/plain', '');
-            e.dataTransfer!.effectAllowed = 'move';
-
-            // Highlight source column cells
-            const rows = activeTable.querySelectorAll('tr');
-            rows.forEach(row => {
-              const cells = row.querySelectorAll('th, td');
-              if (cells[dragSourceColIndex!]) {
-                cells[dragSourceColIndex!].classList.add('is-dragging');
-              }
-            });
-
-            DEBUG.log(MODULE, 'Column drag started', { colIndex: dragSourceColIndex });
-          };
-
-          // Column handle drag over
-          const onColDragOver = (e: DragEvent) => {
-            if (!isDraggingCol || !activeTable) return;
-
-            e.preventDefault();
-            e.dataTransfer!.dropEffect = 'move';
-
-            const firstRow = activeTable.querySelector('tr');
-            if (!firstRow) return;
-
-            const cells = firstRow.querySelectorAll('th, td');
-            const tableRect = activeTable.getBoundingClientRect();
-            let targetColIndex = -1;
-            let insertBefore = true;
-
-            // Find target column based on mouse X position
-            for (let i = 0; i < cells.length; i++) {
-              const cellRect = cells[i].getBoundingClientRect();
-              const midX = cellRect.left + cellRect.width / 2;
-
-              if (e.clientX < midX) {
-                targetColIndex = i;
-                insertBefore = true;
-                break;
-              } else if (i === cells.length - 1) {
-                targetColIndex = i;
-                insertBefore = false;
-              }
-            }
-
-            // Update drop indicator position
-            if (targetColIndex >= 0) {
-              const cellRect = cells[targetColIndex].getBoundingClientRect();
-              const indicatorX = insertBefore ? cellRect.left : cellRect.right;
-
-              colDropIndicator.style.setProperty('--indicator-x', `${indicatorX}px`);
-              colDropIndicator.style.setProperty('--indicator-y', `${tableRect.top}px`);
-              colDropIndicator.style.setProperty('--indicator-height', `${tableRect.height}px`);
-              colDropIndicator.classList.add('is-visible');
-            }
-          };
-
-          // Column handle drop
-          const onColDrop = (e: DragEvent) => {
-            e.preventDefault();
-            if (!isDraggingCol || !activeTable || dragSourceColIndex === null) return;
-
-            const firstRow = activeTable.querySelector('tr');
-            if (!firstRow) return;
-
-            const cells = firstRow.querySelectorAll('th, td');
-            let targetColIndex = -1;
-            let insertBefore = true;
-
-            // Find target column
-            for (let i = 0; i < cells.length; i++) {
-              const cellRect = cells[i].getBoundingClientRect();
-              const midX = cellRect.left + cellRect.width / 2;
-
-              if (e.clientX < midX) {
-                targetColIndex = i;
-                insertBefore = true;
-                break;
-              } else if (i === cells.length - 1) {
-                targetColIndex = i;
-                insertBefore = false;
-              }
-            }
-
-            // Calculate actual target index
-            let finalTargetIndex = insertBefore ? targetColIndex : targetColIndex + 1;
-
-            // Don't move if dropping at same position
-            if (finalTargetIndex !== dragSourceColIndex && finalTargetIndex !== dragSourceColIndex + 1) {
-              DEBUG.log(MODULE, 'Moving column', { from: dragSourceColIndex, to: finalTargetIndex });
-              // Column reordering also requires complex ProseMirror operations
-              // Log for now
-            }
-
-            // Cleanup
-            colDropIndicator.classList.remove('is-visible');
-            const rows = activeTable.querySelectorAll('tr');
-            rows.forEach(row => {
-              const rowCells = row.querySelectorAll('th, td');
-              if (rowCells[dragSourceColIndex!]) {
-                rowCells[dragSourceColIndex!].classList.remove('is-dragging');
-              }
-            });
-            isDraggingCol = false;
-            dragSourceColIndex = null;
-
-            // Re-show controls
-            if (activeTable) {
-              showControls(activeTable);
-            }
-          };
-
-          // Column handle drag end
-          const onColDragEnd = () => {
-            if (activeTable && dragSourceColIndex !== null) {
-              const rows = activeTable.querySelectorAll('tr');
-              rows.forEach(row => {
-                const cells = row.querySelectorAll('th, td');
-                if (cells[dragSourceColIndex!]) {
-                  cells[dragSourceColIndex!].classList.remove('is-dragging');
-                }
-              });
-            }
-            colDropIndicator.classList.remove('is-visible');
-            isDraggingCol = false;
-            dragSourceColIndex = null;
-          };
-
-          // Row/col handles hover to cancel hide
-          const onHandleContainerMouseEnter = () => {
-            cancelHideTimeout();
-          };
-
-          const onHandleContainerMouseLeave = () => {
-            if (!isDraggingRow && !isDraggingCol) {
-              scheduleHide();
-            }
+            editor.chain().focus().addColumnAfter().run();
           };
 
           const onContextMenu = (e: MouseEvent) => {
@@ -632,6 +754,13 @@ export const TableControls = Extension.create({
 
             e.preventDefault();
             activeTable = table;
+            const cellPos = resolveCellInsidePosFromDom(cell as HTMLElement);
+            if (cellPos === null) {
+              DEBUG.error(MODULE, 'Context menu failed: cell pos missing');
+              logError('Context menu failed: cell pos missing');
+              return;
+            }
+            activeCellPos = cellPos;
 
             const row = cell.closest('tr');
             if (row) {
@@ -666,94 +795,167 @@ export const TableControls = Extension.create({
 
           // Scroll handler to update button positions
           const onScroll = () => {
-            if (activeTable && addRowBtn.classList.contains('is-visible')) {
-              updateButtonPositions(activeTable);
+            if (activeTable && activeCell) {
+              const tableRect = activeTable.getBoundingClientRect();
+              const cellRect = activeCell.getBoundingClientRect();
+              updateButtonPositions(tableRect);
+              updateRowHandles(activeTable, activeRowIndex);
+              updateColHandles(tableRect, cellRect, activeColIndex);
             }
+          };
+
+          // Mousemove handler for hover-based detection
+          const onMouseMove = (e: MouseEvent) => {
+            if (isDraggingRow || isDraggingCol) return;
+
+            const target = e.target as HTMLElement;
+
+            // Check if hovering over table controls (don't hide)
+            if (target.closest('.table-add-btn') ||
+                target.closest('.table-row-handles') ||
+                target.closest('.table-col-handles') ||
+                target.closest('.table-context-menu')) {
+              cancelHideTimeout();
+              return;
+            }
+
+            // Check if hovering over a table cell
+            const cell = target.closest('td, th') as HTMLElement | null;
+            const table = target.closest('table') as HTMLTableElement | null;
+
+            if (cell && table) {
+              cancelHideTimeout();
+              updateControlsFromHover(cell, table);
+            } else {
+              // Not over a table, schedule hide
+              scheduleHide();
+            }
+          };
+
+          // Handle mouse enter on controls to prevent hide
+          const onControlsMouseEnter = () => {
+            cancelHideTimeout();
+          };
+
+          // Handle mouse leave on controls
+          const onControlsMouseLeave = () => {
+            if (!isDraggingRow && !isDraggingCol) {
+              scheduleHide();
+            }
+          };
+
+          const onHandlePointerDown = (e: PointerEvent) => {
+            if (!e.isPrimary) return;
+            if (typeof e.button === 'number' && e.button !== 0) return;
+            const target = e.target as HTMLElement;
+            const rowHandle = target.closest('.table-row-handle') as HTMLElement | null;
+            const colHandle = target.closest('.table-col-handle') as HTMLElement | null;
+            const handle = rowHandle || colHandle;
+            if (!handle) return;
+
+            const cellPosRaw = handle.dataset.cellPos;
+            if (!cellPosRaw) {
+              DEBUG.error(MODULE, 'Pointer drag start failed: cellPos missing on handle');
+              logError('Pointer drag start failed: cellPos missing on handle');
+              return;
+            }
+
+            const cellPos = Number(cellPosRaw);
+            if (!Number.isFinite(cellPos)) {
+              DEBUG.error(MODULE, 'Pointer drag start failed: invalid cellPos', { cellPosRaw });
+              logError('Pointer drag start failed: invalid cellPos', { cellPosRaw });
+              return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const axis: 'row' | 'col' = rowHandle ? 'row' : 'col';
+            logInfo('Table handle pointerdown', { axis, cellPos });
+            startPointerDrag(axis, cellPos, handle, e.pointerId);
+          };
+
+          const onHandlePointerMove = (e: PointerEvent) => {
+            if (!dragState || activePointerId !== e.pointerId) return;
+            e.preventDefault();
+            updatePointerDrag(e);
+          };
+
+          const onHandlePointerUp = (e: PointerEvent) => {
+            if (!dragState || activePointerId !== e.pointerId) return;
+            e.preventDefault();
+            finishPointerDrag();
+          };
+
+          const onHandlePointerCancel = (e: PointerEvent) => {
+            if (!dragState || activePointerId !== e.pointerId) return;
+            e.preventDefault();
+            DEBUG.warn(MODULE, 'Pointer drag cancelled');
+            logWarning('Table drag cancelled', { axis: dragState.axis });
+            clearDragState();
           };
 
           // Get scroll container
           const editorContainer = view.dom.closest('.editor-container') as HTMLElement;
 
           // Attach event listeners
-          view.dom.addEventListener('mouseover', onMouseOver);
-          view.dom.addEventListener('mouseleave', onMouseLeave);
+          view.dom.addEventListener('mousemove', onMouseMove);
           view.dom.addEventListener('contextmenu', onContextMenu);
-          addRowBtn.addEventListener('mouseenter', onButtonMouseEnter);
-          addRowBtn.addEventListener('mouseleave', onButtonMouseLeave);
           addRowBtn.addEventListener('click', onRowBtnClick);
-          addColBtn.addEventListener('mouseenter', onButtonMouseEnter);
-          addColBtn.addEventListener('mouseleave', onButtonMouseLeave);
           addColBtn.addEventListener('click', onColBtnClick);
           contextMenu.addEventListener('click', onMenuClick);
           document.addEventListener('click', onDocumentClick);
           editorContainer?.addEventListener('scroll', onScroll);
 
           // Row/column handle event listeners
-          rowHandlesContainer.addEventListener('mouseenter', onHandleContainerMouseEnter);
-          rowHandlesContainer.addEventListener('mouseleave', onHandleContainerMouseLeave);
-          rowHandlesContainer.addEventListener('dragstart', onRowDragStart);
-          rowHandlesContainer.addEventListener('dragend', onRowDragEnd);
+          document.addEventListener('pointerdown', onHandlePointerDown, true);
+          document.addEventListener('pointermove', onHandlePointerMove);
+          document.addEventListener('pointerup', onHandlePointerUp);
+          document.addEventListener('pointercancel', onHandlePointerCancel);
+          document.addEventListener('lostpointercapture', onHandlePointerCancel);
 
-          colHandlesContainer.addEventListener('mouseenter', onHandleContainerMouseEnter);
-          colHandlesContainer.addEventListener('mouseleave', onHandleContainerMouseLeave);
-          colHandlesContainer.addEventListener('dragstart', onColDragStart);
-          colHandlesContainer.addEventListener('dragend', onColDragEnd);
+          // Add button hover handlers
+          addRowBtn.addEventListener('mouseenter', onControlsMouseEnter);
+          addRowBtn.addEventListener('mouseleave', onControlsMouseLeave);
+          addColBtn.addEventListener('mouseenter', onControlsMouseEnter);
+          addColBtn.addEventListener('mouseleave', onControlsMouseLeave);
 
-          // Drag over/drop on the table itself
-          view.dom.addEventListener('dragover', (e: DragEvent) => {
-            if (isDraggingRow) onRowDragOver(e);
-            else if (isDraggingCol) onColDragOver(e);
-          });
-          view.dom.addEventListener('drop', (e: DragEvent) => {
-            if (isDraggingRow) onRowDrop(e);
-            else if (isDraggingCol) onColDrop(e);
-          });
-
-          DEBUG.log(MODULE, 'Event listeners attached');
+          DEBUG.log(MODULE, 'Event listeners attached (hover-based)');
+          // Initial check (wait for hover)
 
           return {
             update() {
-              // Update button positions if visible and table still exists
-              if (activeTable && addRowBtn.classList.contains('is-visible')) {
-                // Check if table is still in DOM
-                if (!document.body.contains(activeTable)) {
-                  addRowBtn.classList.remove('is-visible');
-                  addColBtn.classList.remove('is-visible');
-                  rowHandlesContainer.classList.remove('is-visible');
-                  colHandlesContainer.classList.remove('is-visible');
-                  activeTable = null;
-                } else {
-                  updateButtonPositions(activeTable);
-                  updateRowHandles(activeTable);
-                  updateColHandles(activeTable);
-                }
+              // Update controls if we have an active table (from hover or selection)
+              // This handles position updates when document changes
+              if (activeTable && activeCell) {
+                const tableRect = activeTable.getBoundingClientRect();
+                const cellRect = activeCell.getBoundingClientRect();
+                updateButtonPositions(tableRect);
+                updateRowHandles(activeTable, activeRowIndex);
+                updateColHandles(tableRect, cellRect, activeColIndex);
               }
             },
             destroy() {
               DEBUG.log(MODULE, 'Plugin destroyed');
               cancelHideTimeout();
-              view.dom.removeEventListener('mouseover', onMouseOver);
-              view.dom.removeEventListener('mouseleave', onMouseLeave);
+              clearDragState();
+              view.dom.removeEventListener('mousemove', onMouseMove);
               view.dom.removeEventListener('contextmenu', onContextMenu);
-              addRowBtn.removeEventListener('mouseenter', onButtonMouseEnter);
-              addRowBtn.removeEventListener('mouseleave', onButtonMouseLeave);
               addRowBtn.removeEventListener('click', onRowBtnClick);
-              addColBtn.removeEventListener('mouseenter', onButtonMouseEnter);
-              addColBtn.removeEventListener('mouseleave', onButtonMouseLeave);
+              addRowBtn.removeEventListener('mouseenter', onControlsMouseEnter);
+              addRowBtn.removeEventListener('mouseleave', onControlsMouseLeave);
               addColBtn.removeEventListener('click', onColBtnClick);
+              addColBtn.removeEventListener('mouseenter', onControlsMouseEnter);
+              addColBtn.removeEventListener('mouseleave', onControlsMouseLeave);
               contextMenu.removeEventListener('click', onMenuClick);
               document.removeEventListener('click', onDocumentClick);
               editorContainer?.removeEventListener('scroll', onScroll);
 
-              rowHandlesContainer.removeEventListener('mouseenter', onHandleContainerMouseEnter);
-              rowHandlesContainer.removeEventListener('mouseleave', onHandleContainerMouseLeave);
-              rowHandlesContainer.removeEventListener('dragstart', onRowDragStart);
-              rowHandlesContainer.removeEventListener('dragend', onRowDragEnd);
-
-              colHandlesContainer.removeEventListener('mouseenter', onHandleContainerMouseEnter);
-              colHandlesContainer.removeEventListener('mouseleave', onHandleContainerMouseLeave);
-              colHandlesContainer.removeEventListener('dragstart', onColDragStart);
-              colHandlesContainer.removeEventListener('dragend', onColDragEnd);
+              document.removeEventListener('pointerdown', onHandlePointerDown, true);
+              document.removeEventListener('pointermove', onHandlePointerMove);
+              document.removeEventListener('pointerup', onHandlePointerUp);
+              document.removeEventListener('pointercancel', onHandlePointerCancel);
+              document.removeEventListener('lostpointercapture', onHandlePointerCancel);
 
               contextMenu.remove();
               addRowBtn.remove();
@@ -794,8 +996,10 @@ function createSeparator(): HTMLElement {
 function createAddButton(type: 'row' | 'col'): HTMLElement {
   const btn = document.createElement('button');
   btn.className = `table-add-btn table-add-btn-${type}`;
-  btn.innerHTML = '+';
-  btn.title = type === 'row' ? '行を追加' : '列を追加';
+  const label = type === 'row' ? '行を追加' : '列を追加';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+  btn.dataset.axis = type;
   return btn;
 }
 
@@ -811,12 +1015,14 @@ function createRowHandlesContainer(): HTMLElement {
 /**
  * Create a single row handle
  */
-function createRowHandle(rowIndex: number): HTMLElement {
+function createRowHandle(rowIndex: number, cellPos: number): HTMLElement {
   const handle = document.createElement('div');
   handle.className = 'table-row-handle';
   handle.dataset.rowIndex = String(rowIndex);
+  handle.dataset.cellPos = String(cellPos);
   handle.innerHTML = icons.gripVertical;
-  handle.draggable = true;
+  handle.draggable = false;
+  handle.contentEditable = 'false';
   handle.title = 'ドラッグで行を移動';
   return handle;
 }
@@ -833,12 +1039,14 @@ function createColHandlesContainer(): HTMLElement {
 /**
  * Create a single column handle
  */
-function createColHandle(colIndex: number): HTMLElement {
+function createColHandle(colIndex: number, cellPos: number): HTMLElement {
   const handle = document.createElement('div');
   handle.className = 'table-col-handle';
   handle.dataset.colIndex = String(colIndex);
+  handle.dataset.cellPos = String(cellPos);
   handle.innerHTML = icons.gripHorizontal;
-  handle.draggable = true;
+  handle.draggable = false;
+  handle.contentEditable = 'false';
   handle.title = 'ドラッグで列を移動';
   return handle;
 }

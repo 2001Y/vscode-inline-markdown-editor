@@ -112,7 +112,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     );
   }
 
-  public static register(context: vscode.ExtensionContext): vscode.Disposable {
+  public static register(context: vscode.ExtensionContext): InlineMarkProvider {
     const provider = new InlineMarkProvider(context);
 
     const webviewConfig = vscode.workspace.getConfiguration('inlineMark.webview');
@@ -137,7 +137,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(provider);
 
-    return providerRegistration;
+    return provider;
   }
 
   async resolveCustomTextEditor(

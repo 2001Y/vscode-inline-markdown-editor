@@ -44,6 +44,33 @@ let syncClient: SyncClient | null = null;
 let syncIndicator: HTMLElement | null = null;
 let editorContainerEl: HTMLElement | null = null;
 
+const VALID_EDITOR_COMMANDS: ReadonlySet<CommandName> = new Set([
+  'toggleBold',
+  'toggleItalic',
+  'toggleStrike',
+  'toggleCode',
+  'toggleUnderline',
+  'toggleHeading1',
+  'toggleHeading2',
+  'toggleHeading3',
+  'toggleHeading4',
+  'toggleHeading5',
+  'toggleHeading6',
+  'toggleBulletList',
+  'toggleOrderedList',
+  'toggleBlockquote',
+  'toggleCodeBlock',
+  'indentListItem',
+  'outdentListItem',
+  'setHorizontalRule',
+  'undo',
+  'redo',
+]);
+
+const isValidEditorCommand = (command: unknown): command is CommandName => {
+  return typeof command === 'string' && VALID_EDITOR_COMMANDS.has(command as CommandName);
+};
+
 // Image resolution state (workspace relative paths -> webview URIs)
 const pendingImageRequestsById = new Map<string, string>(); // requestId -> originalSrc
 const pendingImageRequestsBySrc = new Map<string, string>(); // originalSrc -> requestId
@@ -79,6 +106,7 @@ function main(): void {
   console.log('[Main] Starting SyncClient');
   syncClient.start();
   console.log('[Main] Webview initialization complete');
+
 }
 
 function handleInit(
@@ -294,8 +322,12 @@ window.addEventListener('message', (event) => {
       console.warn('[Main] Editor command received but no editor instance');
       return;
     }
+    if (!isValidEditorCommand(msg.command)) {
+      console.warn('[Main] Unknown editor command:', msg.command);
+      return;
+    }
     console.log('[Main] Executing editor command:', msg.command);
-    executeCommand(editorInstance.editor, msg.command as CommandName);
+    executeCommand(editorInstance.editor, msg.command);
   }
 });
 

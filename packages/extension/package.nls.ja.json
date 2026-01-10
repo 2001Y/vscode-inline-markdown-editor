@@ -21,6 +21,8 @@
   "command.toggleOrderedList.title": "番号付きリストの切り替え",
   "command.toggleBlockquote.title": "引用の切り替え",
   "command.toggleCodeBlock.title": "コードブロックの切り替え",
+  "command.indentListItem.title": "リストのインデント",
+  "command.outdentListItem.title": "リストのインデント解除",
   "command.undo.title": "元に戻す",
   "command.redo.title": "やり直し",
   "configuration.title": "inlineMark",

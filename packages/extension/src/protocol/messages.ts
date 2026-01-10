@@ -313,6 +313,10 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
     }
   }
 
+  if (m.type === 'menuStateChange') {
+    if (typeof m.visible !== 'boolean') {return false;}
+  }
+
   return true;
 }
 

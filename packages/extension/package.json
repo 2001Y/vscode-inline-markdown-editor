@@ -41,7 +41,7 @@
         "command": "inlineMark.reopenWithTextEditor",
         "title": "%command.reopenWithTextEditor.title%",
         "category": "inlineMark",
-        "icon": "$(file-text)"
+        "icon": "$(split-horizontal)"
       },
       {
         "command": "inlineMark.applyRequiredSettings",
@@ -126,6 +126,16 @@
       {
         "command": "inlineMark.toggleCodeBlock",
         "title": "%command.toggleCodeBlock.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.indentListItem",
+        "title": "%command.indentListItem.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.outdentListItem",
+        "title": "%command.outdentListItem.title%",
         "category": "inlineMark"
       },
       {
@@ -231,6 +241,18 @@
         "when": "activeCustomEditorId == 'inlineMark.editor'"
       },
       {
+        "command": "inlineMark.indentListItem",
+        "key": "tab",
+        "mac": "tab",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.outdentListItem",
+        "key": "shift+tab",
+        "mac": "shift+tab",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
         "command": "inlineMark.undo",
         "key": "ctrl+z",
         "mac": "cmd+z",
@@ -248,14 +270,14 @@
         {
           "command": "inlineMark.reopenWithTextEditor",
           "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
-          "group": "navigation@10"
+          "group": "navigation@0"
         }
       ],
       "editor/title/context": [
         {
           "command": "inlineMark.reopenWithTextEditor",
           "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
-          "group": "navigation@10"
+          "group": "1_open"
         }
       ]
     },

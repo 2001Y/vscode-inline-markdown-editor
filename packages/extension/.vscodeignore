@@ -4,7 +4,6 @@
 # Source files (use compiled output instead)
 src/**
 **/*.ts
-!**/*.d.ts
 
 # Config files
 .vscode/**
@@ -16,6 +15,7 @@ eslint.config.mjs
 # Test files
 test-fixtures/**
 out/test/**
+.vscode-test/**
 
 # Development files
 *.map

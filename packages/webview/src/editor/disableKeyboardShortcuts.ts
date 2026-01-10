@@ -7,7 +7,6 @@
  * 各拡張をextendしてaddKeyboardShortcutsを空にオーバーライド
  */
 
-import { Extension } from '@tiptap/core';
 import Bold from '@tiptap/extension-bold';
 import Italic from '@tiptap/extension-italic';
 import Strike from '@tiptap/extension-strike';
@@ -117,15 +116,4 @@ export const HistoryNoShortcut = History.extend({
   addKeyboardShortcuts() {
     return {};
   },
-});
-
-/**
- * 全ショートカット無効化をまとめたExtension
- * createEditorで追加するだけで、上記の拡張を全て適用
- */
-export const DisableBuiltinShortcuts = Extension.create({
-  name: 'disableBuiltinShortcuts',
-
-  // この拡張自体は何もしない
-  // StarterKitの各拡張を上書きするために、個別の拡張を使用する
 });

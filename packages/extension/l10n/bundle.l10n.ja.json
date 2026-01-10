@@ -26,5 +26,6 @@
   "The editor is out of sync. Would you like to resync?": "エディタが同期していません。再同期しますか？",
   "Resync will discard your current changes. Continue?": "再同期すると現在の変更が破棄されます。続行しますか？",
   "Continue": "続行",
-  "Go Back": "戻る"
+  "Go Back": "戻る",
+  "InlineMark extension failed to activate.": "InlineMark 拡張機能のアクティベートに失敗しました。"
 }

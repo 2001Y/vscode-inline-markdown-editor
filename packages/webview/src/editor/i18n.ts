@@ -211,8 +211,8 @@ const zh: Translations = {
   },
   blockHandles: {
     delete: '删除',
-    duplicate: '复制',
-    copy: '拷贝',
+    duplicate: '复制副本',
+    copy: '复制',
     convertTo: '转换为',
     paragraph: '文本',
     heading1: '一级标题',

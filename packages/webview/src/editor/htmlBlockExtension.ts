@@ -22,8 +22,8 @@
  * レンダリング結果: "<div class='note'>Hello </div>" (script タグは除去)
  *
  * シリアライズ:
- * - @tiptap/markdown の renderMarkdown で attrs.content をそのまま出力
- * - サニタイズ済みではなく元の HTML を出力（ユーザーの意図を保持）
+ * - @tiptap/markdown の renderMarkdown は **デフォルトでサニタイズ**して出力
+ * - 必要に応じて `sanitizeHtmlExport=false` で元の HTML を出力（要注意）
  *
  * @tiptap/markdown 統合:
  * - markdownTokenName: 'html' で Marked の html トークンを横取り
@@ -44,6 +44,7 @@ const DOMPURIFY_CONFIG = {
 
 export interface HtmlBlockOptions {
   HTMLAttributes: Record<string, unknown>;
+  sanitizeHtmlExport: boolean;
 }
 
 declare module '@tiptap/core' {
@@ -63,11 +64,12 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
 
   selectable: true,
 
-  draggable: false,
+  draggable: true,
 
   addOptions() {
     return {
       HTMLAttributes: {},
+      sanitizeHtmlExport: true,
     };
   },
 
@@ -185,10 +187,19 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
     };
   },
 
-  renderMarkdown: (node: { attrs?: { content?: string } }) => {
+  renderMarkdown: function renderMarkdown(node: { attrs?: { content?: string } }) {
     const content = node.attrs?.content || '';
-    console.log('[HtmlBlock] renderMarkdown', { contentLength: content.length });
-    return content;
+    const shouldSanitize = this.options.sanitizeHtmlExport;
+    if (!shouldSanitize) {
+      console.warn('[WARNING][HtmlBlock] renderMarkdown sanitization disabled', { contentLength: content.length });
+      return content;
+    }
+    const sanitized = DOMPurify.sanitize(content, DOMPURIFY_CONFIG);
+    console.log('[HtmlBlock] renderMarkdown (sanitized)', {
+      contentLength: content.length,
+      sanitizedLength: sanitized.length,
+    });
+    return sanitized;
   },
 });
 

@@ -8,6 +8,8 @@
  */
 
 import type { Editor } from '@tiptap/core';
+import { liftListItem, sinkListItem } from '@tiptap/pm/schema-list';
+import { NodeSelection, Selection } from '@tiptap/pm/state';
 
 export type CommandName =
   // Marks (テキスト装飾)
@@ -27,6 +29,8 @@ export type CommandName =
   | 'toggleOrderedList'
   | 'toggleBlockquote'
   | 'toggleCodeBlock'
+  | 'indentListItem'
+  | 'outdentListItem'
   | 'setHorizontalRule'
   // History
   | 'undo'
@@ -36,6 +40,41 @@ export type CommandName =
  * コマンド名からTiptapコマンドを実行するマップ
  */
 export function executeCommand(editor: Editor, command: CommandName): boolean {
+  const isSelectionInListItem = (): boolean => {
+    if (editor.isActive('listItem') || editor.isActive('bulletList') || editor.isActive('orderedList')) {
+      return true;
+    }
+    const { $from } = editor.state.selection;
+    for (let depth = $from.depth; depth >= 0; depth -= 1) {
+      if ($from.node(depth).type.name === 'listItem') {
+        return true;
+      }
+    }
+    const selection = editor.state.selection;
+    if (selection instanceof NodeSelection && selection.node.type.name === 'listItem') {
+      return true;
+    }
+    const before = $from.nodeBefore;
+    const after = $from.nodeAfter;
+    if (before?.type.name === 'listItem' || after?.type.name === 'listItem') {
+      return true;
+    }
+    return false;
+  };
+
+  const ensureListItemSelection = (): void => {
+    const selection = editor.state.selection;
+    if (!(selection instanceof NodeSelection) || selection.node.type.name !== 'listItem') {
+      return;
+    }
+    const insidePos = selection.from + 1;
+    const $inside = editor.state.doc.resolve(insidePos);
+    const nextSelection = Selection.findFrom($inside, 1, true) ?? Selection.near($inside, 1);
+    if (nextSelection) {
+      editor.view.dispatch(editor.state.tr.setSelection(nextSelection));
+    }
+  };
+
   const commands: Record<CommandName, () => boolean> = {
     // Marks
     toggleBold: () => editor.chain().focus().toggleBold().run(),
@@ -57,6 +96,54 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
     toggleOrderedList: () => editor.chain().focus().toggleOrderedList().run(),
     toggleBlockquote: () => editor.chain().focus().toggleBlockquote().run(),
     toggleCodeBlock: () => editor.chain().focus().toggleCodeBlock().run(),
+    indentListItem: () => {
+      const timestamp = new Date().toISOString();
+      if (!isSelectionInListItem()) {
+        console.warn(`[WARNING][Commands] ${timestamp} List indent ignored: not in listItem`);
+        return false;
+      }
+      const listItem = editor.state.schema.nodes.listItem;
+      if (!listItem) {
+        console.error(`[ERROR][Commands] ${timestamp} listItem node not found`);
+        return false;
+      }
+      ensureListItemSelection();
+      const ok = sinkListItem(listItem)(editor.state, editor.view.dispatch, editor.view);
+      if (ok) {
+        console.log(`[SUCCESS][Commands] ${timestamp} List indent applied`, {
+          selectionFrom: editor.state.selection.from,
+        });
+      } else {
+        console.warn(`[WARNING][Commands] ${timestamp} List indent blocked`, {
+          selectionFrom: editor.state.selection.from,
+        });
+      }
+      return ok;
+    },
+    outdentListItem: () => {
+      const timestamp = new Date().toISOString();
+      if (!isSelectionInListItem()) {
+        console.warn(`[WARNING][Commands] ${timestamp} List outdent ignored: not in listItem`);
+        return false;
+      }
+      const listItem = editor.state.schema.nodes.listItem;
+      if (!listItem) {
+        console.error(`[ERROR][Commands] ${timestamp} listItem node not found`);
+        return false;
+      }
+      ensureListItemSelection();
+      const ok = liftListItem(listItem)(editor.state, editor.view.dispatch, editor.view);
+      if (ok) {
+        console.log(`[SUCCESS][Commands] ${timestamp} List outdent applied`, {
+          selectionFrom: editor.state.selection.from,
+        });
+      } else {
+        console.warn(`[WARNING][Commands] ${timestamp} List outdent blocked`, {
+          selectionFrom: editor.state.selection.from,
+        });
+      }
+      return ok;
+    },
     setHorizontalRule: () => editor.chain().focus().setHorizontalRule().run(),
 
     // History
@@ -103,6 +190,9 @@ export const DEFAULT_KEYBINDINGS: Array<{
   { command: 'toggleOrderedList', key: 'ctrl+shift+7', mac: 'cmd+shift+7', title: 'Toggle Ordered List', titleJa: '番号付きリストの切り替え' },
   { command: 'toggleBlockquote', key: 'ctrl+shift+b', mac: 'cmd+shift+b', title: 'Toggle Blockquote', titleJa: '引用の切り替え' },
   { command: 'toggleCodeBlock', key: 'ctrl+alt+c', mac: 'cmd+alt+c', title: 'Toggle Code Block', titleJa: 'コードブロックの切り替え' },
+  { command: 'setHorizontalRule', key: 'ctrl+alt+h', mac: 'cmd+alt+h', title: 'Insert Horizontal Rule', titleJa: '水平線の挿入' },
+  { command: 'indentListItem', key: 'tab', mac: 'tab', title: 'Indent List Item', titleJa: 'リストのインデント' },
+  { command: 'outdentListItem', key: 'shift+tab', mac: 'shift+tab', title: 'Outdent List Item', titleJa: 'リストのインデント解除' },
 
   // History (VSCodeと同じキーを使用)
   { command: 'undo', key: 'ctrl+z', mac: 'cmd+z', title: 'Undo', titleJa: '元に戻す' },

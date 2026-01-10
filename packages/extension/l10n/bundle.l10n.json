@@ -26,5 +26,6 @@
   "The editor is out of sync. Would you like to resync?": "The editor is out of sync. Would you like to resync?",
   "Resync will discard your current changes. Continue?": "Resync will discard your current changes. Continue?",
   "Continue": "Continue",
-  "Go Back": "Go Back"
+  "Go Back": "Go Back",
+  "InlineMark extension failed to activate.": "InlineMark extension failed to activate."
 }

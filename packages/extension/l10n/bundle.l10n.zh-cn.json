@@ -26,5 +26,6 @@
   "The editor is out of sync. Would you like to resync?": "编辑器不同步。是否要重新同步？",
   "Resync will discard your current changes. Continue?": "重新同步将放弃您当前的更改。是否继续？",
   "Continue": "继续",
-  "Go Back": "返回"
+  "Go Back": "返回",
+  "InlineMark extension failed to activate.": "InlineMark 扩展激活失败。"
 }

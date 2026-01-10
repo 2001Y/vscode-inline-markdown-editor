@@ -42,10 +42,13 @@ import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table
 import Placeholder from '@tiptap/extension-placeholder';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
 import Focus from '@tiptap/extension-focus';
+import Dropcursor from '@tiptap/extension-dropcursor';
 import { RawBlock } from './rawBlockExtension.js';
 import { HtmlBlock } from './htmlBlockExtension.js';
 import { TableControls } from './tableControlsExtension.js';
-import { BlockHandles } from './blockHandlesExtension.js';
+import { BlockHandles, createDragHandleElement, isDragHandleTarget, type BlockHandlesStorage, DRAG_HANDLE_ALLOWED_NODE_TYPES } from './blockHandlesExtension.js';
+import { InlineDragHandle } from './inlineDragHandleExtension.js';
+import { ListIndentShortcuts } from './listIndentShortcuts.js';
 import {
   BoldNoShortcut,
   ItalicNoShortcut,
@@ -84,6 +87,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   // UI要素の作成: BubbleMenu（選択時ツールバー）
   const bubbleMenuElement = createBubbleMenuElement();
   container.appendChild(bubbleMenuElement);
+  let bubbleMenuSuspended = false;
+
+  const dragHandleElement = createDragHandleElement();
+  dragHandleElement.style.visibility = 'hidden';
+  dragHandleElement.style.pointerEvents = 'none';
 
   // Tiptap 3.x モダン化:
   // - StarterKit に Link/Underline/ListKeymap が含まれるようになった
@@ -112,6 +120,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         codeBlock: false,
         // Tiptap 3.x: history → undoRedo
         undoRedo: false,
+        // Dropcursor は単体で configure する
+        dropcursor: false,
         // Tiptap 3.x: StarterKit に Link/Underline が含まれるため無効化
         link: false,
         underline: false,
@@ -128,6 +138,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       BlockquoteNoShortcut,
       CodeBlockNoShortcut,
       HistoryNoShortcut,
+      Dropcursor.configure({
+        color: 'var(--vscode-focusBorder)',
+        width: 2,
+        class: 'inline-markdown-dropcursor',
+      }),
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
@@ -146,7 +161,32 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       TableHeader,
       // テーブルUI（Notion風 + ボタン、ハンドル、コンテキストメニュー）
       TableControls,
-      // ブロックハンドル（全ブロック共通の6点ドラッグハンドル）
+      InlineDragHandle.configure({
+        render: () => dragHandleElement,
+        computePositionConfig: {
+          placement: 'left',
+          strategy: 'fixed',
+        },
+        allowedNodeTypes: DRAG_HANDLE_ALLOWED_NODE_TYPES,
+        onNodeChange: (data) => {
+          const { node, editor } = data;
+          const pos = (data as { pos?: number }).pos ?? -1;
+          const storage = editor.storage.blockHandles as BlockHandlesStorage | undefined;
+
+          if (!storage || !isDragHandleTarget(node) || pos < 0) {
+            dragHandleElement.style.visibility = 'hidden';
+            dragHandleElement.style.pointerEvents = 'none';
+            storage?.setActiveNode(null, -1);
+            return;
+          }
+
+          dragHandleElement.style.visibility = '';
+          dragHandleElement.style.pointerEvents = 'auto';
+          storage.setActiveNode(node, pos);
+        },
+      }),
+      ListIndentShortcuts,
+      // ブロックメニュー（+ / コンテキスト / スラッシュコマンド）
       BlockHandles,
       // カスタム拡張（frontmatter, HTML ブロック）
       RawBlock,
@@ -174,6 +214,9 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       BubbleMenu.configure({
         element: bubbleMenuElement,
         shouldShow: ({ editor, state }) => {
+          if (bubbleMenuSuspended) {
+            return false;
+          }
           // テキスト選択がある場合のみ表示（コードブロック、テーブル内は除外）
           const { selection } = state;
           const isEmptySelection = selection.empty;
@@ -204,6 +247,21 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   // BubbleMenuボタンのイベントハンドラー設定
   setupBubbleMenuHandlers(bubbleMenuElement, editor);
 
+  editor.on('selectionUpdate', () => {
+    if (bubbleMenuSuspended) {
+      bubbleMenuSuspended = false;
+      bubbleMenuElement.classList.remove('is-suspended');
+    }
+  });
+
+  const editorContainer = editor.view.dom.closest('.editor-container') as HTMLElement | null;
+  editorContainer?.addEventListener('scroll', () => {
+    if (!bubbleMenuSuspended) {
+      bubbleMenuSuspended = true;
+      bubbleMenuElement.classList.add('is-suspended');
+    }
+  });
+
   // Link handling:
   // - Keep Tiptap's Link.openOnClick=false (security)
   // - Open links via the extension (openExternal) on Ctrl/Cmd+Click (VS Code convention)
@@ -224,12 +282,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   container.addEventListener('click', onEditorClick);
 
   function setContent(markdown: string): void {
-    console.log('[createEditor] setContent', { length: markdown.length });
-    console.log('[createEditor] markdown preview:', markdown.slice(0, 500));
     editor.commands.setContent(markdown, { contentType: 'markdown' });
-    // Debug: log the parsed document structure
-    const json = editor.getJSON();
-    console.log('[createEditor] parsed JSON types:', json.content?.map(n => n.type));
   }
 
   function applyChanges(changes: Replace[]): void {
@@ -392,5 +445,3 @@ function updateBubbleMenuActiveState(menu: HTMLElement, editor: Editor): void {
     }
   });
 }
-
-

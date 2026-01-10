@@ -54,7 +54,7 @@ export const RawBlock = Node.create<RawBlockOptions>({
 
   selectable: true,
 
-  draggable: false,
+  draggable: true,
 
   addOptions() {
     return {
@@ -223,7 +223,7 @@ export const RawBlock = Node.create<RawBlockOptions>({
   renderMarkdown: (node: { attrs?: { content?: string } }) => {
     const content = node.attrs?.content || '';
     console.log('[RawBlock] renderMarkdown', { contentLength: content.length });
-    return content;
+    return content.endsWith('\n') ? content : content + '\n';
   },
 });
 

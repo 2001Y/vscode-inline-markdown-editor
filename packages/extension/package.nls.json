@@ -21,6 +21,8 @@
   "command.toggleOrderedList.title": "Toggle Ordered List",
   "command.toggleBlockquote.title": "Toggle Blockquote",
   "command.toggleCodeBlock.title": "Toggle Code Block",
+  "command.indentListItem.title": "Indent List Item",
+  "command.outdentListItem.title": "Outdent List Item",
   "command.undo.title": "Undo",
   "command.redo.title": "Redo",
   "configuration.title": "inlineMark",

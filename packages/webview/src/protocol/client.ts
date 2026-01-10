@@ -127,6 +127,11 @@ export class SyncClient {
     this.vscode = acquireVsCodeApi();
     this.callbacks = callbacks;
 
+    const win = window as unknown as { vscode?: VsCodeApi };
+    if (!win.vscode) {
+      win.vscode = this.vscode;
+    }
+
     window.addEventListener('message', (event) => this.handleMessage(event.data));
   }
 

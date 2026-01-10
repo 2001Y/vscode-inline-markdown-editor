@@ -23,15 +23,22 @@ export function activate(context: vscode.ExtensionContext): void {
   logger.initialize(context);
   logger.info('Extension activating');
 
-  InlineMarkProvider.register(context);
+  providerInstance = InlineMarkProvider.register(context);
+  if (!providerInstance) {
+    logger.error('Failed to register InlineMarkProvider', {
+      errorCode: 'PROVIDER_REGISTRATION_FAILED',
+    });
+    vscode.window.showErrorMessage(
+      vscode.l10n.t('InlineMark extension failed to activate.')
+    );
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.resetSession', async () => {
       const editor = vscode.window.activeTextEditor;
       if (editor && editor.document.languageId === 'markdown') {
-        const provider = getProvider(context);
-        if (provider) {
-          await provider.resetSession(editor.document);
+        if (providerInstance) {
+          await providerInstance.resetSession(editor.document);
         }
       }
     })
@@ -78,9 +85,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.applyRequiredSettings', async () => {
-      const provider = getProvider(context);
-      if (provider) {
-        await provider.applyRequiredSettings();
+      if (providerInstance) {
+        await providerInstance.applyRequiredSettings();
       }
     })
   );
@@ -116,6 +122,8 @@ export function activate(context: vscode.ExtensionContext): void {
     'toggleOrderedList',
     'toggleBlockquote',
     'toggleCodeBlock',
+    'indentListItem',
+    'outdentListItem',
     'undo',
     'redo',
   ];
@@ -124,9 +132,17 @@ export function activate(context: vscode.ExtensionContext): void {
   for (const command of editorCommands) {
     context.subscriptions.push(
       vscode.commands.registerCommand(`inlineMark.${command}`, () => {
-        const provider = getProvider(context);
-        if (provider) {
-          provider.sendEditorCommand(command);
+        if (!providerInstance) {
+          return;
+        }
+        try {
+          providerInstance.sendEditorCommand(command);
+        } catch (error) {
+          logger.error('Failed to send editor command', {
+            errorCode: 'SEND_EDITOR_COMMAND_FAILED',
+            errorStack: String(error),
+            details: { command },
+          });
         }
       })
     );
@@ -141,10 +157,3 @@ export function deactivate(): void {
 }
 
 let providerInstance: InlineMarkProvider | undefined;
-
-function getProvider(context: vscode.ExtensionContext): InlineMarkProvider | undefined {
-  if (!providerInstance) {
-    providerInstance = new InlineMarkProvider(context);
-  }
-  return providerInstance;
-}

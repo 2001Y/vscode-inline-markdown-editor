@@ -586,3 +586,105 @@ Contributions are welcome! Please read our contributing guidelines before submit
 ---
 
 **Keywords**: Markdown editor, VS Code extension, WYSIWYG, rich text editor, Tiptap, real-time sync, live preview, Markdown preview, document editor, text editor, formatting, GitHub Flavored Markdown, GFM, content editing, technical writing, documentation, notes, blog writing
+
+---
+
+## 🛠️ 開発
+
+### 技術スタック
+
+- **Editor**: [Tiptap](https://tiptap.dev/) - モダンな WYSIWYG エディタフレームワーク
+- **Markdown Codec**: [@tiptap/markdown](https://tiptap.dev/docs/editor/extensions/functionality/markdown) - GFM 対応の Markdown ↔ ProseMirror 変換
+- **GFM Tables**: [@tiptap/extension-table](https://tiptap.dev/docs/editor/extensions/nodes/table) - GitHub Flavored Markdown テーブル対応
+- **Diff Algorithm**: [diff-match-patch](https://github.com/google/diff-match-patch) - G5-lite 最小リフォーマット
+- **HTML Sanitization**: [DOMPurify](https://github.com/cure53/DOMPurify) - 安全な HTML レンダリング
+- **Build**: Vite（webview）+ TypeScript（extension）
+
+### カスタム拡張
+
+- **RawBlock**: 未対応の Markdown 記法（YAML frontmatter など）を編集可能ブロックとして保持
+- **HtmlBlock**: DOMPurify によるサニタイズ付き HTML ブロック対応
+
+```bash
+# リポジトリをクローン
+git clone https://github.com/2001Y/vscode-inline-markdown-editor.git
+cd vscode-inline-markdown-editor
+
+# 依存関係をインストール
+npm install
+
+# ビルド
+npm run build
+
+# ウォッチモード
+npm run watch
+```
+
+## 📄 ライセンス
+
+MIT License - 詳細は [LICENSE](LICENSE) を参照してください。
+
+## 🤝 コントリビュート
+
+コントリビューション歓迎です！PR を送る前にガイドラインをご確認ください。
+
+## 🔗 リンク
+
+- [GitHub リポジトリ](https://github.com/2001Y/vscode-inline-markdown-editor)
+- [Issue Tracker](https://github.com/2001Y/vscode-inline-markdown-editor/issues)
+- [Releases](https://github.com/2001Y/vscode-inline-markdown-editor/releases)
+
+---
+
+**キーワード**: Markdown editor, VS Code extension, WYSIWYG, rich text editor, Tiptap, real-time sync, live preview, Markdown preview, document editor, text editor, formatting, GitHub Flavored Markdown, GFM, content editing, technical writing, documentation, notes, blog writing
+
+---
+
+## 🛠️ 开发
+
+### 技术栈
+
+- **Editor**: [Tiptap](https://tiptap.dev/) - 现代 WYSIWYG 编辑器框架
+- **Markdown Codec**: [@tiptap/markdown](https://tiptap.dev/docs/editor/extensions/functionality/markdown) - 支持 GFM 的 Markdown ↔ ProseMirror 转换
+- **GFM Tables**: [@tiptap/extension-table](https://tiptap.dev/docs/editor/extensions/nodes/table) - GitHub Flavored Markdown 表格支持
+- **Diff Algorithm**: [diff-match-patch](https://github.com/google/diff-match-patch) - G5-lite 最小重排
+- **HTML Sanitization**: [DOMPurify](https://github.com/cure53/DOMPurify) - 安全的 HTML 渲染
+- **Build**: Vite（webview）+ TypeScript（extension）
+
+### 自定义扩展
+
+- **RawBlock**: 将不支持的 Markdown 语法（YAML frontmatter 等）作为可编辑块保留
+- **HtmlBlock**: 处理 HTML 块并可选 DOMPurify 过滤
+
+```bash
+# 克隆仓库
+git clone https://github.com/2001Y/vscode-inline-markdown-editor.git
+cd vscode-inline-markdown-editor
+
+# 安装依赖
+npm install
+
+# 构建
+npm run build
+
+# 监听模式
+npm run watch
+```
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE)。
+
+## 🤝 贡献
+
+欢迎贡献！提交 PR 前请阅读贡献指南。
+
+## 🔗 链接
+
+- [GitHub 仓库](https://github.com/2001Y/vscode-inline-markdown-editor)
+- [Issue Tracker](https://github.com/2001Y/vscode-inline-markdown-editor/issues)
+- [Releases](https://github.com/2001Y/vscode-inline-markdown-editor/releases)
+
+---
+
+**关键词**: Markdown editor, VS Code extension, WYSIWYG, rich text editor, Tiptap, real-time sync, live preview, Markdown preview, document editor, text editor, formatting, GitHub Flavored Markdown, GFM, content editing, technical writing, documentation, notes, blog writing
