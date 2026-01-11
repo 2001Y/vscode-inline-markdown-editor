@@ -938,7 +938,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     const actionLabelByRemediation: Partial<Record<string, string>> = {
       resync: vscode.l10n.t('Resync'),
       resetSession: vscode.l10n.t('Reset Session'),
-      reopenWithTextEditor: vscode.l10n.t('Reopen with Text Editor'),
+      reopenWithTextEditor: vscode.l10n.t('Open without inlineMark'),
       applySettings: vscode.l10n.t('Apply Settings'),
       trustWorkspace: vscode.l10n.t('Trust Workspace'),
     };

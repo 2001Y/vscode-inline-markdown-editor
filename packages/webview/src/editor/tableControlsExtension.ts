@@ -224,17 +224,17 @@ export const TableControls = Extension.create({
 
           const updateButtonPositions = (tableRect: DOMRect) => {
             const rowBtnX = tableRect.left;
-            const rowBtnY = tableRect.bottom + 4;
+            const rowBtnY = tableRect.bottom - 2;
             addRowBtn.style.setProperty('--btn-x', `${rowBtnX}px`);
             addRowBtn.style.setProperty('--btn-y', `${rowBtnY}px`);
             addRowBtn.style.setProperty('--btn-w', `${tableRect.width}px`);
-            addRowBtn.style.setProperty('--btn-h', '18px');
+            addRowBtn.style.setProperty('--btn-h', '20px');
 
-            const colBtnX = tableRect.right + 4;
+            const colBtnX = tableRect.right - 2;
             const colBtnY = tableRect.top;
             addColBtn.style.setProperty('--btn-x', `${colBtnX}px`);
             addColBtn.style.setProperty('--btn-y', `${colBtnY}px`);
-            addColBtn.style.setProperty('--btn-w', '18px');
+            addColBtn.style.setProperty('--btn-w', '20px');
             addColBtn.style.setProperty('--btn-h', `${tableRect.height}px`);
           };
 
@@ -1000,6 +1000,7 @@ function createAddButton(type: 'row' | 'col'): HTMLElement {
   btn.setAttribute('aria-label', label);
   btn.title = label;
   btn.dataset.axis = type;
+  btn.innerHTML = icons.plus;
   return btn;
 }
 

@@ -51,6 +51,8 @@ export interface Translations {
     delete: string;
     duplicate: string;
     copy: string;
+    indent: string;
+    outdent: string;
     convertTo: string;
     paragraph: string;
     heading1: string;
@@ -66,11 +68,11 @@ export interface Translations {
 // English translations (default)
 const en: Translations = {
   placeholder: {
-    paragraph: "Type '/' for commands...",
+    paragraph: "Type '/' to select block type",
     heading: 'Heading...',
   },
   floatingMenu: {
-    trigger: "Insert block (Type '/' for commands)",
+    trigger: "Insert block (Type '/' to select block type)",
     heading1: 'Heading 1',
     heading2: 'Heading 2',
     heading3: 'Heading 3',
@@ -105,6 +107,8 @@ const en: Translations = {
     delete: 'Delete',
     duplicate: 'Duplicate',
     copy: 'Copy',
+    indent: 'Indent',
+    outdent: 'Outdent',
     convertTo: 'Convert to',
     paragraph: 'Text',
     heading1: 'Heading 1',
@@ -120,11 +124,11 @@ const en: Translations = {
 // Japanese translations
 const ja: Translations = {
   placeholder: {
-    paragraph: "'/' でコマンドメニュー...",
+    paragraph: "'/' でブロックタイプを選択",
     heading: '見出しを入力...',
   },
   floatingMenu: {
-    trigger: "ブロックを挿入 ('/' でコマンド)",
+    trigger: "ブロックを挿入 ('/' でブロックタイプを選択)",
     heading1: '見出し1',
     heading2: '見出し2',
     heading3: '見出し3',
@@ -159,6 +163,8 @@ const ja: Translations = {
     delete: '削除',
     duplicate: '複製',
     copy: 'コピー',
+    indent: 'インデント',
+    outdent: 'インデント解除',
     convertTo: '変換',
     paragraph: 'テキスト',
     heading1: '見出し1',
@@ -174,11 +180,11 @@ const ja: Translations = {
 // Chinese translations
 const zh: Translations = {
   placeholder: {
-    paragraph: "输入 '/' 打开命令菜单...",
+    paragraph: "输入 '/' 选择块类型",
     heading: '输入标题...',
   },
   floatingMenu: {
-    trigger: "插入块 (输入 '/' 打开命令)",
+    trigger: "插入块 (输入 '/' 选择块类型)",
     heading1: '一级标题',
     heading2: '二级标题',
     heading3: '三级标题',
@@ -213,6 +219,8 @@ const zh: Translations = {
     delete: '删除',
     duplicate: '复制副本',
     copy: '复制',
+    indent: '增加缩进',
+    outdent: '减少缩进',
     convertTo: '转换为',
     paragraph: '文本',
     heading1: '一级标题',

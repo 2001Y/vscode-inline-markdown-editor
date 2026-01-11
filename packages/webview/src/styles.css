@@ -50,8 +50,10 @@ body {
   outline: none;
   min-height: 100%;
   width: 100%;
-  max-width: 860px;
+  max-width: 700px;
   white-space: pre-wrap;
+  position: relative;
+  --indent-step: 24px;
 }
 
 .inline-markdown-editor-content:focus {
@@ -177,6 +179,10 @@ body {
   padding-left: 2em;
 }
 
+.inline-markdown-editor-content ol > li {
+  counter-increment: inline-md-ol;
+}
+
 .inline-markdown-editor-content ul > li::before,
 .inline-markdown-editor-content ol > li::before {
   position: absolute;
@@ -193,7 +199,6 @@ body {
 }
 
 .inline-markdown-editor-content ol > li::before {
-  counter-increment: inline-md-ol;
   content: counter(inline-md-ol) '.';
   font-variant-numeric: tabular-nums;
 }
@@ -254,53 +259,27 @@ body {
   font-weight: 600;
 }
 
-/* Sync Indicator */
-.sync-indicator {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  transition: opacity 0.2s ease;
-}
-
-.sync-indicator .sync-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  transition: background-color 0.2s ease;
-}
-
-.sync-indicator.idle .sync-dot {
-  background-color: var(--vscode-testing-iconPassed);
-}
-
-.sync-indicator.syncing .sync-dot {
-  background-color: var(--vscode-testing-iconQueued);
-  animation: pulse 1s infinite;
-}
-
-.sync-indicator.error .sync-dot {
-  background-color: var(--vscode-testing-iconFailed);
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 /* Pseudo-virtualization for large documents */
 .inline-markdown-editor-content > * {
   content-visibility: auto;
   contain-intrinsic-size: auto 100px;
+}
+
+/* Ensure ProseMirror widgets stay visible during scroll */
+.inline-markdown-editor-content > .ProseMirror-widget {
+  content-visibility: visible;
+  contain: none;
+}
+
+/* Drag handle overlay layer (avoid content-visibility clipping) */
+.inline-markdown-editor-content > .inline-handle-layer {
+  content-visibility: visible;
+  contain: none;
+}
+
+.inline-markdown-editor-content > .ProseMirror-widget > .inline-handle-layer {
+  content-visibility: visible;
+  contain: none;
 }
 
 /* ProseMirror specific styles */
@@ -534,7 +513,7 @@ body {
 /* Focus - ブロック選択時のハイライト */
 .ProseMirror .has-focus {
   border-radius: 2px;
-  box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+  background: var(--vscode-editor-lineHighlightBackground, transparent);
 }
 
 /* BubbleMenu - 選択時フォーマットツールバー */
@@ -809,7 +788,6 @@ body {
   background: transparent;
   color: var(--vscode-editorWidget-border);
   cursor: pointer;
-  font-size: 0;
   font-weight: 400;
   display: flex;
   align-items: center;
@@ -820,35 +798,14 @@ body {
   z-index: 100;
 }
 
-.table-add-btn::before,
-.table-add-btn::after {
-  content: '';
-  position: absolute;
-  background: currentColor;
-}
 
-.table-add-btn::before {
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  transform: translateY(-0.5px);
-}
-
-.table-add-btn::after {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-0.5px);
-}
-
-.table-add-btn-row::after {
-  display: none;
-}
-
-.table-add-btn-col::before {
-  display: none;
+.table-add-btn svg {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  pointer-events: none;
+  display: block;
 }
 
 .table-add-btn.is-visible {
@@ -1059,24 +1016,7 @@ body {
   height: 2px;
   background: var(--vscode-focusBorder);
   pointer-events: none;
-  z-index: 100;
-}
-
-.list-indent-indicator {
-  position: fixed;
-  left: var(--indent-x, 0);
-  top: var(--indent-y, 0);
-  height: var(--indent-h, 16px);
-  width: 2px;
-  background: var(--vscode-focusBorder);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 101;
-  transform: translateX(-1px);
-}
-
-.list-indent-indicator.is-visible {
-  opacity: 1;
+  z-index: 120;
 }
 
 /* ドラッグ中のブロック */

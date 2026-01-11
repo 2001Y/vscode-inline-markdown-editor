@@ -1,9 +1,10 @@
 {
   "extension.displayName": "inlineMark",
-  "extension.description": "Tiptap を使用した WYSIWYG エディタで Markdown ファイルを編集",
+  "extension.description": "Notion風Markdownブロックエディタ。インライン編集、ドラッグ移動、ネストmdファイル、TipTap製WYSIWYG",
   "customEditor.displayName": "inlineMark",
   "command.resetSession.title": "エディタセッションをリセット",
-  "command.reopenWithTextEditor.title": "テキストエディタで開き直す",
+  "command.reopenWithTextEditor.title": "inlineMarkを使わずに開く",
+  "command.reopenWithInlineMark.title": "inlineMarkで開く",
   "command.applyRequiredSettings.title": "必須 Markdown 設定を適用 (G5)",
   "command.exportLogs.title": "ログをエクスポート",
   "command.toggleBold.title": "太字の切り替え",

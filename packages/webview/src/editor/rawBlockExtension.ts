@@ -32,6 +32,7 @@
 
 import { Node, mergeAttributes } from '@tiptap/core';
 import type { MarkdownToken, MarkdownParseHelpers } from '@tiptap/core';
+import { indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
 
 export interface RawBlockOptions {
   HTMLAttributes: Record<string, unknown>;
@@ -71,6 +72,7 @@ export const RawBlock = Node.create<RawBlockOptions>({
           'data-content': attributes.content,
         }),
       },
+      indent: indentAttribute,
     };
   },
 
@@ -220,10 +222,18 @@ export const RawBlock = Node.create<RawBlockOptions>({
     };
   },
 
-  renderMarkdown: (node: { attrs?: { content?: string } }) => {
+  renderMarkdown: (
+    node: { attrs?: { content?: string; indent?: number } },
+    _helpers: unknown,
+    context?: { parentType?: { name?: string } }
+  ) => {
     const content = node.attrs?.content || '';
     console.log('[RawBlock] renderMarkdown', { contentLength: content.length });
-    return content.endsWith('\n') ? content : content + '\n';
+    const indent = normalizeIndentAttr(node.attrs?.indent);
+    const raw = content.endsWith('\n') ? content : content + '\n';
+    const isInListItem = context?.parentType?.name === 'listItem';
+    const marker = isInListItem ? '' : renderIndentMarker(indent);
+    return `${marker}${raw}`;
   },
 });
 

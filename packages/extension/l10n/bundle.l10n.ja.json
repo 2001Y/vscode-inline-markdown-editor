@@ -11,6 +11,8 @@
   "Logs exported to: {0}": "ログのエクスポート先: {0}",
   "No logs to export.": "エクスポートするログがありません。",
   "Cannot reopen with Text Editor: no active editor found.": "テキストエディタで開き直せません（アクティブなエディタが見つかりません）。",
+  "Cannot reopen with inlineMark: no active editor found.": "inlineMarkで開けません（アクティブなエディタが見つかりません）。",
+  "Open without inlineMark": "inlineMarkを使わずに開く",
   "Sync timeout. The editor may be out of sync.": "同期タイムアウト。エディタが同期していない可能性があります。",
   "Failed to apply edit: {0}": "編集の適用に失敗しました: {0}",
   "Protocol version mismatch. Please reload the editor.": "プロトコルバージョンが一致しません。エディタを再読み込みしてください。",

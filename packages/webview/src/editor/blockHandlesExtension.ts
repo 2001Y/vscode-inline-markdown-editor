@@ -16,6 +16,8 @@ import { t } from './i18n.js';
 import { icons } from './icons.js';
 import { createBlockMenu, createBlockMenuItem, getBlockMenuItems, positionBlockMenu, updateBlockMenuSelection } from './blockMenu.js';
 import { closeMenu, isMenuActive, openMenu, registerMenu } from './menuManager.js';
+import { executeCommand } from './commands.js';
+import { normalizeIndentAttr } from './indentConfig.js';
 
 const MODULE = 'BlockHandles';
 
@@ -184,6 +186,24 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     const getActiveBlock = () => {
       if (!storage.currentNode || storage.currentNodePos < 0) return null;
       return { node: storage.currentNode, pos: storage.currentNodePos };
+    };
+
+    const resolveIndentFromSelection = (): number => {
+      const { $from } = editor.state.selection;
+      for (let depth = $from.depth; depth >= 1; depth -= 1) {
+        const node = $from.node(depth);
+        if (node?.attrs && Object.prototype.hasOwnProperty.call(node.attrs, 'indent')) {
+          return normalizeIndentAttr(node.attrs.indent);
+        }
+      }
+      return 0;
+    };
+
+    const resolveIndentFromBlock = (block: { node: ProseMirrorNode; pos: number } | null): number => {
+      if (block?.node?.attrs && Object.prototype.hasOwnProperty.call(block.node.attrs, 'indent')) {
+        return normalizeIndentAttr(block.node.attrs.indent);
+      }
+      return resolveIndentFromSelection();
     };
 
     const syncDragHandleLock = () => {
@@ -363,11 +383,12 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
       return createBlockMenu('blockContext');
     };
 
-    const createMenuItem = (label: string, action: string, icon?: string): HTMLElement => {
+    const createMenuItem = (label: string, action: string, icon?: string, iconText?: string): HTMLElement => {
       return createBlockMenuItem({
         label,
         action,
         icon,
+        iconText,
       });
     };
 
@@ -382,7 +403,19 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     };
 
     const handleContextMenuAction = async (action: string, block: { node: ProseMirrorNode; pos: number }) => {
-      if (action === 'delete') {
+      if (action === 'indentListItem') {
+        editor.chain().focus().setNodeSelection(block.pos).run();
+        executeCommand(editor, 'indentListItem');
+      } else if (action === 'outdentListItem') {
+        editor.chain().focus().setNodeSelection(block.pos).run();
+        executeCommand(editor, 'outdentListItem');
+      } else if (action === 'indentBlock') {
+        editor.chain().focus().setNodeSelection(block.pos).run();
+        executeCommand(editor, 'indentBlock');
+      } else if (action === 'outdentBlock') {
+        editor.chain().focus().setNodeSelection(block.pos).run();
+        executeCommand(editor, 'outdentBlock');
+      } else if (action === 'delete') {
         deleteBlock(block);
       } else if (action === 'copy') {
         const text = editor.state.doc.textBetween(block.pos, block.pos + block.node.nodeSize, '\n\n');
@@ -403,10 +436,22 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
       contextMenu.innerHTML = '';
 
       const bh = t().blockHandles;
-      contextMenu.appendChild(createMenuItem(bh.delete, 'delete', icons.trash));
-      contextMenu.appendChild(createMenuItem(bh.copy, 'copy', icons.copy));
+      const contextItems: Array<{ label: string; action: string; icon?: string; iconText?: string }> = [];
+      if (block.node.type.name === 'listItem') {
+        contextItems.push({ label: bh.indent, action: 'indentListItem', iconText: '>' });
+        contextItems.push({ label: bh.outdent, action: 'outdentListItem', iconText: '<' });
+      } else {
+        contextItems.push({ label: bh.indent, action: 'indentBlock', iconText: '>' });
+        contextItems.push({ label: bh.outdent, action: 'outdentBlock', iconText: '<' });
+      }
+      contextItems.push({ label: bh.delete, action: 'delete', icon: icons.trash });
+      contextItems.push({ label: bh.copy, action: 'copy', icon: icons.copy });
 
-      storage.contextItemCount = 2;
+      contextItems.forEach((item) => {
+        contextMenu.appendChild(createMenuItem(item.label, item.action, item.icon, item.iconText));
+      });
+
+      storage.contextItemCount = contextItems.length;
       storage.selectedContextIndex = 0;
       updateContextMenuSelection();
 
@@ -463,38 +508,39 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
             const blockType = item.dataset.blockType;
             if (!blockType) return;
 
-            const slashRange = storage.slashCommandRange;
+          const slashRange = storage.slashCommandRange;
 
-            if (slashRange) {
-              DEBUG.log(MODULE, 'Slash command selection', { blockType, range: slashRange });
-              editor.chain().focus().deleteRange({ from: slashRange.from, to: slashRange.to }).run();
+          if (slashRange) {
+            DEBUG.log(MODULE, 'Slash command selection', { blockType, range: slashRange });
+            editor.chain().focus().deleteRange({ from: slashRange.from, to: slashRange.to }).run();
+            const indent = resolveIndentFromSelection();
 
-              switch (blockType) {
-                case 'heading1':
-                  editor.chain().focus().setHeading({ level: 1 }).run();
+            switch (blockType) {
+              case 'heading1':
+                  editor.chain().focus().setHeading({ level: 1, indent }).run();
                   break;
-                case 'heading2':
-                  editor.chain().focus().setHeading({ level: 2 }).run();
+              case 'heading2':
+                  editor.chain().focus().setHeading({ level: 2, indent }).run();
                   break;
-                case 'heading3':
-                  editor.chain().focus().setHeading({ level: 3 }).run();
+              case 'heading3':
+                  editor.chain().focus().setHeading({ level: 3, indent }).run();
                   break;
-                case 'bulletList':
-                  editor.chain().focus().toggleBulletList().run();
+              case 'bulletList':
+                  editor.chain().focus().toggleBulletList().updateAttributes('bulletList', { indent }).run();
                   break;
-                case 'orderedList':
-                  editor.chain().focus().toggleOrderedList().run();
+              case 'orderedList':
+                  editor.chain().focus().toggleOrderedList().updateAttributes('orderedList', { indent }).run();
                   break;
-                case 'codeBlock':
-                  editor.chain().focus().setCodeBlock().run();
+              case 'codeBlock':
+                  editor.chain().focus().setCodeBlock({ indent }).run();
                   break;
-                case 'blockquote':
-                  editor.chain().focus().setBlockquote().run();
+              case 'blockquote':
+                  editor.chain().focus().setBlockquote({ indent }).run();
                   break;
-                case 'table':
+              case 'table':
                   editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
                   break;
-              }
+            }
 
               storage.slashCommandRange = null;
             } else {
@@ -505,34 +551,35 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
               }
 
               const pos = active.pos + active.node.nodeSize;
+              const indent = resolveIndentFromBlock(active);
 
               switch (blockType) {
                 case 'heading1':
-                  editor.chain().focus().insertContentAt(pos, { type: 'heading', attrs: { level: 1 } }).setTextSelection(pos + 1).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'heading', attrs: { level: 1, indent } }).setTextSelection(pos + 1).run();
                   break;
                 case 'heading2':
-                  editor.chain().focus().insertContentAt(pos, { type: 'heading', attrs: { level: 2 } }).setTextSelection(pos + 1).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'heading', attrs: { level: 2, indent } }).setTextSelection(pos + 1).run();
                   break;
                 case 'heading3':
-                  editor.chain().focus().insertContentAt(pos, { type: 'heading', attrs: { level: 3 } }).setTextSelection(pos + 1).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'heading', attrs: { level: 3, indent } }).setTextSelection(pos + 1).run();
                   break;
                 case 'bulletList':
-                  editor.chain().focus().insertContentAt(pos, { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }).setTextSelection(pos + 3).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'bulletList', attrs: { indent }, content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }).setTextSelection(pos + 3).run();
                   break;
                 case 'orderedList':
-                  editor.chain().focus().insertContentAt(pos, { type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }).setTextSelection(pos + 3).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'orderedList', attrs: { indent }, content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }).setTextSelection(pos + 3).run();
                   break;
                 case 'codeBlock':
-                  editor.chain().focus().insertContentAt(pos, { type: 'codeBlock' }).setTextSelection(pos + 1).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'codeBlock', attrs: { indent } }).setTextSelection(pos + 1).run();
                   break;
                 case 'blockquote':
-                  editor.chain().focus().insertContentAt(pos, { type: 'blockquote', content: [{ type: 'paragraph' }] }).setTextSelection(pos + 2).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'blockquote', attrs: { indent }, content: [{ type: 'paragraph' }] }).setTextSelection(pos + 2).run();
                   break;
                 case 'table':
                   editor.chain().focus().setTextSelection(pos).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
                   break;
                 default:
-                  editor.chain().focus().insertContentAt(pos, { type: 'paragraph' }).setTextSelection(pos + 1).run();
+                  editor.chain().focus().insertContentAt(pos, { type: 'paragraph', attrs: { indent } }).setTextSelection(pos + 1).run();
               }
             }
 

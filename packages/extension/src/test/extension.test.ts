@@ -21,6 +21,7 @@ suite('Extension Test Suite', () => {
 
     assert.ok(commands.includes('inlineMark.resetSession'), 'resetSession command should be registered');
     assert.ok(commands.includes('inlineMark.reopenWithTextEditor'), 'reopenWithTextEditor command should be registered');
+    assert.ok(commands.includes('inlineMark.reopenWithInlineMark'), 'reopenWithInlineMark command should be registered');
     assert.ok(commands.includes('inlineMark.applyRequiredSettings'), 'applyRequiredSettings command should be registered');
     assert.ok(commands.includes('inlineMark.exportLogs'), 'exportLogs command should be registered');
   });

@@ -17,17 +17,12 @@
  * エラー/警告（例: ChangeGuard 超過）は Webview 内オーバーレイではなく
  * VS Code 標準の通知 UI で表示する（追加方針）。
  * 
- * SyncIndicator:
- * - idle: 同期完了
- * - syncing: 送信中/待機中
- * - error: エラー発生
- * 
  * 状態永続化 (設計書 13.2):
  * - getState/setState でスクロール位置を保存
  * - タブ切り替え/リロード後も位置を復元
  */
 
-import { SyncClient, type SyncState } from './protocol/client.js';
+import { SyncClient } from './protocol/client.js';
 import { createEditor, type EditorInstance } from './editor/createEditor.js';
 import type { Replace, Remediation, WebviewConfig } from './protocol/types.js';
 import type { ChangeMetrics } from './editor/diffEngine.js';
@@ -41,7 +36,6 @@ interface AppState {
 
 let editorInstance: EditorInstance | null = null;
 let syncClient: SyncClient | null = null;
-let syncIndicator: HTMLElement | null = null;
 let editorContainerEl: HTMLElement | null = null;
 
 const VALID_EDITOR_COMMANDS: ReadonlySet<CommandName> = new Set([
@@ -60,6 +54,8 @@ const VALID_EDITOR_COMMANDS: ReadonlySet<CommandName> = new Set([
   'toggleOrderedList',
   'toggleBlockquote',
   'toggleCodeBlock',
+  'indentBlock',
+  'outdentBlock',
   'indentListItem',
   'outdentListItem',
   'setHorizontalRule',
@@ -91,15 +87,11 @@ function main(): void {
   editorContainerEl.className = 'editor-container';
   appContainer.appendChild(editorContainerEl);
 
-  console.log('[Main] Creating sync indicator');
-  syncIndicator = createSyncIndicator(appContainer);
-
   console.log('[Main] Creating SyncClient');
   syncClient = new SyncClient({
     onInit: handleInit,
     onDocChanged: handleDocChanged,
     onError: handleError,
-    onSyncStateChange: handleSyncStateChange,
     onImageResolved: handleImageResolved,
   });
 
@@ -191,10 +183,6 @@ function handleError(code: string, message: string, remediation: string[]): void
   syncClient?.notifyHost('ERROR', code, message, filterRemediations(remediation));
 }
 
-function handleSyncStateChange(state: SyncState): void {
-  updateSyncIndicator(state);
-}
-
 // ChangeGuard: 大規模編集の警告ロジック（一時的にコメントアウト）
 // function handleChangeGuardExceeded(metrics: ChangeMetrics): void {
 //   const message = syncClient?.t(
@@ -282,21 +270,6 @@ function handleImageResolved(requestId: string, resolvedSrc: string): void {
       img.setAttribute('src', resolvedSrc);
     }
   }
-}
-
-function createSyncIndicator(parent: HTMLElement): HTMLElement {
-  const indicator = document.createElement('div');
-  indicator.className = 'sync-indicator idle';
-  indicator.innerHTML = '<span class="sync-dot"></span>';
-  parent.appendChild(indicator);
-  return indicator;
-}
-
-function updateSyncIndicator(state: SyncState): void {
-  if (!syncIndicator) {return;}
-
-  syncIndicator.classList.remove('idle', 'syncing', 'error');
-  syncIndicator.classList.add(state);
 }
 
 window.addEventListener('beforeunload', () => {

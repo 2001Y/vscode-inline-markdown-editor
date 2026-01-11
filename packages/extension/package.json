@@ -44,6 +44,11 @@
         "icon": "$(split-horizontal)"
       },
       {
+        "command": "inlineMark.reopenWithInlineMark",
+        "title": "%command.reopenWithInlineMark.title%",
+        "category": "inlineMark"
+      },
+      {
         "command": "inlineMark.applyRequiredSettings",
         "title": "%command.applyRequiredSettings.title%",
         "category": "inlineMark"
@@ -241,18 +246,6 @@
         "when": "activeCustomEditorId == 'inlineMark.editor'"
       },
       {
-        "command": "inlineMark.indentListItem",
-        "key": "tab",
-        "mac": "tab",
-        "when": "activeCustomEditorId == 'inlineMark.editor'"
-      },
-      {
-        "command": "inlineMark.outdentListItem",
-        "key": "shift+tab",
-        "mac": "shift+tab",
-        "when": "activeCustomEditorId == 'inlineMark.editor'"
-      },
-      {
         "command": "inlineMark.undo",
         "key": "ctrl+z",
         "mac": "cmd+z",
@@ -271,12 +264,22 @@
           "command": "inlineMark.reopenWithTextEditor",
           "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
           "group": "navigation@0"
+        },
+        {
+          "command": "inlineMark.reopenWithInlineMark",
+          "when": "resourceLangId == 'markdown' && activeCustomEditorId != 'inlineMark.editor'",
+          "group": "navigation@1"
         }
       ],
       "editor/title/context": [
         {
           "command": "inlineMark.reopenWithTextEditor",
           "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
+          "group": "1_open"
+        },
+        {
+          "command": "inlineMark.reopenWithInlineMark",
+          "when": "resourceLangId == 'markdown' && activeCustomEditorId != 'inlineMark.editor'",
           "group": "1_open"
         }
       ]
@@ -348,7 +351,8 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run copy-readme && npm run build",
+    "copy-readme": "cp ../../README.md ./README.md",
     "build": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src",

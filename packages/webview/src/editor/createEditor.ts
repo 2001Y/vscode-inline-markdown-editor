@@ -49,7 +49,10 @@ import { TableControls } from './tableControlsExtension.js';
 import { BlockHandles, createDragHandleElement, isDragHandleTarget, type BlockHandlesStorage, DRAG_HANDLE_ALLOWED_NODE_TYPES } from './blockHandlesExtension.js';
 import { InlineDragHandle } from './inlineDragHandleExtension.js';
 import { ListIndentShortcuts } from './listIndentShortcuts.js';
+import { IndentMarker } from './indentMarkerExtension.js';
+import { setHostNotifier } from './hostNotifier.js';
 import {
+  ParagraphNoShortcut,
   BoldNoShortcut,
   ItalicNoShortcut,
   StrikeNoShortcut,
@@ -58,8 +61,10 @@ import {
   HeadingNoShortcut,
   BulletListNoShortcut,
   OrderedListNoShortcut,
+  ListItemNoShortcut,
   BlockquoteNoShortcut,
   CodeBlockNoShortcut,
+  HorizontalRuleNoShortcut,
   HistoryNoShortcut,
 } from './disableKeyboardShortcuts.js';
 import { t } from './i18n.js';
@@ -113,11 +118,14 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         italic: false,
         strike: false,
         code: false,
+        paragraph: false,
         heading: false,
         bulletList: false,
         orderedList: false,
+        listItem: false,
         blockquote: false,
         codeBlock: false,
+        horizontalRule: false,
         // Tiptap 3.x: history → undoRedo
         undoRedo: false,
         // Dropcursor は単体で configure する
@@ -132,11 +140,14 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       StrikeNoShortcut,
       CodeNoShortcut,
       UnderlineNoShortcut,
+      ParagraphNoShortcut,
       HeadingNoShortcut.configure({ levels: [1, 2, 3, 4, 5, 6] }),
       BulletListNoShortcut,
       OrderedListNoShortcut,
+      ListItemNoShortcut,
       BlockquoteNoShortcut,
       CodeBlockNoShortcut,
+      HorizontalRuleNoShortcut,
       HistoryNoShortcut,
       Dropcursor.configure({
         color: 'var(--vscode-focusBorder)',
@@ -165,7 +176,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         render: () => dragHandleElement,
         computePositionConfig: {
           placement: 'left',
-          strategy: 'fixed',
+          strategy: 'absolute',
         },
         allowedNodeTypes: DRAG_HANDLE_ALLOWED_NODE_TYPES,
         onNodeChange: (data) => {
@@ -188,7 +199,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       ListIndentShortcuts,
       // ブロックメニュー（+ / コンテキスト / スラッシュコマンド）
       BlockHandles,
-      // カスタム拡張（frontmatter, HTML ブロック）
+      // カスタム拡張（indent コメント, frontmatter, HTML ブロック）
+      IndentMarker,
       RawBlock,
       HtmlBlock,
       // @tiptap/markdown で Markdown パース/シリアライズを統合
@@ -242,6 +254,10 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         return computeChanges(updatedEditor, syncClient, onChangeGuardExceeded);
       });
     },
+  });
+
+  setHostNotifier((level, code, message, remediation, details) => {
+    syncClient.notifyHost(level, code, message, remediation, details);
   });
 
   // BubbleMenuボタンのイベントハンドラー設定

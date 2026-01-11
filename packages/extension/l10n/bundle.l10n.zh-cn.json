@@ -11,6 +11,8 @@
   "Logs exported to: {0}": "日志已导出到：{0}",
   "No logs to export.": "没有可导出的日志。",
   "Cannot reopen with Text Editor: no active editor found.": "无法使用文本编辑器重新打开（未找到活动编辑器）。",
+  "Cannot reopen with inlineMark: no active editor found.": "无法使用 inlineMark 打开（未找到活动编辑器）。",
+  "Open without inlineMark": "不使用 inlineMark 打开",
   "Sync timeout. The editor may be out of sync.": "同步超时。编辑器可能不同步。",
   "Failed to apply edit: {0}": "应用编辑失败：{0}",
   "Protocol version mismatch. Please reload the editor.": "协议版本不匹配。请重新加载编辑器。",

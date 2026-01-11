@@ -80,7 +80,7 @@ export interface SyncClientCallbacks {
   onInit: (content: string, version: number, config: WebviewConfig, i18n: Record<string, string>) => void;
   onDocChanged: (version: number, changes: Replace[], fullContent?: string) => void;
   onError: (code: string, message: string, remediation: string[]) => void;
-  onSyncStateChange: (state: SyncState) => void;
+  onSyncStateChange?: (state: SyncState) => void;
   onImageResolved?: (requestId: string, resolvedSrc: string) => void;
 }
 
@@ -125,7 +125,10 @@ export class SyncClient {
 
   constructor(callbacks: SyncClientCallbacks) {
     this.vscode = acquireVsCodeApi();
-    this.callbacks = callbacks;
+    this.callbacks = {
+      ...callbacks,
+      onSyncStateChange: callbacks.onSyncStateChange ?? (() => {}),
+    };
 
     const win = window as unknown as { vscode?: VsCodeApi };
     if (!win.vscode) {

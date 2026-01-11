@@ -84,6 +84,38 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('inlineMark.reopenWithInlineMark', async () => {
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const viewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
+
+      if (tab?.input instanceof vscode.TabInputText) {
+        await vscode.commands.executeCommand(
+          'vscode.openWith',
+          tab.input.uri,
+          InlineMarkProvider.viewType,
+          { viewColumn }
+        );
+        return;
+      }
+
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        await vscode.commands.executeCommand(
+          'vscode.openWith',
+          editor.document.uri,
+          InlineMarkProvider.viewType,
+          { viewColumn: editor.viewColumn }
+        );
+        return;
+      }
+
+      vscode.window.showWarningMessage(
+        vscode.l10n.t('Cannot reopen with inlineMark: no active editor found.')
+      );
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.applyRequiredSettings', async () => {
       if (providerInstance) {
         await providerInstance.applyRequiredSettings();

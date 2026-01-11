@@ -34,6 +34,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import type { MarkdownToken, MarkdownParseHelpers } from '@tiptap/core';
 import DOMPurify from 'dompurify';
+import { indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
 
 // DOMPurify configuration for safe HTML rendering (same as in markdownCodec)
 const DOMPURIFY_CONFIG = {
@@ -82,6 +83,7 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
           'data-content': attributes.content,
         }),
       },
+      indent: indentAttribute,
     };
   },
 
@@ -187,19 +189,26 @@ export const HtmlBlock = Node.create<HtmlBlockOptions>({
     };
   },
 
-  renderMarkdown: function renderMarkdown(node: { attrs?: { content?: string } }) {
+  renderMarkdown: function renderMarkdown(
+    node: { attrs?: { content?: string; indent?: number } },
+    _helpers: unknown,
+    context?: { parentType?: { name?: string } }
+  ) {
     const content = node.attrs?.content || '';
     const shouldSanitize = this.options.sanitizeHtmlExport;
+    const indent = normalizeIndentAttr(node.attrs?.indent);
+    const isInListItem = context?.parentType?.name === 'listItem';
+    const marker = isInListItem ? '' : renderIndentMarker(indent);
     if (!shouldSanitize) {
       console.warn('[WARNING][HtmlBlock] renderMarkdown sanitization disabled', { contentLength: content.length });
-      return content;
+      return `${marker}${content}`;
     }
     const sanitized = DOMPurify.sanitize(content, DOMPURIFY_CONFIG);
     console.log('[HtmlBlock] renderMarkdown (sanitized)', {
       contentLength: content.length,
       sanitizedLength: sanitized.length,
     });
-    return sanitized;
+    return `${marker}${sanitized}`;
   },
 });
 

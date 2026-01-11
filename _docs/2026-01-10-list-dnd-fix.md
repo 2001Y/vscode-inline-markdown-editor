@@ -12,7 +12,6 @@
 - selection は listItem 直下の textblock 位置へ安全に移動。
 - table cell 内では drag handle を表示しない。
 - drop 位置の listItem 解決は posAtCoords が外れやすいので、editor content 内へ座標をクランプして再解決する。
-- インデント移動の視認性向上のため、drag中にインデントガイド（list-indent-indicator）を表示する。
 
 ## 関連ファイル
 - packages/webview/src/editor/inlineDragHandleExtension.ts

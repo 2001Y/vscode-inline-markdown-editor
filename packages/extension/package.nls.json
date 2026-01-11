@@ -1,9 +1,10 @@
 {
   "extension.displayName": "inlineMark",
-  "extension.description": "Edit Markdown files with a WYSIWYG editor powered by Tiptap",
+  "extension.description": "Notion-style Markdown block editor. Inline editing, drag & drop, nested md files, TipTap-powered WYSIWYG",
   "customEditor.displayName": "inlineMark",
   "command.resetSession.title": "Reset Editor Session",
-  "command.reopenWithTextEditor.title": "Reopen with Text Editor",
+  "command.reopenWithTextEditor.title": "Open without inlineMark",
+  "command.reopenWithInlineMark.title": "Open with inlineMark",
   "command.applyRequiredSettings.title": "Apply Required Markdown Settings (G5)",
   "command.exportLogs.title": "Export Logs",
   "command.toggleBold.title": "Toggle Bold",

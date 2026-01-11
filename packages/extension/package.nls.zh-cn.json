@@ -1,9 +1,10 @@
 {
   "extension.displayName": "inlineMark",
-  "extension.description": "使用 Tiptap 驱动的所见即所得编辑器编辑 Markdown 文件",
+  "extension.description": "Notion风格Markdown块编辑器。内联编辑、拖拽移动、嵌套md文件、TipTap驱动WYSIWYG",
   "customEditor.displayName": "inlineMark",
   "command.resetSession.title": "重置编辑器会话",
-  "command.reopenWithTextEditor.title": "使用文本编辑器重新打开",
+  "command.reopenWithTextEditor.title": "不使用 inlineMark 打开",
+  "command.reopenWithInlineMark.title": "使用 inlineMark 打开",
   "command.applyRequiredSettings.title": "应用必需的 Markdown 设置 (G5)",
   "command.exportLogs.title": "导出日志",
   "command.indentListItem.title": "列表缩进",
