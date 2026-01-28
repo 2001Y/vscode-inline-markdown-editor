@@ -1,0 +1,14 @@
+{ "display_information": { "name": "undefined" "description": "undefined connector for Clawdbot"
+
+"features": { "bot_user": { "display_name": "undefined", "always_online": false
+
+"app_home": { "messages_tab_enabled": true, "messages_tab_read_only_enabled": false ｝， "slash_commands": [ { "command": "/clawd" "description": "Send a "should_escape": false message to Clawdbot",
+
+｝ ]
+
+"oauth_config": { "scopes": { "bot": [ "chat:write" "channels:history", "channels: read" "groups: history", "im history" "mpim:history" "users: Iead" "app_mentions: read", "reactions: read" "reactions:write", "pins:Iead" "pins: write" "emoji: read" "commands" "files:read" "files write" ]
+
+｝
+"settings": { "socket_mode_enabled": true, "event_subscriptions": { "bot_events": [ "app_mention", "message. channels", "message. groups", "message.im" "message mpim", "reaction_added" "reaction_removed", "member_joined_channel", "member_left_channel", "channel_rename", "pin_added" "pin_removed" ]
+
+｝

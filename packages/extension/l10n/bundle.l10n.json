@@ -3,6 +3,7 @@
   "Required Markdown settings are not configured. The editor cannot start.": "Required Markdown settings are not configured. The editor cannot start.",
   "Apply Settings": "Apply Settings",
   "Open Settings": "Open Settings",
+  "Open": "Open",
   "Cancel": "Cancel",
   "The following settings will be applied to your workspace:": "The following settings will be applied to your workspace:",
   "Settings applied successfully.": "Settings applied successfully.",
@@ -11,8 +12,13 @@
   "Logs exported to: {0}": "Logs exported to: {0}",
   "No logs to export.": "No logs to export.",
   "Cannot reopen with Text Editor: no active editor found.": "Cannot reopen with Text Editor: no active editor found.",
+  "Cannot reopen with inlineMark: no active editor found.": "Cannot reopen with inlineMark: no active editor found.",
+  "Open without inlineMark": "Open without inlineMark",
   "Sync timeout. The editor may be out of sync.": "Sync timeout. The editor may be out of sync.",
   "Failed to apply edit: {0}": "Failed to apply edit: {0}",
+  "Blocked potentially dangerous link: {0}": "Blocked potentially dangerous link: {0}",
+  "Do you want to open this external link?\n{0}": "Do you want to open this external link?\n{0}",
+  "Failed to open link: {0}": "Failed to open link: {0}",
   "Protocol version mismatch. Please reload the editor.": "Protocol version mismatch. Please reload the editor.",
   "Large change detected. {0} characters changed ({1}%).": "Large change detected. {0} characters changed ({1}%).",
   "Apply Changes": "Apply Changes",
@@ -26,5 +32,6 @@
   "The editor is out of sync. Would you like to resync?": "The editor is out of sync. Would you like to resync?",
   "Resync will discard your current changes. Continue?": "Resync will discard your current changes. Continue?",
   "Continue": "Continue",
-  "Go Back": "Go Back"
+  "Go Back": "Go Back",
+  "InlineMark extension failed to activate.": "InlineMark extension failed to activate."
 }

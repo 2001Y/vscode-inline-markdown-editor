@@ -2,21 +2,36 @@
   "name": "inlinemark",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.1.0",
-  "publisher": "inlinemark",
+  "version": "0.1.1",
+  "publisher": "2001y",
   "repository": {
     "type": "git",
     "url": "https://github.com/2001Y/vscode-inline-markdown-editor.git"
   },
   "license": "MIT",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.105.0"
   },
   "categories": [
     "Other"
   ],
+  "icon": "assets/logo.png",
   "main": "./out/extension.js",
   "l10n": "./l10n",
+  "files": [
+    "out/**",
+    "media/webview/index.js",
+    "media/webview/*.css",
+    "media/webview/.vite/manifest.json",
+    "assets/**",
+    "l10n/**",
+    "package.json",
+    "package.nls.json",
+    "package.nls.ja.json",
+    "package.nls.zh-cn.json",
+    "README.md",
+    "LICENSE.txt"
+  ],
   "activationEvents": [],
   "contributes": {
     "customEditors": [
@@ -41,7 +56,12 @@
         "command": "inlineMark.reopenWithTextEditor",
         "title": "%command.reopenWithTextEditor.title%",
         "category": "inlineMark",
-        "icon": "$(file-text)"
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "inlineMark.reopenWithInlineMark",
+        "title": "%command.reopenWithInlineMark.title%",
+        "category": "inlineMark"
       },
       {
         "command": "inlineMark.applyRequiredSettings",
@@ -52,21 +72,230 @@
         "command": "inlineMark.exportLogs",
         "title": "%command.exportLogs.title%",
         "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleBold",
+        "title": "%command.toggleBold.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleItalic",
+        "title": "%command.toggleItalic.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleStrike",
+        "title": "%command.toggleStrike.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleCode",
+        "title": "%command.toggleCode.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleUnderline",
+        "title": "%command.toggleUnderline.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading1",
+        "title": "%command.toggleHeading1.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading2",
+        "title": "%command.toggleHeading2.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading3",
+        "title": "%command.toggleHeading3.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading4",
+        "title": "%command.toggleHeading4.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading5",
+        "title": "%command.toggleHeading5.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading6",
+        "title": "%command.toggleHeading6.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleBulletList",
+        "title": "%command.toggleBulletList.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleOrderedList",
+        "title": "%command.toggleOrderedList.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleBlockquote",
+        "title": "%command.toggleBlockquote.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleCodeBlock",
+        "title": "%command.toggleCodeBlock.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.indentListItem",
+        "title": "%command.indentListItem.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.outdentListItem",
+        "title": "%command.outdentListItem.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.undo",
+        "title": "%command.undo.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.redo",
+        "title": "%command.redo.title%",
+        "category": "inlineMark"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "inlineMark.toggleBold",
+        "key": "ctrl+b",
+        "mac": "cmd+b",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleItalic",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleStrike",
+        "key": "ctrl+alt+shift+s",
+        "mac": "cmd+alt+shift+s",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleCode",
+        "key": "ctrl+e",
+        "mac": "cmd+e",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleUnderline",
+        "key": "ctrl+u",
+        "mac": "cmd+u",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading1",
+        "key": "ctrl+alt+1",
+        "mac": "cmd+alt+1",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading2",
+        "key": "ctrl+alt+2",
+        "mac": "cmd+alt+2",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading3",
+        "key": "ctrl+alt+3",
+        "mac": "cmd+alt+3",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading4",
+        "key": "ctrl+alt+4",
+        "mac": "cmd+alt+4",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading5",
+        "key": "ctrl+alt+5",
+        "mac": "cmd+alt+5",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading6",
+        "key": "ctrl+alt+6",
+        "mac": "cmd+alt+6",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleBulletList",
+        "key": "ctrl+shift+8",
+        "mac": "cmd+shift+8",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleOrderedList",
+        "key": "ctrl+shift+7",
+        "mac": "cmd+shift+7",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleBlockquote",
+        "key": "ctrl+alt+shift+b",
+        "mac": "cmd+alt+shift+b",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleCodeBlock",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "inlineMark.reopenWithTextEditor",
-          "when": "activeCustomEditorId == 'inlineMark.editor'",
-          "group": "navigation@10"
+          "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
+          "group": "navigation@0"
+        },
+        {
+          "command": "inlineMark.reopenWithInlineMark",
+          "when": "resourceLangId == 'markdown' && activeCustomEditorId != 'inlineMark.editor'",
+          "group": "navigation@1"
         }
       ],
       "editor/title/context": [
         {
           "command": "inlineMark.reopenWithTextEditor",
-          "when": "activeCustomEditorId == 'inlineMark.editor'",
-          "group": "navigation@10"
+          "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
+          "group": "1_open"
+        },
+        {
+          "command": "inlineMark.reopenWithInlineMark",
+          "when": "resourceLangId == 'markdown' && activeCustomEditorId != 'inlineMark.editor'",
+          "group": "1_open"
         }
       ]
     },
@@ -118,15 +347,20 @@
           "default": false,
           "description": "%configuration.security.allowInsecureRemoteImages.description%"
         },
-        "inlineMark.security.renderHtml": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.security.renderHtml.description%"
-        },
         "inlineMark.security.confirmExternalLinks": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.security.confirmExternalLinks.description%"
+        },
+        "inlineMark.view.fullWidth": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.view.fullWidth.description%"
+        },
+        "inlineMark.view.noWrap": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "description": "%configuration.view.noWrap.description%"
         },
         "inlineMark.webview.retainContextWhenHidden": {
           "type": "boolean",
@@ -137,29 +371,25 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run copy-readme && npm run build",
+    "copy-readme": "node -e \"const fs=require('fs');const path=require('path');const src=path.resolve(__dirname,'../../README/README.md');let text=fs.readFileSync(src,'utf8');text=text.replace(/\\\\.\\\\/packages\\\\/extension\\\\/assets\\\\//g,'assets/');text=text.replace(/packages\\\\/extension\\\\/assets\\\\//g,'assets/');fs.writeFileSync(path.resolve(__dirname,'README.md'),text);\"",
     "build": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src",
-    "test": "vscode-test",
+    "test": "node ./out/test/runTest.js",
     "pretest": "npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "^25.0.3",
-    "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^8.52.0",
-    "@typescript-eslint/parser": "^8.52.0",
-    "@vscode/test-cli": "^0.0.12",
+    "@types/node": "^25.0.8",
+    "@types/vscode": "^1.105.1",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.2",
     "globals": "^17.0.0",
-    "mocha": "^11.7.5",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.53.0"
   },
-  "dependencies": {
-    "diff-match-patch": "^1.0.5"
-  }
+  "dependencies": {}
 }

@@ -99,3 +99,4 @@ coverage/
 # Misc
 *.pem
 .cert
+.serena/

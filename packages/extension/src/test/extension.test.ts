@@ -1,9 +1,22 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-suite('Extension Test Suite', () => {
-  vscode.window.showInformationMessage('Start all tests.');
+type TestCase = {
+  name: string;
+  fn: () => void | Promise<void>;
+};
 
+const tests: TestCase[] = [];
+
+const test = (name: string, fn: TestCase['fn']) => {
+  tests.push({ name, fn });
+};
+
+const suite = (_name: string, define: () => void) => {
+  define();
+};
+
+suite('Extension Test Suite', () => {
   test('Extension should be present', () => {
     assert.ok(vscode.extensions.getExtension('inlinemark.inlinemark'));
   });
@@ -21,6 +34,7 @@ suite('Extension Test Suite', () => {
 
     assert.ok(commands.includes('inlineMark.resetSession'), 'resetSession command should be registered');
     assert.ok(commands.includes('inlineMark.reopenWithTextEditor'), 'reopenWithTextEditor command should be registered');
+    assert.ok(commands.includes('inlineMark.reopenWithInlineMark'), 'reopenWithInlineMark command should be registered');
     assert.ok(commands.includes('inlineMark.applyRequiredSettings'), 'applyRequiredSettings command should be registered');
     assert.ok(commands.includes('inlineMark.exportLogs'), 'exportLogs command should be registered');
   });
@@ -33,8 +47,22 @@ suite('Extension Test Suite', () => {
     assert.strictEqual(config.get('sync.changeGuard.maxChangedRatio'), 0.5, 'maxChangedRatio should default to 0.5');
     assert.strictEqual(config.get('security.allowWorkspaceImages'), true, 'allowWorkspaceImages should default to true');
     assert.strictEqual(config.get('security.allowRemoteImages'), false, 'allowRemoteImages should default to false');
-    assert.strictEqual(config.get('security.renderHtml'), false, 'renderHtml should default to false');
     assert.strictEqual(config.get('security.confirmExternalLinks'), true, 'confirmExternalLinks should default to true');
     assert.strictEqual(config.get('debug.enabled'), false, 'debug.enabled should default to false');
+    assert.strictEqual(config.get('view.fullWidth'), true, 'fullWidth should default to true');
+    assert.strictEqual(config.get('view.noWrap'), null, 'noWrap should default to null');
   });
 });
+
+export const runRegisteredTests = async (): Promise<void> => {
+  vscode.window.showInformationMessage('Start all tests.');
+
+  for (const { name, fn } of tests) {
+    try {
+      await fn();
+    } catch (error) {
+      const message = error instanceof Error ? error.stack ?? error.message : String(error);
+      throw new Error(`Test failed: ${name}\n${message}`);
+    }
+  }
+};

@@ -22,6 +22,9 @@
  * - resolveImage: 画像パス解決要求
  * - reopenWithTextEditor: テキストエディタで再開
  * - exportLogs: ログエクスポート要求
+ * - createNestedPage: ネストページ作成要求
+ * - openNestedPage: ネストページを開く要求
+ * - menuStateChange: メニュー状態変更通知
  * - requestResyncWithConfirm: 確認付き再同期要求
  * - overwriteSaveWithConfirm: 確認付き上書き保存要求
  * 
@@ -32,6 +35,9 @@
  * - docChanged: ドキュメント変更通知 (version, reason, changes)
  * - error: エラー通知 (code, message, remediation)
  * - imageResolved: 画像パス解決結果
+ * - nestedPageCreated: ネストページ作成成功
+ * - nestedPageCreateAck: ネストページ作成確認応答
+ * - nestedPageCreateFailed: ネストページ作成失敗
  * 
  * データ例:
  * 
@@ -61,11 +67,14 @@ export interface WebviewConfig {
     maxChangedChars: number;
     maxHunks: number;
   };
+  view: {
+    fullWidth: boolean;
+    noWrap: boolean;
+  };
   security: {
     allowWorkspaceImages: boolean;
     allowRemoteImages: boolean;
     allowInsecureRemoteImages: boolean;
-    renderHtml: boolean;
     confirmExternalLinks: boolean;
   };
   debug: {
@@ -150,13 +159,40 @@ export interface ImageResolvedMessage {
   resolvedSrc: string;
 }
 
+export interface NestedPageCreatedMessage {
+  v: number;
+  type: 'nestedPageCreated';
+  requestId: string;
+  title: string;
+  path: string;
+}
+
+export interface NestedPageCreateAckMessage {
+  v: number;
+  type: 'nestedPageCreateAck';
+  requestId: string;
+  sessionId?: string;
+}
+
+export interface NestedPageCreateFailedMessage {
+  v: number;
+  type: 'nestedPageCreateFailed';
+  requestId: string;
+  message: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
 export type ExtensionToWebviewMessage =
   | InitMessage
   | AckMessage
   | NackMessage
   | DocChangedMessage
   | ErrorMessage
-  | ImageResolvedMessage;
+  | ImageResolvedMessage
+  | NestedPageCreateAckMessage
+  | NestedPageCreatedMessage
+  | NestedPageCreateFailedMessage;
 
 export interface ReadyMessage {
   v: number;
@@ -219,6 +255,19 @@ export interface ExportLogsMessage {
   type: 'exportLogs';
 }
 
+export interface CreateNestedPageMessage {
+  v: number;
+  type: 'createNestedPage';
+  requestId: string;
+  title: string;
+}
+
+export interface OpenNestedPageMessage {
+  v: number;
+  type: 'openNestedPage';
+  path: string;
+}
+
 export interface RequestResyncWithConfirmMessage {
   v: number;
   type: 'requestResyncWithConfirm';
@@ -240,6 +289,12 @@ export interface NotifyHostMessage {
   details?: Record<string, unknown>;
 }
 
+export interface MenuStateChangeMessage {
+  v: number;
+  type: 'menuStateChange';
+  visible: boolean;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -251,9 +306,12 @@ export type WebviewToExtensionMessage =
   | ResolveImageMessage
   | ReopenWithTextEditorMessage
   | ExportLogsMessage
+  | CreateNestedPageMessage
+  | OpenNestedPageMessage
   | RequestResyncWithConfirmMessage
   | OverwriteSaveWithConfirmMessage
-  | NotifyHostMessage;
+  | NotifyHostMessage
+  | MenuStateChangeMessage;
 
 export function createReadyMessage(): ReadyMessage {
   return {
@@ -344,6 +402,23 @@ export function createExportLogsMessage(): ExportLogsMessage {
   };
 }
 
+export function createCreateNestedPageMessage(requestId: string, title: string): CreateNestedPageMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'createNestedPage',
+    requestId,
+    title,
+  };
+}
+
+export function createOpenNestedPageMessage(path: string): OpenNestedPageMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'openNestedPage',
+    path,
+  };
+}
+
 export function createRequestResyncWithConfirmMessage(): RequestResyncWithConfirmMessage {
   return {
     v: PROTOCOL_VERSION,
@@ -374,5 +449,13 @@ export function createNotifyHostMessage(
     message,
     remediation,
     details,
+  };
+}
+
+export function createMenuStateChangeMessage(visible: boolean): MenuStateChangeMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'menuStateChange',
+    visible,
   };
 }

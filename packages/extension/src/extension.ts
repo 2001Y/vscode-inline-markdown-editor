@@ -23,15 +23,22 @@ export function activate(context: vscode.ExtensionContext): void {
   logger.initialize(context);
   logger.info('Extension activating');
 
-  InlineMarkProvider.register(context);
+  providerInstance = InlineMarkProvider.register(context);
+  if (!providerInstance) {
+    logger.error('Failed to register InlineMarkProvider', {
+      errorCode: 'PROVIDER_REGISTRATION_FAILED',
+    });
+    vscode.window.showErrorMessage(
+      vscode.l10n.t('InlineMark extension failed to activate.')
+    );
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.resetSession', async () => {
       const editor = vscode.window.activeTextEditor;
       if (editor && editor.document.languageId === 'markdown') {
-        const provider = getProvider(context);
-        if (provider) {
-          await provider.resetSession(editor.document);
+        if (providerInstance) {
+          await providerInstance.resetSession(editor.document);
         }
       }
     })
@@ -77,10 +84,41 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('inlineMark.reopenWithInlineMark', async () => {
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const viewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
+
+      if (tab?.input instanceof vscode.TabInputText) {
+        await vscode.commands.executeCommand(
+          'vscode.openWith',
+          tab.input.uri,
+          InlineMarkProvider.viewType,
+          { viewColumn }
+        );
+        return;
+      }
+
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        await vscode.commands.executeCommand(
+          'vscode.openWith',
+          editor.document.uri,
+          InlineMarkProvider.viewType,
+          { viewColumn: editor.viewColumn }
+        );
+        return;
+      }
+
+      vscode.window.showWarningMessage(
+        vscode.l10n.t('Cannot reopen with inlineMark: no active editor found.')
+      );
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.applyRequiredSettings', async () => {
-      const provider = getProvider(context);
-      if (provider) {
-        await provider.applyRequiredSettings();
+      if (providerInstance) {
+        await providerInstance.applyRequiredSettings();
       }
     })
   );
@@ -98,6 +136,50 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // エディタコマンド: VSCode keybindings → Webview postMessage → Tiptap command
+  // コマンド名とTiptapコマンド名のマッピング
+  const editorCommands = [
+    'toggleBold',
+    'toggleItalic',
+    'toggleStrike',
+    'toggleCode',
+    'toggleUnderline',
+    'toggleHeading1',
+    'toggleHeading2',
+    'toggleHeading3',
+    'toggleHeading4',
+    'toggleHeading5',
+    'toggleHeading6',
+    'toggleBulletList',
+    'toggleOrderedList',
+    'toggleBlockquote',
+    'toggleCodeBlock',
+    'indentListItem',
+    'outdentListItem',
+    'undo',
+    'redo',
+  ];
+
+  // 全エディタコマンドを登録
+  for (const command of editorCommands) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(`inlineMark.${command}`, () => {
+        if (!providerInstance) {
+          return;
+        }
+        try {
+          providerInstance.sendEditorCommand(command);
+        } catch (error) {
+          logger.error('Failed to send editor command', {
+            errorCode: 'SEND_EDITOR_COMMAND_FAILED',
+            errorStack: String(error),
+            details: { command },
+          });
+        }
+      })
+    );
+  }
+
   logger.info('Extension activated');
 }
 
@@ -107,10 +189,3 @@ export function deactivate(): void {
 }
 
 let providerInstance: InlineMarkProvider | undefined;
-
-function getProvider(context: vscode.ExtensionContext): InlineMarkProvider | undefined {
-  if (!providerInstance) {
-    providerInstance = new InlineMarkProvider(context);
-  }
-  return providerInstance;
-}

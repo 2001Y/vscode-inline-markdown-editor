@@ -4,5 +4,11 @@
   "editor.formatOnPaste": false,
   "editor.codeActionsOnSave": {},
   "files.trimTrailingWhitespace": false,
-  "files.insertFinalNewline": false
+  "files.insertFinalNewline": false,
+  "workbench.colorCustomizations": {
+    "activityBar.background": "#123505",
+    "titleBar.activeBackground": "#194A06",
+    "titleBar.activeForeground": "#F3FEEF"
+  },
+  "chatgpt.openOnStartup": false
 }

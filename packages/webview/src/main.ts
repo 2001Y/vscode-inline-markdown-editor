@@ -17,20 +17,16 @@
  * エラー/警告（例: ChangeGuard 超過）は Webview 内オーバーレイではなく
  * VS Code 標準の通知 UI で表示する（追加方針）。
  * 
- * SyncIndicator:
- * - idle: 同期完了
- * - syncing: 送信中/待機中
- * - error: エラー発生
- * 
  * 状態永続化 (設計書 13.2):
  * - getState/setState でスクロール位置を保存
  * - タブ切り替え/リロード後も位置を復元
  */
 
-import { SyncClient, type SyncState } from './protocol/client.js';
+import { SyncClient } from './protocol/client.js';
 import { createEditor, type EditorInstance } from './editor/createEditor.js';
 import type { Replace, Remediation, WebviewConfig } from './protocol/types.js';
 import type { ChangeMetrics } from './editor/diffEngine.js';
+import { executeCommand, type CommandName } from './editor/commands.js';
 import './styles.css';
 
 interface AppState {
@@ -40,8 +36,36 @@ interface AppState {
 
 let editorInstance: EditorInstance | null = null;
 let syncClient: SyncClient | null = null;
-let syncIndicator: HTMLElement | null = null;
 let editorContainerEl: HTMLElement | null = null;
+
+const VALID_EDITOR_COMMANDS: ReadonlySet<CommandName> = new Set([
+  'toggleBold',
+  'toggleItalic',
+  'toggleStrike',
+  'toggleCode',
+  'toggleUnderline',
+  'toggleHeading1',
+  'toggleHeading2',
+  'toggleHeading3',
+  'toggleHeading4',
+  'toggleHeading5',
+  'toggleHeading6',
+  'toggleBulletList',
+  'toggleOrderedList',
+  'toggleBlockquote',
+  'toggleCodeBlock',
+  'indentBlock',
+  'outdentBlock',
+  'indentListItem',
+  'outdentListItem',
+  'setHorizontalRule',
+  'undo',
+  'redo',
+]);
+
+const isValidEditorCommand = (command: unknown): command is CommandName => {
+  return typeof command === 'string' && VALID_EDITOR_COMMANDS.has(command as CommandName);
+};
 
 // Image resolution state (workspace relative paths -> webview URIs)
 const pendingImageRequestsById = new Map<string, string>(); // requestId -> originalSrc
@@ -63,21 +87,18 @@ function main(): void {
   editorContainerEl.className = 'editor-container';
   appContainer.appendChild(editorContainerEl);
 
-  console.log('[Main] Creating sync indicator');
-  syncIndicator = createSyncIndicator(appContainer);
-
   console.log('[Main] Creating SyncClient');
   syncClient = new SyncClient({
     onInit: handleInit,
     onDocChanged: handleDocChanged,
     onError: handleError,
-    onSyncStateChange: handleSyncStateChange,
     onImageResolved: handleImageResolved,
   });
 
   console.log('[Main] Starting SyncClient');
   syncClient.start();
   console.log('[Main] Webview initialization complete');
+
 }
 
 function handleInit(
@@ -102,6 +123,8 @@ function handleInit(
     editorInstance.destroy();
   }
 
+  applyViewConfig(config);
+
   console.log('[handleInit] Creating new editor instance');
   editorInstance = createEditor({
     container: editorContainerEl,
@@ -124,6 +147,17 @@ function handleInit(
     contentLength: content.length,
     version: _version
   });
+}
+
+function applyViewConfig(config: WebviewConfig): void {
+  if (!editorContainerEl) {
+    return;
+  }
+  const fullWidth = config.view?.fullWidth ?? true;
+  const noWrap = config.view?.noWrap ?? false;
+  editorContainerEl.classList.toggle('is-full-width', fullWidth);
+  editorContainerEl.classList.toggle('is-no-wrap', noWrap);
+  console.log('[Main] View config applied', { fullWidth, noWrap });
 }
 
 function handleDocChanged(
@@ -162,18 +196,18 @@ function handleError(code: string, message: string, remediation: string[]): void
   syncClient?.notifyHost('ERROR', code, message, filterRemediations(remediation));
 }
 
-function handleSyncStateChange(state: SyncState): void {
-  updateSyncIndicator(state);
-}
-
-function handleChangeGuardExceeded(metrics: ChangeMetrics): void {
-  const message = syncClient?.t(
-    'Large change detected. {0} characters changed ({1}%).',
-    metrics.changedChars,
-    Math.round(metrics.changedRatio * 100)
-  ) || `Large change detected. ${metrics.changedChars} characters changed (${Math.round(metrics.changedRatio * 100)}%).`;
-
-  syncClient?.notifyHost('WARN', 'CHANGE_GUARD_EXCEEDED', message, ['resync', 'resetSession']);
+// ChangeGuard: 大規模編集の警告ロジック（一時的にコメントアウト）
+// function handleChangeGuardExceeded(metrics: ChangeMetrics): void {
+//   const message = syncClient?.t(
+//     'Large change detected. {0} characters changed ({1}%).',
+//     metrics.changedChars,
+//     Math.round(metrics.changedRatio * 100)
+//   ) || `Large change detected. ${metrics.changedChars} characters changed (${Math.round(metrics.changedRatio * 100)}%).`;
+//
+//   syncClient?.notifyHost('WARN', 'CHANGE_GUARD_EXCEEDED', message, ['resync', 'resetSession']);
+// }
+function handleChangeGuardExceeded(_metrics: ChangeMetrics): void {
+  // ChangeGuard disabled - do nothing
 }
 
 function filterRemediations(remediation: string[]): Remediation[] {
@@ -251,21 +285,6 @@ function handleImageResolved(requestId: string, resolvedSrc: string): void {
   }
 }
 
-function createSyncIndicator(parent: HTMLElement): HTMLElement {
-  const indicator = document.createElement('div');
-  indicator.className = 'sync-indicator idle';
-  indicator.innerHTML = '<span class="sync-dot"></span>';
-  parent.appendChild(indicator);
-  return indicator;
-}
-
-function updateSyncIndicator(state: SyncState): void {
-  if (!syncIndicator) {return;}
-
-  syncIndicator.classList.remove('idle', 'syncing', 'error');
-  syncIndicator.classList.add(state);
-}
-
 window.addEventListener('beforeunload', () => {
   if (syncClient) {
     const editorContainer = document.querySelector('.editor-container') as HTMLElement;
@@ -275,6 +294,30 @@ window.addEventListener('beforeunload', () => {
         scrollLeft: editorContainer.scrollLeft,
       });
     }
+  }
+});
+
+/**
+ * VSCode keybindings からのコマンドを処理
+ * SyncClientのプロトコルとは別に、シンプルなコマンド実行用
+ */
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (msg?.type === 'editorCommand' && msg.command) {
+    if (!editorInstance) {
+      console.warn('[Main] Editor command received but no editor instance');
+      return;
+    }
+    if (!document.hasFocus()) {
+      console.warn('[Main] Editor command ignored (webview not focused)', { command: msg.command });
+      return;
+    }
+    if (!isValidEditorCommand(msg.command)) {
+      console.warn('[Main] Unknown editor command:', msg.command);
+      return;
+    }
+    console.log('[Main] Executing editor command:', msg.command);
+    executeCommand(editorInstance.editor, msg.command);
   }
 });
 

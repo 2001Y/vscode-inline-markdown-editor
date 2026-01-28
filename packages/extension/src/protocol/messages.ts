@@ -105,6 +105,17 @@ export interface ExportLogsMessage extends BaseMessage {
   type: 'exportLogs';
 }
 
+export interface CreateNestedPageMessage extends BaseMessage {
+  type: 'createNestedPage';
+  requestId: string;
+  title: string;
+}
+
+export interface OpenNestedPageMessage extends BaseMessage {
+  type: 'openNestedPage';
+  path: string;
+}
+
 export interface RequestResyncWithConfirmMessage extends BaseMessage {
   type: 'requestResyncWithConfirm';
 }
@@ -127,6 +138,15 @@ export interface NotifyHostMessage extends BaseMessage {
   details?: Record<string, unknown>;
 }
 
+/**
+ * Webview → Extension
+ * Used to notify menu visibility state change for context key management.
+ */
+export interface MenuStateChangeMessage extends BaseMessage {
+  type: 'menuStateChange';
+  visible: boolean;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
   | EditMessage
@@ -138,9 +158,12 @@ export type WebviewToExtensionMessage =
   | ResolveImageMessage
   | ReopenWithTextEditorMessage
   | ExportLogsMessage
+  | CreateNestedPageMessage
+  | OpenNestedPageMessage
   | RequestResyncWithConfirmMessage
   | OverwriteSaveWithConfirmMessage
-  | NotifyHostMessage;
+  | NotifyHostMessage
+  | MenuStateChangeMessage;
 
 export interface InitMessage extends BaseMessage {
   type: 'init';
@@ -161,11 +184,14 @@ export interface WebviewConfig {
     maxChangedChars: number;
     maxHunks: number;
   };
+  view: {
+    fullWidth: boolean;
+    noWrap: boolean;
+  };
   security: {
     allowWorkspaceImages: boolean;
     allowRemoteImages: boolean;
     allowInsecureRemoteImages: boolean;
-    renderHtml: boolean;
     confirmExternalLinks: boolean;
   };
   debug: {
@@ -206,6 +232,26 @@ export interface ImageResolvedMessage extends BaseMessage {
   resolvedSrc: string;
 }
 
+export interface NestedPageCreatedMessage extends BaseMessage {
+  type: 'nestedPageCreated';
+  requestId: string;
+  title: string;
+  path: string;
+}
+
+export interface NestedPageCreateAckMessage extends BaseMessage {
+  type: 'nestedPageCreateAck';
+  requestId: string;
+}
+
+export interface NestedPageCreateFailedMessage extends BaseMessage {
+  type: 'nestedPageCreateFailed';
+  requestId: string;
+  message: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
 export type ErrorCode =
   | 'SYNC_TIMEOUT'
   | 'PROTOCOL_VERSION_MISMATCH'
@@ -238,7 +284,10 @@ export type ExtensionToWebviewMessage =
   | NackMessage
   | DocChangedMessage
   | ErrorMessage
-  | ImageResolvedMessage;
+  | ImageResolvedMessage
+  | NestedPageCreateAckMessage
+  | NestedPageCreatedMessage
+  | NestedPageCreateFailedMessage;
 
 const VALID_WEBVIEW_MESSAGE_TYPES = [
   'ready',
@@ -251,9 +300,12 @@ const VALID_WEBVIEW_MESSAGE_TYPES = [
   'resolveImage',
   'reopenWithTextEditor',
   'exportLogs',
+  'createNestedPage',
+  'openNestedPage',
   'requestResyncWithConfirm',
   'overwriteSaveWithConfirm',
   'notifyHost',
+  'menuStateChange',
 ] as const;
 
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
@@ -300,6 +352,19 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
     for (const r of m.remediation) {
       if (typeof r !== 'string') {return false;}
     }
+  }
+
+  if (m.type === 'menuStateChange') {
+    if (typeof m.visible !== 'boolean') {return false;}
+  }
+
+  if (m.type === 'createNestedPage') {
+    if (typeof m.requestId !== 'string') {return false;}
+    if (typeof m.title !== 'string') {return false;}
+  }
+
+  if (m.type === 'openNestedPage') {
+    if (typeof m.path !== 'string') {return false;}
   }
 
   return true;
@@ -418,5 +483,57 @@ export function createImageResolvedMessage(
     sessionId,
     requestId,
     resolvedSrc,
+  };
+}
+
+export function createNestedPageCreatedMessage(
+  requestId: string,
+  title: string,
+  path: string,
+  sessionId: string
+): NestedPageCreatedMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'nestedPageCreated',
+    ts: Date.now(),
+    origin: 'extension',
+    sessionId,
+    requestId,
+    title,
+    path,
+  };
+}
+
+export function createNestedPageCreateAckMessage(
+  requestId: string,
+  sessionId: string
+): NestedPageCreateAckMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'nestedPageCreateAck',
+    ts: Date.now(),
+    origin: 'extension',
+    sessionId,
+    requestId,
+  };
+}
+
+export function createNestedPageCreateFailedMessage(
+  requestId: string,
+  message: string,
+  sessionId: string,
+  code?: string,
+  details?: Record<string, unknown>
+): NestedPageCreateFailedMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'nestedPageCreateFailed',
+    ts: Date.now(),
+    origin: 'extension',
+    sessionId,
+    requestId,
+    message,
+    code,
+    details,
   };
 }
