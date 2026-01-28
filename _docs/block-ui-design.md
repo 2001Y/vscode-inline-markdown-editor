@@ -6,7 +6,7 @@
 
 #### 表示条件
 - **全てのブロックタイプ**でハンドルを表示する
-  - paragraph, heading, listItem, codeBlock, blockquote, horizontalRule, rawBlock, htmlBlock
+  - paragraph, heading, listItem, codeBlock, blockquote, horizontalRule, rawBlock
   - tableは専用UIで対応（TableControls）
 - **ブロックにマウスホバー時**にハンドルを表示（ハンドル位置へのホバーを待たない）
 - ブロックからマウスが離れたら遅延非表示（150ms）
@@ -30,7 +30,10 @@
 
 ### 1.2 実装方針
 
-**Tiptap公式推奨**: `@tiptap/extension-drag-handle` を使用
+**Tiptap公式推奨**: `@tiptap/extension-drag-handle` が理想（ただし Pro 有料）
+
+> 本プロジェクトでは Pro 依存を避けるため **採用しない**。
+> 現行実装は独自ハンドルで要件を満たす（4.1 参照）。
 
 ```typescript
 import DragHandle from '@tiptap/extension-drag-handle';
@@ -129,7 +132,10 @@ DragHandle.configure({
 
 ### 3.2 実装方針
 
-**Tiptap推奨**: `@tiptap/suggestion` を使用
+**Tiptap推奨**: `@tiptap/suggestion` を使った実装が可能
+
+> ただし「`/` をテキストとして残す」「独自フィルタ/選択制御」要件のため、
+> 本プロジェクトでは **独自実装** を採用（4.3 参照）。
 
 ```typescript
 import Suggestion from '@tiptap/suggestion';

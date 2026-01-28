@@ -11,7 +11,7 @@ import type { Editor } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { liftListItem, sinkListItem } from '@tiptap/pm/schema-list';
 import { NodeSelection, Selection } from '@tiptap/pm/state';
-import { INDENT_LEVEL_MAX, normalizeIndentAttr } from './indentConfig.js';
+import { INDENT_LEVEL_MAX, INDENT_MAX_DEPTH_MESSAGE, normalizeIndentAttr } from './indentConfig.js';
 import { DEBUG } from './debug.js';
 import { notifyHostWarn } from './hostNotifier.js';
 import { LIST_MAX_DEPTH } from './listIndentConfig.js';
@@ -154,6 +154,32 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
     return null;
   };
 
+  const findPreviousIndentableSibling = (pos: number): { pos: number; node: ProseMirrorNode } | null => {
+    const doc = editor.state.doc;
+    const $pos = doc.resolve(pos);
+    const parent = $pos.parent;
+    const index = $pos.index();
+
+    if (index <= 0) {
+      return null;
+    }
+
+    const parentStart = $pos.start();
+    let offset = 0;
+    let last: { pos: number; node: ProseMirrorNode } | null = null;
+
+    for (let i = 0; i < index; i += 1) {
+      const child = parent.child(i);
+      const childPos = parentStart + offset;
+      offset += child.nodeSize;
+      if (isIndentableNode(child)) {
+        last = { pos: childPos, node: child };
+      }
+    }
+
+    return last;
+  };
+
   const getIndentDepthAtSelection = (node: ProseMirrorNode): number => {
     return normalizeIndentAttr(node.attrs?.indent);
   };
@@ -193,12 +219,43 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       }
 
       const depth = getIndentDepthAtSelection(target.node);
-      if (depth >= INDENT_LEVEL_MAX) {
-        console.warn(`[WARNING][Commands] ${timestamp} Indent block blocked: max reached`, { depth });
-        return true;
+      const prev = findPreviousIndentableSibling(target.pos);
+      if (!prev) {
+        console.warn(`[WARNING][Commands] ${timestamp} Indent block blocked: no parent block`, {
+          depth,
+          targetPos: target.pos,
+          targetType: target.node.type.name,
+        });
+        notifyHostWarn('INDENT_MAX_DEPTH', INDENT_MAX_DEPTH_MESSAGE, {
+          depth,
+          maxDepth: INDENT_LEVEL_MAX,
+          targetPos: target.pos,
+          targetType: target.node.type.name,
+        });
+        return false;
+      }
+      const prevDepth = getIndentDepthAtSelection(prev.node);
+      const allowedDepth = Math.min(INDENT_LEVEL_MAX, prevDepth + 1);
+      if (depth >= allowedDepth) {
+        console.warn(`[WARNING][Commands] ${timestamp} Indent block blocked: depth limit`, {
+          depth,
+          allowedDepth,
+          prevDepth,
+          prevPos: prev.pos,
+          targetPos: target.pos,
+        });
+        notifyHostWarn('INDENT_MAX_DEPTH', INDENT_MAX_DEPTH_MESSAGE, {
+          depth,
+          allowedDepth,
+          prevDepth,
+          maxDepth: INDENT_LEVEL_MAX,
+          prevPos: prev.pos,
+          targetPos: target.pos,
+        });
+        return false;
       }
 
-      const nextDepth = Math.min(INDENT_LEVEL_MAX, depth + 1);
+      const nextDepth = Math.min(allowedDepth, depth + 1);
       const selection = editor.state.selection;
       const attrs = {
         ...(target.node.attrs || {}),
@@ -283,7 +340,7 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
         });
         notifyHostWarn(
           'LIST_INDENT_MAX_DEPTH',
-          `リストのインデントは最大 ${LIST_MAX_DEPTH} 段までです。`,
+          INDENT_MAX_DEPTH_MESSAGE,
           {
             depth,
             maxDepth: LIST_MAX_DEPTH,
@@ -314,6 +371,15 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
         console.warn(`[WARNING][Commands] ${timestamp} List indent blocked`, {
           selectionFrom: editor.state.selection.from,
         });
+        notifyHostWarn(
+          'LIST_INDENT_MAX_DEPTH',
+          INDENT_MAX_DEPTH_MESSAGE,
+          {
+            depth,
+            maxDepth: LIST_MAX_DEPTH,
+            selectionFrom: editor.state.selection.from,
+          }
+        );
       }
       return ok;
     },

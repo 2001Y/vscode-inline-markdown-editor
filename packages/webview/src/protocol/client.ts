@@ -59,6 +59,8 @@ import {
   createOverwriteSaveMessage,
   createReopenWithTextEditorMessage,
   createExportLogsMessage,
+  createCreateNestedPageMessage,
+  createOpenNestedPageMessage,
   createRequestResyncWithConfirmMessage,
   createOverwriteSaveWithConfirmMessage,
   createResolveImageMessage,
@@ -89,6 +91,18 @@ export class SyncClient {
   private callbacks: SyncClientCallbacks;
   private config: WebviewConfig | null = null;
   private i18n: Record<string, string> = {};
+
+  private pendingNestedPageRequests = new Map<
+    string,
+    {
+      resolve: (value: { path: string; title: string }) => void;
+      reject: (error: Error) => void;
+      startedAt: number;
+      timeoutId: ReturnType<typeof setTimeout> | null;
+      ackTimeoutId: ReturnType<typeof setTimeout> | null;
+      ackReceived: boolean;
+    }
+  >();
 
   private sessionId: string | null = null;
   private clientId: string | null = null;
@@ -143,8 +157,29 @@ export class SyncClient {
     this.log('DEBUG', 'Ready message sent');
   }
 
-  private handleMessage(msg: ExtensionToWebviewMessage): void {
+  private handleMessage(raw: unknown): void {
+    if (!raw || typeof raw !== 'object') {
+      return;
+    }
+
+    const msg = raw as ExtensionToWebviewMessage & { type?: string; v?: number };
+    if (typeof msg.type === 'string' && msg.type.startsWith('nestedPage')) {
+      console.log('[NestedPage] Raw message received', {
+        type: msg.type,
+        v: msg.v,
+        requestId: (msg as { requestId?: string }).requestId,
+        sessionId: (msg as { sessionId?: string }).sessionId,
+      });
+    }
+    if (msg.type === 'editorCommand') {
+      // editorCommand is handled by main.ts and is not part of the sync protocol.
+      return;
+    }
+
     if (msg.v !== PROTOCOL_VERSION) {
+      if (typeof msg.type === 'string' && msg.type.startsWith('nestedPage')) {
+        console.warn('[NestedPage] Protocol mismatch', { type: msg.type, v: msg.v });
+      }
       this.callbacks.onError(
         'PROTOCOL_VERSION_MISMATCH',
         `Protocol version mismatch: expected ${PROTOCOL_VERSION}, got ${msg.v}`,
@@ -158,12 +193,28 @@ export class SyncClient {
     if (msg.type !== 'init' && this.sessionId !== null) {
       const msgSessionId = (msg as { sessionId?: string }).sessionId;
       if (msgSessionId !== undefined && msgSessionId !== this.sessionId) {
-        this.log('WARN', 'Dropping message with mismatched sessionId', {
+        const isPendingNested =
+          (msg.type === 'nestedPageCreated' ||
+            msg.type === 'nestedPageCreateFailed' ||
+            msg.type === 'nestedPageCreateAck') &&
+          typeof (msg as { requestId?: string }).requestId === 'string' &&
+          this.pendingNestedPageRequests.has((msg as { requestId: string }).requestId);
+
+        if (!isPendingNested) {
+          this.log('WARN', 'Dropping message with mismatched sessionId', {
+            expectedSessionId: this.sessionId,
+            receivedSessionId: msgSessionId,
+            messageType: msg.type
+          });
+          return;
+        }
+
+        console.warn('[WARN] Accepting nested page response despite sessionId mismatch', {
           expectedSessionId: this.sessionId,
           receivedSessionId: msgSessionId,
-          messageType: msg.type
+          messageType: msg.type,
+          requestId: (msg as { requestId?: string }).requestId,
         });
-        return;
       }
     }
 
@@ -187,6 +238,15 @@ export class SyncClient {
         if (this.callbacks.onImageResolved) {
           this.callbacks.onImageResolved(msg.requestId, msg.resolvedSrc);
         }
+        break;
+      case 'nestedPageCreateAck':
+        this.handleNestedPageCreateAck(msg);
+        break;
+      case 'nestedPageCreated':
+        this.handleNestedPageCreated(msg);
+        break;
+      case 'nestedPageCreateFailed':
+        this.handleNestedPageCreateFailed(msg);
         break;
     }
   }
@@ -569,6 +629,127 @@ export class SyncClient {
   resolveImage(requestId: string, src: string): void {
     this.log('DEBUG', 'Resolving image', { requestId, src });
     this.vscode.postMessage(createResolveImageMessage(requestId, src));
+  }
+
+  createNestedPage(title: string): Promise<{ path: string; title: string }> {
+    const requestId = crypto.randomUUID();
+    this.log('INFO', 'Nested page create requested', { requestId, title });
+
+    return new Promise((resolve, reject) => {
+      const timeoutMs = Math.max(this.config?.timeoutMs ?? 3000, 10000);
+      const ackTimeoutMs = Math.min(1000, timeoutMs);
+      const ackTimeoutId = setTimeout(() => {
+        const pending = this.pendingNestedPageRequests.get(requestId);
+        if (!pending || pending.ackReceived) {
+          return;
+        }
+        this.log('ERROR', 'Nested page create ack timeout', { requestId, ackTimeoutMs });
+      }, ackTimeoutMs);
+      const timeoutId = setTimeout(() => {
+        const pending = this.pendingNestedPageRequests.get(requestId);
+        if (!pending) {
+          return;
+        }
+        if (pending.ackTimeoutId) {
+          clearTimeout(pending.ackTimeoutId);
+        }
+        this.pendingNestedPageRequests.delete(requestId);
+        this.log('ERROR', 'Nested page create timeout', { requestId, timeoutMs });
+        reject(new Error('Nested page create timeout'));
+      }, timeoutMs);
+      this.pendingNestedPageRequests.set(requestId, {
+        resolve,
+        reject,
+        startedAt: Date.now(),
+        timeoutId,
+        ackTimeoutId,
+        ackReceived: false,
+      });
+      this.vscode.postMessage(createCreateNestedPageMessage(requestId, title));
+    });
+  }
+
+  openNestedPage(path: string): void {
+    this.log('INFO', 'Nested page open requested', { path });
+    this.vscode.postMessage(createOpenNestedPageMessage(path));
+  }
+
+  private handleNestedPageCreated(msg: ExtensionToWebviewMessage & { type: 'nestedPageCreated' }): void {
+    console.log('[NestedPage] Message received', {
+      type: msg.type,
+      requestId: msg.requestId,
+      sessionId: (msg as { sessionId?: string }).sessionId,
+    });
+    const pending = this.pendingNestedPageRequests.get(msg.requestId);
+    if (!pending) {
+      this.log('WARN', 'Nested page response without request', { requestId: msg.requestId });
+      return;
+    }
+    this.pendingNestedPageRequests.delete(msg.requestId);
+    if (pending.timeoutId) {
+      clearTimeout(pending.timeoutId);
+    }
+    if (pending.ackTimeoutId) {
+      clearTimeout(pending.ackTimeoutId);
+    }
+    this.log('INFO', 'Nested page created', {
+      requestId: msg.requestId,
+      path: msg.path,
+      title: msg.title,
+      durationMs: Date.now() - pending.startedAt,
+    });
+    pending.resolve({ path: msg.path, title: msg.title });
+  }
+
+  private handleNestedPageCreateFailed(
+    msg: ExtensionToWebviewMessage & { type: 'nestedPageCreateFailed' }
+  ): void {
+    console.log('[NestedPage] Message received', {
+      type: msg.type,
+      requestId: msg.requestId,
+      sessionId: (msg as { sessionId?: string }).sessionId,
+      code: msg.code,
+    });
+    const pending = this.pendingNestedPageRequests.get(msg.requestId);
+    if (!pending) {
+      this.log('WARN', 'Nested page failure without request', { requestId: msg.requestId });
+      return;
+    }
+    this.pendingNestedPageRequests.delete(msg.requestId);
+    if (pending.timeoutId) {
+      clearTimeout(pending.timeoutId);
+    }
+    if (pending.ackTimeoutId) {
+      clearTimeout(pending.ackTimeoutId);
+    }
+    this.log('ERROR', 'Nested page create failed', {
+      requestId: msg.requestId,
+      code: msg.code,
+      message: msg.message,
+      durationMs: Date.now() - pending.startedAt,
+    });
+    pending.reject(new Error(msg.message || 'Nested page create failed'));
+  }
+
+  private handleNestedPageCreateAck(msg: ExtensionToWebviewMessage & { type: 'nestedPageCreateAck' }): void {
+    console.log('[NestedPage] Message received', {
+      type: msg.type,
+      requestId: msg.requestId,
+      sessionId: (msg as { sessionId?: string }).sessionId,
+    });
+    const pending = this.pendingNestedPageRequests.get(msg.requestId);
+    if (!pending) {
+      this.log('WARN', 'Nested page ack without request', { requestId: msg.requestId });
+      return;
+    }
+    pending.ackReceived = true;
+    if (pending.ackTimeoutId) {
+      clearTimeout(pending.ackTimeoutId);
+    }
+    this.log('INFO', 'Nested page create ack received', {
+      requestId: msg.requestId,
+      durationMs: Date.now() - pending.startedAt,
+    });
   }
 
   getCurrentContent(): string {

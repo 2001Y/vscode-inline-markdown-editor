@@ -1,6 +1,6 @@
 {
-  "extension.displayName": "inlineMark",
-  "extension.description": "Notion風Markdownブロックエディタ。インライン編集、ドラッグ移動、ネストmdファイル、TipTap製WYSIWYG",
+  "extension.displayName": "inlineMark - NotionライクなMarkdownブロックエディタ",
+  "extension.description": "インライン編集、ドラッグ&ドロップ、ネストmdファイル、Tiptap製WYSIWYG",
   "customEditor.displayName": "inlineMark",
   "command.resetSession.title": "エディタセッションをリセット",
   "command.reopenWithTextEditor.title": "inlineMarkを使わずに開く",
@@ -36,7 +36,8 @@
   "configuration.security.allowWorkspaceImages.description": "ワークスペースからの画像読み込みを許可（信頼されたワークスペースのみ）",
   "configuration.security.allowRemoteImages.description": "HTTPS 経由のリモート画像読み込みを許可（信頼されたワークスペースのみ）",
   "configuration.security.allowInsecureRemoteImages.description": "HTTP 経由のリモート画像読み込みを許可（非推奨）",
-  "configuration.security.renderHtml.description": "HTML コンテンツをレンダリング（サニタイズ済み）、RAW ブロックとして表示しない",
   "configuration.security.confirmExternalLinks.description": "外部リンクを開く前に確認ダイアログを表示",
+  "configuration.view.fullWidth.description": "inlineMark エディタを全幅で表示",
+  "configuration.view.noWrap.description": "inlineMark エディタの折り返しを無効化。null を指定すると VS Code の editor.wordWrap に追従",
   "configuration.webview.retainContextWhenHidden.description": "タブ切り替え時にWebviewを保持してUXを向上します。OFFにするとメモリ削減につながる可能性がありますが、戻ったときに再描画される場合があります。"
 }

@@ -26,13 +26,19 @@ export const setHostNotifier = (notify: HostNotify | null): void => {
 const fallbackLog = (level: HostNotifyLevel, code: string, message: string, details?: Record<string, unknown>): void => {
   const timestamp = new Date().toISOString();
   const prefix = `[${level}][HostNotify] ${timestamp} ${code}`;
+  const logFn =
+    level === 'ERROR'
+      ? console.error
+      : level === 'WARN'
+        ? console.warn
+        : console.info;
   if (details) {
     // eslint-disable-next-line no-console
-    console.warn(prefix, message, details);
+    logFn(prefix, message, details);
     return;
   }
   // eslint-disable-next-line no-console
-  console.warn(prefix, message);
+  logFn(prefix, message);
 };
 
 export const notifyHostWarn = (

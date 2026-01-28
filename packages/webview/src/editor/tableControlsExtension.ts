@@ -16,7 +16,9 @@ import { TableMap, cellAround, findTable, moveTableColumn, moveTableRow } from '
 import { t } from './i18n.js';
 import { DEBUG } from './debug.js';
 import { icons } from './icons.js';
-import { closeMenu, openMenu, registerMenu } from './menuManager.js';
+import { createBlockMenu, createBlockMenuItem, createBlockMenuSeparator, updateBlockMenuSelection, getBlockMenuItems, positionBlockMenu } from './blockMenu.js';
+import { closeMenu, openMenu, registerMenu, isMenuActive } from './menuManager.js';
+import { serializeMarkdown } from './markdownUtils.js';
 
 const MODULE = 'TableControls';
 
@@ -60,6 +62,7 @@ export const TableControlsPluginKey = new PluginKey('tableControls');
 
 const ROW_HANDLE_WIDTH = 20;
 const COL_HANDLE_HEIGHT = 16;
+const HANDLE_DRAG_THRESHOLD_PX = 4;
 
 export const TableControls = Extension.create({
   name: 'tableControls',
@@ -73,8 +76,8 @@ export const TableControls = Extension.create({
         view(view) {
           DEBUG.log(MODULE, 'Plugin initialized');
 
-          // Create context menu (browser-native style)
-          const contextMenu = createContextMenu();
+          // Create context menu (shared block-menu component)
+          const contextMenu = createBlockMenu('tableContext');
           document.body.appendChild(contextMenu);
           DEBUG.log(MODULE, 'Context menu created and appended to body');
 
@@ -117,9 +120,32 @@ export const TableControls = Extension.create({
             handle: HTMLElement;
             startedAt: number;
           } | null = null;
+          let pendingHandleAction: {
+            axis: 'row' | 'col';
+            cellPos: number;
+            pointerId: number;
+            startX: number;
+            startY: number;
+            handle: HTMLElement;
+            rowIndex: number | null;
+            colIndex: number | null;
+          } | null = null;
+          let menuSelectedIndex = -1;
+          let menuItemCount = 0;
           let activePointerId: number | null = null;
           let hideTimeoutId: number | null = null;
+          let suppressNextDocumentClick = false;
           const HIDE_DELAY_MS = 150;
+
+          const resolveTableDom = (nodeDom: HTMLElement | null): HTMLTableElement | null => {
+            if (!nodeDom) {
+              return null;
+            }
+            if (nodeDom instanceof HTMLTableElement) {
+              return nodeDom;
+            }
+            return nodeDom.querySelector('table');
+          };
 
           /**
            * Resolve cell info from DOM element (hover-based)
@@ -216,6 +242,9 @@ export const TableControls = Extension.create({
           const scheduleHide = () => {
             cancelHideTimeout();
             hideTimeoutId = window.setTimeout(() => {
+              if (isMenuActive('tableContext')) {
+                return;
+              }
               if (!isDraggingRow && !isDraggingCol) {
                 hideControls();
               }
@@ -224,13 +253,13 @@ export const TableControls = Extension.create({
 
           const updateButtonPositions = (tableRect: DOMRect) => {
             const rowBtnX = tableRect.left;
-            const rowBtnY = tableRect.bottom - 2;
+            const rowBtnY = tableRect.bottom - 1;
             addRowBtn.style.setProperty('--btn-x', `${rowBtnX}px`);
             addRowBtn.style.setProperty('--btn-y', `${rowBtnY}px`);
             addRowBtn.style.setProperty('--btn-w', `${tableRect.width}px`);
             addRowBtn.style.setProperty('--btn-h', '20px');
 
-            const colBtnX = tableRect.right - 2;
+            const colBtnX = tableRect.right - 1;
             const colBtnY = tableRect.top;
             addColBtn.style.setProperty('--btn-x', `${colBtnX}px`);
             addColBtn.style.setProperty('--btn-y', `${colBtnY}px`);
@@ -363,81 +392,155 @@ export const TableControls = Extension.create({
 
           // Context menu handlers
           const showContextMenu = (x: number, y: number, type: 'row' | 'column') => {
+            cancelHideTimeout();
             const bh = t().blockHandles;
+            const tc = t().tableControls;
             contextMenu.innerHTML = '';
 
             if (type === 'row') {
-              contextMenu.appendChild(createMenuItem('上に行を追加', 'addRowBefore'));
-              contextMenu.appendChild(createMenuItem('下に行を追加', 'addRowAfter'));
-              contextMenu.appendChild(createSeparator());
-              contextMenu.appendChild(createMenuItem(bh.delete, 'deleteRow'));
+              contextMenu.appendChild(createBlockMenuItem({ label: tc.addRowBefore, action: 'addRowBefore', icon: icons.plus }));
+              contextMenu.appendChild(createBlockMenuItem({ label: tc.addRowAfter, action: 'addRowAfter', icon: icons.plus }));
+              contextMenu.appendChild(createBlockMenuItem({ label: bh.delete, action: 'deleteRow', icon: icons.trash }));
             } else {
-              contextMenu.appendChild(createMenuItem('左に列を追加', 'addColBefore'));
-              contextMenu.appendChild(createMenuItem('右に列を追加', 'addColAfter'));
-              contextMenu.appendChild(createSeparator());
-              contextMenu.appendChild(createMenuItem(bh.delete, 'deleteCol'));
+              contextMenu.appendChild(createBlockMenuItem({ label: tc.addColumnBefore, action: 'addColBefore', icon: icons.plus }));
+              contextMenu.appendChild(createBlockMenuItem({ label: tc.addColumnAfter, action: 'addColAfter', icon: icons.plus }));
+              contextMenu.appendChild(createBlockMenuItem({ label: bh.delete, action: 'deleteCol', icon: icons.trash }));
             }
+            contextMenu.appendChild(createBlockMenuSeparator());
+            contextMenu.appendChild(createBlockMenuItem({ label: bh.plainText, action: 'plainTextTable', icon: icons.fileText }));
 
             // Position in viewport using CSS variables (CSP-safe)
             const menuWidth = 150;
-            const menuHeight = 100;
+            const menuHeight = 140;
             const menuX = Math.min(x, window.innerWidth - menuWidth - 10);
             const menuY = Math.min(y, window.innerHeight - menuHeight - 10);
 
-            contextMenu.style.setProperty('--menu-x', `${menuX}px`);
-            contextMenu.style.setProperty('--menu-y', `${menuY}px`);
+            positionBlockMenu(contextMenu, {
+              x: menuX,
+              y: menuY,
+              width: menuWidth,
+              height: menuHeight,
+            });
             contextMenu.classList.add('is-visible');
+            const items = getBlockMenuItems(contextMenu);
+            menuItemCount = items.length;
+            menuSelectedIndex = menuItemCount > 0 ? 0 : -1;
+            updateBlockMenuSelection(contextMenu, menuSelectedIndex);
             openMenu('tableContext');
             DEBUG.log(MODULE, 'Context menu shown', { x: menuX, y: menuY, type });
           };
 
           const hideContextMenu = () => {
             contextMenu.classList.remove('is-visible');
+            menuSelectedIndex = -1;
+            menuItemCount = 0;
             closeMenu('tableContext', { skipHide: true });
           };
 
           registerMenu('tableContext', hideContextMenu);
 
+          const updateMenuSelection = () => {
+            updateBlockMenuSelection(contextMenu, menuSelectedIndex);
+          };
+
+          const selectPrevMenuItem = () => {
+            if (menuItemCount === 0) return;
+            menuSelectedIndex = menuSelectedIndex <= 0 ? menuItemCount - 1 : menuSelectedIndex - 1;
+            updateMenuSelection();
+            DEBUG.log(MODULE, 'Table context menu selection prev', { index: menuSelectedIndex });
+          };
+
+          const selectNextMenuItem = () => {
+            if (menuItemCount === 0) return;
+            menuSelectedIndex = menuSelectedIndex >= menuItemCount - 1 ? 0 : menuSelectedIndex + 1;
+            updateMenuSelection();
+            DEBUG.log(MODULE, 'Table context menu selection next', { index: menuSelectedIndex });
+          };
+
+          const selectCurrentMenuItem = () => {
+            if (menuSelectedIndex < 0) return;
+            const items = getBlockMenuItems(contextMenu);
+            const selectedItem = items[menuSelectedIndex] as HTMLElement | undefined;
+            selectedItem?.click();
+          };
+
           const handleMenuAction = (action: string) => {
-            if (!activeTable) return;
-
-            // Focus the appropriate cell first
-            const rows = activeTable.querySelectorAll('tr');
-            let targetCell: HTMLElement | null = null;
-
-            if (action.includes('Row') && activeRowIndex !== null) {
-              const row = rows[activeRowIndex];
-              targetCell = row?.querySelector('td, th') as HTMLElement;
-            } else if (action.includes('Col') && activeColIndex !== null) {
-              const firstRow = rows[0];
-              const cells = firstRow?.querySelectorAll('td, th');
-              targetCell = cells?.[activeColIndex] as HTMLElement;
+            logInfo('Table context menu action', {
+              action,
+              hasActiveTable: Boolean(activeTable),
+              activeRowIndex,
+              activeColIndex,
+              activeCellPos,
+            });
+            if (!activeTable) {
+              DEBUG.error(MODULE, 'Table context action failed: active table missing', { action });
+              logError('Table context action failed: active table missing', { action });
+              hideContextMenu();
+              return;
             }
 
-            if (targetCell) {
-              targetCell.click();
-              setTimeout(() => {
-                switch (action) {
-                  case 'addRowBefore':
-                    editor.chain().addRowBefore().run();
-                    break;
-                  case 'addRowAfter':
-                    editor.chain().addRowAfter().run();
-                    break;
-                  case 'deleteRow':
-                    editor.chain().deleteRow().run();
-                    break;
-                  case 'addColBefore':
-                    editor.chain().addColumnBefore().run();
-                    break;
-                  case 'addColAfter':
-                    editor.chain().addColumnAfter().run();
-                    break;
-                  case 'deleteCol':
-                    editor.chain().deleteColumn().run();
-                    break;
+            if (activeCellPos === null) {
+              DEBUG.error(MODULE, 'Table context action failed: activeCellPos missing', { action });
+              logError('Table context action failed: activeCellPos missing', { action });
+              hideContextMenu();
+              return;
+            }
+
+            if (!focusCellSelection(activeCellPos)) {
+              DEBUG.error(MODULE, 'Table context action failed: selection focus failed', { action, activeCellPos });
+              logError('Table context action failed: selection focus failed', { action, activeCellPos });
+              hideContextMenu();
+              return;
+            }
+
+            switch (action) {
+              case 'addRowBefore':
+                editor.chain().focus().addRowBefore().run();
+                break;
+              case 'addRowAfter':
+                editor.chain().focus().addRowAfter().run();
+                break;
+              case 'deleteRow':
+                editor.chain().focus().deleteRow().run();
+                break;
+              case 'addColBefore':
+                editor.chain().focus().addColumnBefore().run();
+                break;
+              case 'addColAfter':
+                editor.chain().focus().addColumnAfter().run();
+                break;
+              case 'deleteCol':
+                editor.chain().focus().deleteColumn().run();
+                break;
+              case 'plainTextTable': {
+                const table = findTable(view.state.doc.resolve(activeCellPos));
+                if (!table) {
+                  DEBUG.error(MODULE, 'Plain text edit failed: table resolve failed');
+                  logError('Plain text edit failed: table resolve failed');
+                  break;
                 }
-              }, 0);
+                const markdown = serializeMarkdown(editor, { type: 'doc', content: [table.node.toJSON()] }, {
+                  blockType: 'table',
+                });
+                if (markdown === null) {
+                  break;
+                }
+                const content = markdown.trimEnd();
+                editor
+                  .chain()
+                  .focus()
+                  .insertContentAt(
+                    { from: table.pos, to: table.pos + table.node.nodeSize },
+                    {
+                      type: 'plainTextBlock',
+                      content: content ? [{ type: 'text', text: content }] : [],
+                    }
+                  )
+                  .setTextSelection(table.pos + 1)
+                  .run();
+                DEBUG.log(MODULE, 'Converted table to plain text', { pos: table.pos });
+                break;
+              }
             }
 
             hideContextMenu();
@@ -468,9 +571,22 @@ export const TableControls = Extension.create({
             return value;
           };
 
+          const clampToRect = (value: number, min: number, max: number): number => {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+          };
+
           const updateDropIndicator = (axis: 'row' | 'col', boundary: number) => {
             if (!dragState) return;
-            const tableDom = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
+            const isNoop = boundary === dragState.fromIndex || boundary === dragState.fromIndex + 1;
+            if (isNoop) {
+              rowDropIndicator.classList.remove('is-visible');
+              colDropIndicator.classList.remove('is-visible');
+              return;
+            }
+            const tableHost = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
+            const tableDom = resolveTableDom(tableHost);
             if (!tableDom) {
               DEBUG.error(MODULE, 'Drop indicator failed: table DOM missing');
               logError('Drop indicator failed: table DOM missing', { tablePos: dragState.tablePos });
@@ -537,6 +653,7 @@ export const TableControls = Extension.create({
             }
             dragState = null;
             activePointerId = null;
+            pendingHandleAction = null;
             isDraggingRow = false;
             isDraggingCol = false;
             rowDropIndicator.classList.remove('is-visible');
@@ -551,7 +668,8 @@ export const TableControls = Extension.create({
               logError('Table drag start failed: table not found', { axis, anchorCellPos });
               return;
             }
-            const tableDom = view.nodeDOM(table.pos) as HTMLTableElement | null;
+            const tableHost = view.nodeDOM(table.pos) as HTMLElement | null;
+            const tableDom = resolveTableDom(tableHost);
             if (!tableDom) {
               DEBUG.error(MODULE, 'Table drag start failed: table DOM missing');
               logError('Table drag start failed: table DOM missing', { axis, anchorCellPos, tablePos: table.pos });
@@ -596,7 +714,22 @@ export const TableControls = Extension.create({
           const updatePointerDrag = (e: PointerEvent) => {
             if (!dragState || activePointerId !== e.pointerId) return;
 
-            const coords = view.posAtCoords({ left: e.clientX, top: e.clientY });
+            const tableHost = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
+            const tableDom = resolveTableDom(tableHost);
+            if (!tableDom) {
+              DEBUG.error(MODULE, 'Table drag update failed: table DOM missing');
+              logError('Table drag update failed: table DOM missing', {
+                axis: dragState.axis,
+                tablePos: dragState.tablePos,
+              });
+              clearDragState();
+              return;
+            }
+            const rect = tableDom.getBoundingClientRect();
+            const safeX = clampToRect(e.clientX, rect.left + 1, rect.right - 1);
+            const safeY = clampToRect(e.clientY, rect.top + 1, rect.bottom - 1);
+
+            const coords = view.posAtCoords({ left: safeX, top: safeY });
             let boundary: number | null = null;
 
             if (coords) {
@@ -620,26 +753,15 @@ export const TableControls = Extension.create({
                   }
                   const cellRect = cellDom.getBoundingClientRect();
                   if (dragState.axis === 'row') {
-                    boundary = e.clientY < cellRect.top + cellRect.height / 2 ? rect.top : rect.bottom;
+                    boundary = safeY < cellRect.top + cellRect.height / 2 ? rect.top : rect.bottom;
                   } else {
-                    boundary = e.clientX < cellRect.left + cellRect.width / 2 ? rect.left : rect.right;
+                    boundary = safeX < cellRect.left + cellRect.width / 2 ? rect.left : rect.right;
                   }
                 }
               }
             }
 
             if (boundary === null) {
-              const tableDom = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
-              if (!tableDom) {
-                DEBUG.error(MODULE, 'Table drag update failed: table DOM missing');
-                logError('Table drag update failed: table DOM missing', {
-                  axis: dragState.axis,
-                  tablePos: dragState.tablePos,
-                });
-                clearDragState();
-                return;
-              }
-              const rect = tableDom.getBoundingClientRect();
               if (dragState.axis === 'row') {
                 if (e.clientY < rect.top) boundary = 0;
                 else if (e.clientY > rect.bottom) boundary = dragState.map.height;
@@ -745,51 +867,49 @@ export const TableControls = Extension.create({
             editor.chain().focus().addColumnAfter().run();
           };
 
-          const onContextMenu = (e: MouseEvent) => {
-            const target = e.target as HTMLElement;
-            const cell = target.closest('td, th');
-            const table = target.closest('table') as HTMLTableElement;
-
-            if (!cell || !table) return;
-
-            e.preventDefault();
-            activeTable = table;
-            const cellPos = resolveCellInsidePosFromDom(cell as HTMLElement);
-            if (cellPos === null) {
-              DEBUG.error(MODULE, 'Context menu failed: cell pos missing');
-              logError('Context menu failed: cell pos missing');
-              return;
-            }
-            activeCellPos = cellPos;
-
-            const row = cell.closest('tr');
-            if (row) {
-              const rows = Array.from(table.querySelectorAll('tr'));
-              activeRowIndex = rows.indexOf(row);
-
-              const cells = Array.from(row.querySelectorAll('td, th'));
-              activeColIndex = cells.indexOf(cell);
-            }
-
-            // Simple context menu: show row or column options based on click position
-            const cellRect = cell.getBoundingClientRect();
-            const clickX = e.clientX - cellRect.left;
-            const isLeftEdge = clickX < cellRect.width * 0.3;
-
-            showContextMenu(e.clientX, e.clientY, isLeftEdge ? 'row' : 'column');
-          };
-
           const onMenuClick = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
-            const action = target.dataset.action;
+            const item = target.closest('.block-menu-item') as HTMLElement | null;
+            const action = item?.dataset.action;
             if (action) {
+              e.preventDefault();
+              e.stopPropagation();
               handleMenuAction(action);
             }
           };
 
           const onDocumentClick = (e: MouseEvent) => {
+            if (suppressNextDocumentClick) {
+              suppressNextDocumentClick = false;
+              return;
+            }
             if (!contextMenu.contains(e.target as Node)) {
               hideContextMenu();
+            }
+          };
+
+          const onMenuKeydown = (e: KeyboardEvent) => {
+            if (!isMenuActive('tableContext')) {
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              hideContextMenu();
+              return;
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              selectPrevMenuItem();
+              return;
+            }
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              selectNextMenuItem();
+              return;
+            }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              selectCurrentMenuItem();
             }
           };
 
@@ -807,6 +927,10 @@ export const TableControls = Extension.create({
           // Mousemove handler for hover-based detection
           const onMouseMove = (e: MouseEvent) => {
             if (isDraggingRow || isDraggingCol) return;
+            if (isMenuActive('tableContext')) {
+              cancelHideTimeout();
+              return;
+            }
 
             const target = e.target as HTMLElement;
 
@@ -814,7 +938,7 @@ export const TableControls = Extension.create({
             if (target.closest('.table-add-btn') ||
                 target.closest('.table-row-handles') ||
                 target.closest('.table-col-handles') ||
-                target.closest('.table-context-menu')) {
+                target.closest('.block-menu')) {
               cancelHideTimeout();
               return;
             }
@@ -871,28 +995,98 @@ export const TableControls = Extension.create({
             e.stopPropagation();
 
             const axis: 'row' | 'col' = rowHandle ? 'row' : 'col';
-            logInfo('Table handle pointerdown', { axis, cellPos });
-            startPointerDrag(axis, cellPos, handle, e.pointerId);
+            const rowIndex = rowHandle ? Number(rowHandle.dataset.rowIndex ?? 'NaN') : null;
+            const colIndex = colHandle ? Number(colHandle.dataset.colIndex ?? 'NaN') : null;
+            pendingHandleAction = {
+              axis,
+              cellPos,
+              pointerId: e.pointerId,
+              startX: e.clientX,
+              startY: e.clientY,
+              handle,
+              rowIndex: Number.isFinite(rowIndex ?? NaN) ? (rowIndex as number) : null,
+              colIndex: Number.isFinite(colIndex ?? NaN) ? (colIndex as number) : null,
+            };
+            logInfo('Table handle pointerdown (pending)', { axis, cellPos });
           };
 
           const onHandlePointerMove = (e: PointerEvent) => {
-            if (!dragState || activePointerId !== e.pointerId) return;
-            e.preventDefault();
-            updatePointerDrag(e);
+            if (dragState && activePointerId === e.pointerId) {
+              e.preventDefault();
+              updatePointerDrag(e);
+              return;
+            }
+
+            if (!pendingHandleAction || pendingHandleAction.pointerId !== e.pointerId) {
+              return;
+            }
+
+            const dx = e.clientX - pendingHandleAction.startX;
+            const dy = e.clientY - pendingHandleAction.startY;
+            const distance = Math.hypot(dx, dy);
+            if (distance < HANDLE_DRAG_THRESHOLD_PX) {
+              return;
+            }
+
+            const { axis, cellPos, handle } = pendingHandleAction;
+            pendingHandleAction = null;
+            logInfo('Table handle drag threshold reached', { axis, cellPos, distance });
+            startPointerDrag(axis, cellPos, handle, e.pointerId);
+            if (dragState && activePointerId === e.pointerId) {
+              e.preventDefault();
+              updatePointerDrag(e);
+            }
           };
 
           const onHandlePointerUp = (e: PointerEvent) => {
-            if (!dragState || activePointerId !== e.pointerId) return;
+            if (dragState && activePointerId === e.pointerId) {
+              e.preventDefault();
+              finishPointerDrag();
+              return;
+            }
+
+            if (!pendingHandleAction || pendingHandleAction.pointerId !== e.pointerId) {
+              return;
+            }
+
             e.preventDefault();
-            finishPointerDrag();
+            e.stopPropagation();
+
+            const { axis, cellPos, rowIndex, colIndex } = pendingHandleAction;
+            pendingHandleAction = null;
+
+            if (!activeTable) {
+              DEBUG.error(MODULE, 'Table handle click ignored: active table missing');
+              logError('Table handle click ignored: active table missing', { axis });
+              return;
+            }
+
+            activeCellPos = cellPos;
+            if (axis === 'row') {
+              activeRowIndex = rowIndex;
+            } else {
+              activeColIndex = colIndex;
+            }
+
+            suppressNextDocumentClick = true;
+            setTimeout(() => {
+              suppressNextDocumentClick = false;
+            }, 0);
+            showContextMenu(e.clientX, e.clientY, axis);
           };
 
           const onHandlePointerCancel = (e: PointerEvent) => {
-            if (!dragState || activePointerId !== e.pointerId) return;
-            e.preventDefault();
-            DEBUG.warn(MODULE, 'Pointer drag cancelled');
-            logWarning('Table drag cancelled', { axis: dragState.axis });
-            clearDragState();
+            if (dragState && activePointerId === e.pointerId) {
+              e.preventDefault();
+              DEBUG.warn(MODULE, 'Pointer drag cancelled');
+              logWarning('Table drag cancelled', { axis: dragState.axis });
+              clearDragState();
+              return;
+            }
+            if (pendingHandleAction && pendingHandleAction.pointerId === e.pointerId) {
+              e.preventDefault();
+              pendingHandleAction = null;
+            }
           };
 
           // Get scroll container
@@ -900,11 +1094,11 @@ export const TableControls = Extension.create({
 
           // Attach event listeners
           view.dom.addEventListener('mousemove', onMouseMove);
-          view.dom.addEventListener('contextmenu', onContextMenu);
           addRowBtn.addEventListener('click', onRowBtnClick);
           addColBtn.addEventListener('click', onColBtnClick);
           contextMenu.addEventListener('click', onMenuClick);
           document.addEventListener('click', onDocumentClick);
+          document.addEventListener('keydown', onMenuKeydown);
           editorContainer?.addEventListener('scroll', onScroll);
 
           // Row/column handle event listeners
@@ -940,7 +1134,6 @@ export const TableControls = Extension.create({
               cancelHideTimeout();
               clearDragState();
               view.dom.removeEventListener('mousemove', onMouseMove);
-              view.dom.removeEventListener('contextmenu', onContextMenu);
               addRowBtn.removeEventListener('click', onRowBtnClick);
               addRowBtn.removeEventListener('mouseenter', onControlsMouseEnter);
               addRowBtn.removeEventListener('mouseleave', onControlsMouseLeave);
@@ -949,6 +1142,7 @@ export const TableControls = Extension.create({
               addColBtn.removeEventListener('mouseleave', onControlsMouseLeave);
               contextMenu.removeEventListener('click', onMenuClick);
               document.removeEventListener('click', onDocumentClick);
+              document.removeEventListener('keydown', onMenuKeydown);
               editorContainer?.removeEventListener('scroll', onScroll);
 
               document.removeEventListener('pointerdown', onHandlePointerDown, true);
@@ -972,31 +1166,11 @@ export const TableControls = Extension.create({
   },
 });
 
-// Helper functions
-function createContextMenu(): HTMLElement {
-  const menu = document.createElement('div');
-  menu.className = 'table-context-menu';
-  return menu;
-}
-
-function createMenuItem(label: string, action: string): HTMLElement {
-  const item = document.createElement('button');
-  item.className = 'table-context-menu-item';
-  item.dataset.action = action;
-  item.textContent = label;
-  return item;
-}
-
-function createSeparator(): HTMLElement {
-  const sep = document.createElement('div');
-  sep.className = 'table-context-menu-separator';
-  return sep;
-}
-
 function createAddButton(type: 'row' | 'col'): HTMLElement {
   const btn = document.createElement('button');
   btn.className = `table-add-btn table-add-btn-${type}`;
-  const label = type === 'row' ? '行を追加' : '列を追加';
+  const tc = t().tableControls;
+  const label = type === 'row' ? tc.addRow : tc.addColumn;
   btn.setAttribute('aria-label', label);
   btn.title = label;
   btn.dataset.axis = type;
@@ -1024,7 +1198,7 @@ function createRowHandle(rowIndex: number, cellPos: number): HTMLElement {
   handle.innerHTML = icons.gripVertical;
   handle.draggable = false;
   handle.contentEditable = 'false';
-  handle.title = 'ドラッグで行を移動';
+  handle.title = t().tableControls.dragRow;
   return handle;
 }
 
@@ -1048,7 +1222,7 @@ function createColHandle(colIndex: number, cellPos: number): HTMLElement {
   handle.innerHTML = icons.gripHorizontal;
   handle.draggable = false;
   handle.contentEditable = 'false';
-  handle.title = 'ドラッグで列を移動';
+  handle.title = t().tableControls.dragColumn;
   return handle;
 }
 

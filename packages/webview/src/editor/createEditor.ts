@@ -15,8 +15,9 @@
  * - StarterKit: 基本的な Markdown 要素（見出し、リスト、コードブロック等）
  * - Link: リンク（openOnClick: false で直接開かない）
  * - Image: 画像（inline: true, allowBase64: true）
- * - RawBlock: 非対応記法の保持（frontmatter 等）
- * - HtmlBlock: HTML ブロック（renderHtml=true 時は DOMPurify でサニタイズ）
+ * - RawBlock: :::raw 記法の保持
+ * - FrontmatterBlock: frontmatter の保持
+ * - HtmlToCodeBlock: HTML ブロックは code block として表示
  * 
  * onUpdate コールバック (設計書 10.1):
  * - applyingRemote 中は何もしない（ループ防止）
@@ -38,18 +39,26 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import { Markdown } from '@tiptap/markdown';
-import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
+import type { Slice } from '@tiptap/pm/model';
+import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import Placeholder from '@tiptap/extension-placeholder';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
-import Focus from '@tiptap/extension-focus';
 import Dropcursor from '@tiptap/extension-dropcursor';
 import { RawBlock } from './rawBlockExtension.js';
-import { HtmlBlock } from './htmlBlockExtension.js';
+import { FrontmatterBlock } from './frontmatterBlockExtension.js';
+import { PlainTextBlock } from './plainTextBlockExtension.js';
+import { HtmlToCodeBlock } from './htmlToCodeBlockExtension.js';
+import { NestedPage } from './nestedPageExtension.js';
 import { TableControls } from './tableControlsExtension.js';
-import { BlockHandles, createDragHandleElement, isDragHandleTarget, type BlockHandlesStorage, DRAG_HANDLE_ALLOWED_NODE_TYPES } from './blockHandlesExtension.js';
+import { TableBlock } from './tableBlockWrapperExtension.js';
+import { BlockHandles, createDragHandleElement, DRAG_HANDLE_ALLOWED_NODE_TYPES } from './blockHandlesExtension.js';
 import { InlineDragHandle } from './inlineDragHandleExtension.js';
 import { ListIndentShortcuts } from './listIndentShortcuts.js';
 import { IndentMarker } from './indentMarkerExtension.js';
+import { EnterSelectionFix } from './enterSelectionFixExtension.js';
+import { serializeMarkdown } from './markdownUtils.js';
+import NodeRange from '@tiptap/extension-node-range';
+import { createLowlight, common } from 'lowlight';
 import { setHostNotifier } from './hostNotifier.js';
 import {
   ParagraphNoShortcut,
@@ -88,15 +97,41 @@ export interface CreateEditorOptions {
 
 export function createEditor(options: CreateEditorOptions): EditorInstance {
   const { container, syncClient, onChangeGuardExceeded } = options;
+  const lowlightInstance = createLowlight(common);
+  const CLIPBOARD_MODULE = 'Clipboard';
+
+  const logClipboardInfo = (msg: string, data?: Record<string, unknown>): void => {
+    const timestamp = new Date().toISOString();
+    if (data) {
+      console.log(`[INFO][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`, data);
+    } else {
+      console.log(`[INFO][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`);
+    }
+  };
+
+  const logClipboardSuccess = (msg: string, data?: Record<string, unknown>): void => {
+    const timestamp = new Date().toISOString();
+    if (data) {
+      console.log(`[SUCCESS][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`, data);
+    } else {
+      console.log(`[SUCCESS][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`);
+    }
+  };
+
+  const logClipboardError = (msg: string, data?: Record<string, unknown>): void => {
+    const timestamp = new Date().toISOString();
+    if (data) {
+      console.error(`[ERROR][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`, data);
+    } else {
+      console.error(`[ERROR][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`);
+    }
+  };
 
   // UI要素の作成: BubbleMenu（選択時ツールバー）
   const bubbleMenuElement = createBubbleMenuElement();
   container.appendChild(bubbleMenuElement);
   let bubbleMenuSuspended = false;
 
-  const dragHandleElement = createDragHandleElement();
-  dragHandleElement.style.visibility = 'hidden';
-  dragHandleElement.style.pointerEvents = 'none';
 
   // Tiptap 3.x モダン化:
   // - StarterKit に Link/Underline/ListKeymap が含まれるようになった
@@ -104,12 +139,98 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   // - これにより openOnClick: false などのセキュリティ設定を確実に適用
   // @tiptap/markdown 統合:
   // - Markdown 拡張で GFM (GitHub Flavored Markdown) を有効化
-  // - RawBlock で frontmatter をサポート
-  // - HtmlBlock で HTML ブロックを保持
+  // - FrontmatterBlock で frontmatter を保持
+  // - RawBlock で :::raw を保持
+  // - HtmlToCodeBlock で HTML ブロックを code block に変換
   // - Table 拡張で GFM テーブルをサポート
   // VSCodeキーバインドで全ショートカットを管理するため、
   // StarterKitの拡張を無効化し、ショートカット無しバージョンを使用
-  const editor = new Editor({
+  let editor: Editor;
+
+  const serializeSelectionMarkdown = (slice: Slice): string => {
+    const startedAt = Date.now();
+    if (!editor) {
+      logClipboardError('Clipboard serialize failed: editor not initialized');
+      return '';
+    }
+
+    const selection = editor.state.selection;
+    if (selection.empty) {
+      logClipboardInfo('Clipboard serialize skipped: empty selection', {
+        durationMs: Date.now() - startedAt,
+      });
+      return '';
+    }
+
+    const rawJson = slice.content.toJSON();
+    const content = Array.isArray(rawJson) ? rawJson : [rawJson];
+    const hasBlock = content.some((node) => {
+      if (!node || typeof node !== 'object') {
+        return false;
+      }
+      const typeName = (node as { type?: string }).type;
+      if (!typeName) {
+        return false;
+      }
+      const nodeType = editor.schema.nodes[typeName];
+      return Boolean(nodeType?.isBlock);
+    });
+
+    const payload = hasBlock ? { type: 'doc', content } : content;
+    const markdown = serializeMarkdown(editor, payload, {
+      mode: 'clipboard-selection',
+      selectionFrom: selection.from,
+      selectionTo: selection.to,
+      openStart: slice.openStart,
+      openEnd: slice.openEnd,
+      hasBlock,
+    });
+
+    if (markdown === null) {
+      logClipboardError('Clipboard markdown serialize failed', {
+        durationMs: Date.now() - startedAt,
+        selectionFrom: selection.from,
+        selectionTo: selection.to,
+        openStart: slice.openStart,
+        openEnd: slice.openEnd,
+        hasBlock,
+      });
+      return '';
+    }
+
+    logClipboardSuccess('Clipboard markdown serialized', {
+      length: markdown.length,
+      durationMs: Date.now() - startedAt,
+      selectionFrom: selection.from,
+      selectionTo: selection.to,
+      openStart: slice.openStart,
+      openEnd: slice.openEnd,
+      hasBlock,
+    });
+
+    return markdown;
+  };
+
+  const handleLinkClick = (event: MouseEvent): boolean => {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest('a') as HTMLAnchorElement | null;
+    if (!anchor) {
+      return false;
+    }
+    const href = anchor.getAttribute('href');
+    event.preventDefault();
+    event.stopPropagation();
+    if (!href) {
+      return true;
+    }
+    if (!event.ctrlKey && !event.metaKey) {
+      return true;
+    }
+    syncClient.openLink(href);
+    return true;
+  };
+
+  editor = new Editor({
     element: container,
     extensions: [
       StarterKit.configure({
@@ -146,7 +267,10 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       OrderedListNoShortcut,
       ListItemNoShortcut,
       BlockquoteNoShortcut,
-      CodeBlockNoShortcut,
+      CodeBlockNoShortcut.configure({
+        lowlight: lowlightInstance,
+        defaultLanguage: 'plaintext',
+      }),
       HorizontalRuleNoShortcut,
       HistoryNoShortcut,
       Dropcursor.configure({
@@ -166,43 +290,39 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         allowBase64: true,
       }),
       // GFM テーブルサポート（resizable: false はデフォルト値のため省略）
-      Table,
+      TableBlock,
       TableRow,
       TableCell,
       TableHeader,
       // テーブルUI（Notion風 + ボタン、ハンドル、コンテキストメニュー）
       TableControls,
+      NodeRange,
+      NestedPage.configure({
+        onOpen: (path) => {
+          syncClient.openNestedPage(path);
+        },
+      }),
       InlineDragHandle.configure({
-        render: () => dragHandleElement,
-        computePositionConfig: {
-          placement: 'left',
-          strategy: 'absolute',
-        },
+        render: () => createDragHandleElement(),
         allowedNodeTypes: DRAG_HANDLE_ALLOWED_NODE_TYPES,
-        onNodeChange: (data) => {
-          const { node, editor } = data;
-          const pos = (data as { pos?: number }).pos ?? -1;
-          const storage = editor.storage.blockHandles as BlockHandlesStorage | undefined;
-
-          if (!storage || !isDragHandleTarget(node) || pos < 0) {
-            dragHandleElement.style.visibility = 'hidden';
-            dragHandleElement.style.pointerEvents = 'none';
-            storage?.setActiveNode(null, -1);
-            return;
-          }
-
-          dragHandleElement.style.visibility = '';
-          dragHandleElement.style.pointerEvents = 'auto';
-          storage.setActiveNode(node, pos);
-        },
       }),
       ListIndentShortcuts,
       // ブロックメニュー（+ / コンテキスト / スラッシュコマンド）
-      BlockHandles,
-      // カスタム拡張（indent コメント, frontmatter, HTML ブロック）
+      BlockHandles.configure({
+        createNestedPage: async (title) => {
+          return syncClient.createNestedPage(title);
+        },
+        openNestedPage: (path) => {
+          syncClient.openNestedPage(path);
+        },
+      }),
+      EnterSelectionFix,
+      // カスタム拡張（indent コメント, frontmatter, RAW）
       IndentMarker,
+      FrontmatterBlock,
       RawBlock,
-      HtmlBlock,
+      PlainTextBlock,
+      HtmlToCodeBlock,
       // @tiptap/markdown で Markdown パース/シリアライズを統合
       Markdown.configure({
         markedOptions: { gfm: true },
@@ -218,10 +338,6 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         },
         emptyEditorClass: 'is-editor-empty',
         emptyNodeClass: 'is-empty',
-      }),
-      Focus.configure({
-        className: 'has-focus',
-        mode: 'deepest',
       }),
       BubbleMenu.configure({
         element: bubbleMenuElement,
@@ -244,6 +360,17 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         class: 'inline-markdown-editor-content',
         spellcheck: 'true',
       },
+      clipboardTextSerializer: (slice) => {
+        return serializeSelectionMarkdown(slice);
+      },
+      handleDOMEvents: {
+        click: (_view, event) => {
+          if (!(event instanceof MouseEvent)) {
+            return false;
+          }
+          return handleLinkClick(event);
+        },
+      },
     },
     onUpdate: ({ editor: updatedEditor }) => {
       if (syncClient.isApplyingRemote()) {
@@ -260,6 +387,29 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     syncClient.notifyHost(level, code, message, remediation, details);
   });
 
+  const isDebugEnabled = Boolean(syncClient.getConfig()?.debug.enabled);
+
+  // Input/selection diagnostics (only when debug enabled)
+  if (isDebugEnabled) {
+    let lastSelection = editor.state.selection;
+    editor.on('transaction', ({ editor: txEditor, transaction }) => {
+      const inputType = transaction.getMeta('inputType');
+      const uiEvent = transaction.getMeta('uiEvent');
+      if (inputType === 'insertParagraph' || inputType === 'insertLineBreak' || uiEvent === 'input') {
+        console.log('[Input] transaction', {
+          inputType,
+          uiEvent,
+          docChanged: transaction.docChanged,
+          selectionSet: transaction.selectionSet,
+          before: { from: lastSelection.from, to: lastSelection.to, empty: lastSelection.empty },
+          after: { from: transaction.selection.from, to: transaction.selection.to, empty: transaction.selection.empty },
+        });
+      }
+      lastSelection = txEditor.state.selection;
+    });
+
+  }
+
   // BubbleMenuボタンのイベントハンドラー設定
   setupBubbleMenuHandlers(bubbleMenuElement, editor);
 
@@ -270,32 +420,59 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     }
   });
 
+  const onSelectionUpdate = ({ editor: selectionEditor }: { editor: Editor }) => {
+    const selection = selectionEditor.state.selection;
+    const timestamp = new Date().toISOString();
+    const $from = selection.$from;
+    const $to = selection.$to;
+    console.log('[Selection] update', {
+      timestamp,
+      type: selection.constructor.name,
+      empty: selection.empty,
+      from: selection.from,
+      to: selection.to,
+      anchor: selection.anchor,
+      head: selection.head,
+      fromParent: $from.parent.type.name,
+      toParent: $to.parent.type.name,
+      depth: $from.depth,
+    });
+  };
+
+  editor.on('selectionUpdate', onSelectionUpdate);
+
   const editorContainer = editor.view.dom.closest('.editor-container') as HTMLElement | null;
-  editorContainer?.addEventListener('scroll', () => {
+  const onScroll = () => {
     if (!bubbleMenuSuspended) {
       bubbleMenuSuspended = true;
       bubbleMenuElement.classList.add('is-suspended');
     }
-  });
+  };
+  editorContainer?.addEventListener('scroll', onScroll);
 
   // Link handling:
   // - Keep Tiptap's Link.openOnClick=false (security)
   // - Open links via the extension (openExternal) on Ctrl/Cmd+Click (VS Code convention)
-  const onEditorClick = (event: MouseEvent) => {
-    const target = event.target as HTMLElement | null;
-    const anchor = target?.closest('a') as HTMLAnchorElement | null;
-    if (!anchor) {return;}
-
-    const href = anchor.getAttribute('href');
-    if (!href) {return;}
-
-    if (!event.ctrlKey && !event.metaKey) {return;}
-
-    event.preventDefault();
-    event.stopPropagation();
-    syncClient.openLink(href);
+  const linkModifierClass = 'inline-markdown-link-modifier';
+  const setLinkModifierActive = (active: boolean) => {
+    document.body.classList.toggle(linkModifierClass, active);
   };
-  container.addEventListener('click', onEditorClick);
+  const onModifierKeyDown = (event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      setLinkModifierActive(true);
+    }
+  };
+  const onModifierKeyUp = (event: KeyboardEvent) => {
+    if (!event.metaKey && !event.ctrlKey) {
+      setLinkModifierActive(false);
+    }
+  };
+  const onModifierBlur = () => {
+    setLinkModifierActive(false);
+  };
+  window.addEventListener('keydown', onModifierKeyDown, true);
+  window.addEventListener('keyup', onModifierKeyUp, true);
+  window.addEventListener('blur', onModifierBlur);
 
   function setContent(markdown: string): void {
     editor.commands.setContent(markdown, { contentType: 'markdown' });
@@ -311,7 +488,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   }
 
   function destroy(): void {
-    container.removeEventListener('click', onEditorClick);
+    window.removeEventListener('keydown', onModifierKeyDown, true);
+    window.removeEventListener('keyup', onModifierKeyUp, true);
+    window.removeEventListener('blur', onModifierBlur);
+    editorContainer?.removeEventListener('scroll', onScroll);
+    editor.off('selectionUpdate', onSelectionUpdate);
     bubbleMenuElement.remove();
     editor.destroy();
   }

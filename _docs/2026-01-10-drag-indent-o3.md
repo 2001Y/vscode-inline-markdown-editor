@@ -39,11 +39,19 @@
 
 ## 実装のメモ（具体アルゴリズム）
 - **深度delta計算**: `deltaDepth = Math.round((dropX - startX) / indentUnitPx)` を採用。
-  - `indentUnitPx = 24` を基準にする（LIST_INDENT_STEP_PX）。
-  - サブピクセル誤差は `Math.round` で吸収（必要なら `+ 0.001` のepsilonを追加）。
+  - `indentUnitPx` は **固定値ではなく動的算出**する。
+    - list の実 DOM から `getBoundingClientRect()` を取得し、テキスト開始位置の差分で算出。
+    - 取得不能な場合のみ `LIST_INDENT_STEP_PX` をフォールバックとして使う。
+  - 座標は **editorローカル座標**に正規化（scroll/zoom 影響を排除）。
+    - `editorRect.left` を引いて X を正規化する。
+  - **RTL 対応**: `dir="rtl"` の場合は `deltaDepth` の符号を反転。
+  - サブピクセル誤差は `Math.round` で吸収。
+    - transform/scale がある場合のみ `+epsilon` を付与（例: `0.001`）。
   - `desiredDepth = Math.max(1, sourceDepth + deltaDepth)` に clamp。
 - **挿入範囲の検知**: drop後の selection から **最も近い listItem の先頭**を1件だけ特定して補正。
   - `findNearestListItemPos(doc, selection.from)` で親方向に探索。
-  - listItem が見つからなければ ERROR ログで停止（フォールバックなし）。
+  - listItem が見つからなければ **フォールバック**を実施。
+    - 例: 深度補正をスキップし、通常のドロップだけ成立させる。
+    - ユーザー向け通知（toast / notify）を出して異常を可視化。
 - **適用単位**: 現状は **単一 listItem** の深度のみを補正（「listItem単位」要件に合わせる）。
   - 複数項目の連続ブロック調整は未対応（必要なら contiguous range で拡張）。

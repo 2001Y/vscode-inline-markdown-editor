@@ -26,6 +26,7 @@ export interface Translations {
     blockquote: string;
     table: string;
     horizontalRule: string;
+    nestedPage: string;
   };
   slashCommand: {
     heading1: string;
@@ -48,11 +49,15 @@ export interface Translations {
     horizontalRuleDesc: string;
   };
   blockHandles: {
+    addBlockBelow: string;
+    dragHandle: string;
     delete: string;
     duplicate: string;
     copy: string;
     indent: string;
     outdent: string;
+    plainText: string;
+    done: string;
     convertTo: string;
     paragraph: string;
     heading1: string;
@@ -62,6 +67,19 @@ export interface Translations {
     orderedList: string;
     codeBlock: string;
     blockquote: string;
+  };
+  tableControls: {
+    addRow: string;
+    addColumn: string;
+    addRowBefore: string;
+    addRowAfter: string;
+    addColumnBefore: string;
+    addColumnAfter: string;
+    dragRow: string;
+    dragColumn: string;
+  };
+  nestedPage: {
+    defaultTitle: string;
   };
 }
 
@@ -82,6 +100,7 @@ const en: Translations = {
     blockquote: 'Quote',
     table: 'Table',
     horizontalRule: 'Divider',
+    nestedPage: 'Nested page',
   },
   slashCommand: {
     heading1: 'Heading 1',
@@ -104,11 +123,15 @@ const en: Translations = {
     horizontalRuleDesc: 'Insert divider line',
   },
   blockHandles: {
+    addBlockBelow: 'Add block below',
+    dragHandle: 'Drag to move / click for menu',
     delete: 'Delete',
     duplicate: 'Duplicate',
     copy: 'Copy',
     indent: 'Indent',
     outdent: 'Outdent',
+    plainText: 'Edit as plain text',
+    done: 'Done',
     convertTo: 'Convert to',
     paragraph: 'Text',
     heading1: 'Heading 1',
@@ -118,6 +141,19 @@ const en: Translations = {
     orderedList: 'Numbered list',
     codeBlock: 'Code',
     blockquote: 'Quote',
+  },
+  tableControls: {
+    addRow: 'Add row',
+    addColumn: 'Add column',
+    addRowBefore: 'Add row above',
+    addRowAfter: 'Add row below',
+    addColumnBefore: 'Add column left',
+    addColumnAfter: 'Add column right',
+    dragRow: 'Drag to move row',
+    dragColumn: 'Drag to move column',
+  },
+  nestedPage: {
+    defaultTitle: 'New Page',
   },
 };
 
@@ -138,6 +174,7 @@ const ja: Translations = {
     blockquote: '引用',
     table: 'テーブル',
     horizontalRule: '区切り線',
+    nestedPage: 'ネストページ',
   },
   slashCommand: {
     heading1: '見出し1',
@@ -160,11 +197,15 @@ const ja: Translations = {
     horizontalRuleDesc: '区切り線を挿入',
   },
   blockHandles: {
+    addBlockBelow: '下にブロックを追加',
+    dragHandle: 'ドラッグで移動 / クリックでメニュー',
     delete: '削除',
     duplicate: '複製',
     copy: 'コピー',
     indent: 'インデント',
     outdent: 'インデント解除',
+    plainText: 'プレーンテキストで編集',
+    done: '完了',
     convertTo: '変換',
     paragraph: 'テキスト',
     heading1: '見出し1',
@@ -174,6 +215,19 @@ const ja: Translations = {
     orderedList: '番号リスト',
     codeBlock: 'コード',
     blockquote: '引用',
+  },
+  tableControls: {
+    addRow: '行を追加',
+    addColumn: '列を追加',
+    addRowBefore: '上に行を追加',
+    addRowAfter: '下に行を追加',
+    addColumnBefore: '左に列を追加',
+    addColumnAfter: '右に列を追加',
+    dragRow: 'ドラッグで行を移動',
+    dragColumn: 'ドラッグで列を移動',
+  },
+  nestedPage: {
+    defaultTitle: '新規ページ',
   },
 };
 
@@ -194,6 +248,7 @@ const zh: Translations = {
     blockquote: '引用',
     table: '表格',
     horizontalRule: '分割线',
+    nestedPage: '嵌套页面',
   },
   slashCommand: {
     heading1: '一级标题',
@@ -216,11 +271,15 @@ const zh: Translations = {
     horizontalRuleDesc: '插入分割线',
   },
   blockHandles: {
+    addBlockBelow: '在下方添加块',
+    dragHandle: '拖动移动 / 点击菜单',
     delete: '删除',
     duplicate: '复制副本',
     copy: '复制',
     indent: '增加缩进',
     outdent: '减少缩进',
+    plainText: '纯文本编辑',
+    done: '完成',
     convertTo: '转换为',
     paragraph: '文本',
     heading1: '一级标题',
@@ -230,6 +289,19 @@ const zh: Translations = {
     orderedList: '有序列表',
     codeBlock: '代码',
     blockquote: '引用',
+  },
+  tableControls: {
+    addRow: '添加行',
+    addColumn: '添加列',
+    addRowBefore: '在上方添加行',
+    addRowAfter: '在下方添加行',
+    addColumnBefore: '在左侧添加列',
+    addColumnAfter: '在右侧添加列',
+    dragRow: '拖动以移动行',
+    dragColumn: '拖动以移动列',
+  },
+  nestedPage: {
+    defaultTitle: '新建页面',
   },
 };
 

@@ -24,7 +24,7 @@
 - `<!-- inlineMark:indent=N -->` から `<!-- /inlineMark:indent -->` までを 1トークン化
 - ネストコメントは depth カウントで処理
 - fenced code block 内のコメントは無視（誤検出回避）
-- 終了コメントが無い場合は ERROR ログで明示（フォールバックなし）
+- 終了コメントが無い場合は ERROR ログで明示（**EOFを暗黙の終了にしない / フォールバックなし**）
 
 ### 3) parseMarkdown / renderMarkdown
 - parse: `indentBlock(level)` に変換し、`helpers.parseChildren(token.tokens)` を中身に入れる
@@ -34,6 +34,8 @@
 - Tab/Shift-Tab:
   - listItem の場合は従来の sink/lift を使用
   - それ以外は indentBlock の level を増減
+  - indentBlock がネストしている場合は **最内側** の indentBlock を対象に増減
+  - level が 0 相当になる場合は indentBlock を解除（ラッパー削除）
 - block-context-menu:
   - listItem には list indent/outdent
   - 非list には indentBlock / outdentBlock

@@ -4,7 +4,9 @@
  * - キーボード操作・選択状態の更新を共通化
  */
 
-export type BlockMenuType = 'blockType' | 'blockContext';
+import DOMPurify from 'dompurify';
+
+export type BlockMenuType = 'blockType' | 'blockContext' | 'tableContext';
 
 export interface BlockMenuPosition {
   x: number;
@@ -12,6 +14,29 @@ export interface BlockMenuPosition {
   width: number;
   height: number;
 }
+
+const SVG_ICON_SANITIZE_CONFIG = {
+  USE_PROFILES: { svg: true },
+  FORBID_TAGS: ['script', 'foreignObject'],
+};
+
+const stripUnsafeSvgAttributes = (root: Element): void => {
+  root.querySelectorAll('script, foreignObject').forEach((el) => el.remove());
+  const nodes = [root, ...root.querySelectorAll('*')];
+  nodes.forEach((el) => {
+    Array.from(el.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      const isUnsafeUrl = value.startsWith('javascript:') || value.startsWith('data:');
+      if (name.startsWith('on') || value.includes('javascript:')) {
+        el.removeAttribute(attr.name);
+      }
+      if ((name === 'href' || name === 'xlink:href') && isUnsafeUrl) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+};
 
 export const createBlockMenu = (type: BlockMenuType): HTMLElement => {
   const menu = document.createElement('div');
@@ -44,22 +69,20 @@ export const createBlockMenuItem = (options: {
     const iconSpan = document.createElement('span');
     iconSpan.className = 'block-menu-icon';
     if (options.icon) {
+      const sanitized = DOMPurify.sanitize(options.icon, SVG_ICON_SANITIZE_CONFIG);
       const parser = new DOMParser();
-      const svgDoc = parser.parseFromString(options.icon, 'image/svg+xml');
+      const svgDoc = parser.parseFromString(sanitized, 'image/svg+xml');
       const parserError = svgDoc.querySelector('parsererror');
       if (parserError) {
         console.error('[BlockMenu] Invalid SVG icon:', parserError.textContent);
       } else {
-      const svgElement = svgDoc.documentElement;
-      if (svgElement && svgElement.tagName.toLowerCase() === 'svg') {
-        svgElement.removeAttribute('onload');
-        svgElement.removeAttribute('onerror');
-        svgElement.querySelectorAll('[onload],[onerror]').forEach((el) => {
-          el.removeAttribute('onload');
-          el.removeAttribute('onerror');
-        });
-        iconSpan.appendChild(document.importNode(svgElement, true));
-      }
+        const svgElement = svgDoc.documentElement;
+        if (svgElement && svgElement.tagName.toLowerCase() === 'svg') {
+          stripUnsafeSvgAttributes(svgElement);
+          iconSpan.appendChild(document.importNode(svgElement, true));
+        } else {
+          console.error('[BlockMenu] Invalid SVG icon: missing <svg> root');
+        }
       }
     } else if (options.iconText) {
       iconSpan.textContent = options.iconText;
@@ -72,6 +95,12 @@ export const createBlockMenuItem = (options: {
   item.appendChild(labelSpan);
 
   return item;
+};
+
+export const createBlockMenuSeparator = (): HTMLElement => {
+  const sep = document.createElement('div');
+  sep.className = 'block-menu-separator';
+  return sep;
 };
 
 export const getBlockMenuItems = (menu: HTMLElement | null): HTMLElement[] => {

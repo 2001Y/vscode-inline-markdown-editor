@@ -89,7 +89,6 @@ export const IndentMarker = Extension.create({
       const first = findFirstContentToken(tokens);
 
       if (!first) {
-        DEBUG.error(MODULE, 'Indent marker has no following block', { preview: remainder.slice(0, 80) });
         logError('Indent marker has no following block', { preview: remainder.slice(0, 80) });
         return undefined;
       }
@@ -113,7 +112,6 @@ export const IndentMarker = Extension.create({
     const content = helpers.parseChildren(token.tokens || []);
 
     if (!Array.isArray(content) || content.length === 0) {
-      DEBUG.error(MODULE, 'Indent marker parse produced no content', { indentLevel });
       logError('Indent marker parse produced no content', { indentLevel });
       return [];
     }

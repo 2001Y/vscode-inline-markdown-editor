@@ -2,11 +2,12 @@
  * Indent configuration utilities
  *
  * 役割: indent レベルの正規化/レンダリング支援
- * 不変条件: indent は 0..10、コメントマーカーは 1..10
+ * 不変条件: indent は 1..10（0 は未インデント扱い）、コメントマーカーは 1..10
  */
 
 export const INDENT_LEVEL_MIN = 1;
 export const INDENT_LEVEL_MAX = 10;
+export const INDENT_MAX_DEPTH_MESSAGE = `現在の階層から一つ深い階層までしか作成できません。ブロックごとに階層を深くすることはできます（${INDENT_LEVEL_MAX}階層まで）`;
 
 export const clampIndentLevel = (value: number): number => {
   const next = Math.round(value);
@@ -48,4 +49,15 @@ export const indentAttribute = {
   renderHTML: (attributes: { indent?: number }) => {
     return renderIndentAttributes(attributes.indent ?? 0);
   },
+};
+
+export const applyIndentAttributesToDom = (element: HTMLElement, indent: unknown): void => {
+  const level = normalizeIndentAttr(indent);
+  if (level <= 0) {
+    element.removeAttribute('data-indent');
+    element.style.marginLeft = '';
+    return;
+  }
+  element.setAttribute('data-indent', String(level));
+  element.style.marginLeft = `calc(var(--indent-step) * ${level})`;
 };

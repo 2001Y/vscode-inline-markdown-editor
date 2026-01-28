@@ -3,6 +3,8 @@
  * Ensures only one menu is visible at a time and syncs context key to VS Code.
  */
 
+import { createMenuStateChangeMessage } from '../protocol/types.js';
+
 type MenuId = 'blockType' | 'blockContext' | 'tableContext';
 
 type MenuHideHandler = () => void;
@@ -20,15 +22,13 @@ const setActiveMenu = (next: MenuId | null): void => {
   activeMenu = next;
   const vscode = getVsCodeApi();
   if (vscode) {
-    vscode.postMessage({
-      type: 'menuStateChange',
-      visible: activeMenu !== null,
-    });
+    vscode.postMessage(createMenuStateChangeMessage(activeMenu !== null));
   }
 };
 
 const closeMenusExcept = (id: MenuId): void => {
-  for (const [menuId, hide] of menuRegistry.entries()) {
+  const entries = Array.from(menuRegistry.entries());
+  for (const [menuId, hide] of entries) {
     if (menuId !== id) {
       hide();
     }
@@ -52,20 +52,24 @@ export const closeMenu = (id: MenuId, options?: { skipHide?: boolean }): void =>
   if (activeMenu !== id) {
     return;
   }
+  setActiveMenu(null);
   if (!options?.skipHide) {
     const hide = menuRegistry.get(id);
     if (hide) {
       hide();
     }
   }
-  setActiveMenu(null);
 };
 
 export const closeAllMenus = (): void => {
-  for (const hide of menuRegistry.values()) {
-    hide();
+  const handlers = Array.from(menuRegistry.values());
+  try {
+    for (const hide of handlers) {
+      hide();
+    }
+  } finally {
+    setActiveMenu(null);
   }
-  setActiveMenu(null);
 };
 
 export const isMenuActive = (id?: MenuId): boolean => {

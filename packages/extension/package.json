@@ -2,21 +2,36 @@
   "name": "inlinemark",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.1.0",
-  "publisher": "inlinemark",
+  "version": "0.1.1",
+  "publisher": "2001y",
   "repository": {
     "type": "git",
     "url": "https://github.com/2001Y/vscode-inline-markdown-editor.git"
   },
   "license": "MIT",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.105.0"
   },
   "categories": [
     "Other"
   ],
+  "icon": "assets/logo.png",
   "main": "./out/extension.js",
   "l10n": "./l10n",
+  "files": [
+    "out/**",
+    "media/webview/index.js",
+    "media/webview/*.css",
+    "media/webview/.vite/manifest.json",
+    "assets/**",
+    "l10n/**",
+    "package.json",
+    "package.nls.json",
+    "package.nls.ja.json",
+    "package.nls.zh-cn.json",
+    "README.md",
+    "LICENSE.txt"
+  ],
   "activationEvents": [],
   "contributes": {
     "customEditors": [
@@ -169,8 +184,8 @@
       },
       {
         "command": "inlineMark.toggleStrike",
-        "key": "ctrl+shift+s",
-        "mac": "cmd+shift+s",
+        "key": "ctrl+alt+shift+s",
+        "mac": "cmd+alt+shift+s",
         "when": "activeCustomEditorId == 'inlineMark.editor'"
       },
       {
@@ -235,8 +250,8 @@
       },
       {
         "command": "inlineMark.toggleBlockquote",
-        "key": "ctrl+shift+b",
-        "mac": "cmd+shift+b",
+        "key": "ctrl+alt+shift+b",
+        "mac": "cmd+alt+shift+b",
         "when": "activeCustomEditorId == 'inlineMark.editor'"
       },
       {
@@ -332,15 +347,20 @@
           "default": false,
           "description": "%configuration.security.allowInsecureRemoteImages.description%"
         },
-        "inlineMark.security.renderHtml": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.security.renderHtml.description%"
-        },
         "inlineMark.security.confirmExternalLinks": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.security.confirmExternalLinks.description%"
+        },
+        "inlineMark.view.fullWidth": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.view.fullWidth.description%"
+        },
+        "inlineMark.view.noWrap": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "description": "%configuration.view.noWrap.description%"
         },
         "inlineMark.webview.retainContextWhenHidden": {
           "type": "boolean",
@@ -352,27 +372,24 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run copy-readme && npm run build",
-    "copy-readme": "cp ../../README.md ./README.md",
+    "copy-readme": "node -e \"const fs=require('fs');const path=require('path');const src=path.resolve(__dirname,'../../README/README.md');let text=fs.readFileSync(src,'utf8');text=text.replace(/\\\\.\\\\/packages\\\\/extension\\\\/assets\\\\//g,'assets/');text=text.replace(/packages\\\\/extension\\\\/assets\\\\//g,'assets/');fs.writeFileSync(path.resolve(__dirname,'README.md'),text);\"",
     "build": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src",
-    "test": "vscode-test",
+    "test": "node ./out/test/runTest.js",
     "pretest": "npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "^25.0.3",
-    "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^8.52.0",
-    "@typescript-eslint/parser": "^8.52.0",
-    "@vscode/test-cli": "^0.0.12",
+    "@types/node": "^25.0.8",
+    "@types/vscode": "^1.105.1",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.2",
     "globals": "^17.0.0",
-    "mocha": "^11.7.5",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.53.0"
   },
   "dependencies": {}
 }

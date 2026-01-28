@@ -35,8 +35,22 @@ export const icons = {
     <circle cx="16" cy="10" r="1.5"/>
   </svg>`,
 
-  plus: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  plus: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 5v14" />
     <path d="M5 12h14" />
+  </svg>`,
+
+  info: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <line x1="12" y1="10" x2="12" y2="16" />
+    <line x1="12" y1="7" x2="12.01" y2="7" />
+  </svg>`,
+
+  fileText: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 2h-6a2 2 0 0 0 -2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-12z" />
+    <path d="M14 2v6h6" />
+    <path d="M16 13h-8" />
+    <path d="M16 17h-8" />
+    <path d="M10 9h-2" />
   </svg>`,
 };

@@ -1,6 +1,6 @@
 {
-  "extension.displayName": "inlineMark",
-  "extension.description": "Notion-style Markdown block editor. Inline editing, drag & drop, nested md files, TipTap-powered WYSIWYG",
+  "extension.displayName": "inlineMark - Notion-style Markdown block editor.",
+  "extension.description": "Inline editing, drag & drop, nested Markdown files, Tiptap-powered WYSIWYG",
   "customEditor.displayName": "inlineMark",
   "command.resetSession.title": "Reset Editor Session",
   "command.reopenWithTextEditor.title": "Open without inlineMark",
@@ -36,7 +36,8 @@
   "configuration.security.allowWorkspaceImages.description": "Allow loading images from the workspace (trusted workspace only)",
   "configuration.security.allowRemoteImages.description": "Allow loading remote images via HTTPS (trusted workspace only)",
   "configuration.security.allowInsecureRemoteImages.description": "Allow loading remote images via HTTP (strongly discouraged)",
-  "configuration.security.renderHtml.description": "Render HTML content (sanitized) instead of showing as raw blocks",
   "configuration.security.confirmExternalLinks.description": "Show confirmation dialog before opening external links",
+  "configuration.view.fullWidth.description": "Use full width layout in the inlineMark editor",
+  "configuration.view.noWrap.description": "Disable line wrapping in the inlineMark editor. Set to null to follow VS Code editor.wordWrap",
   "configuration.webview.retainContextWhenHidden.description": "Keep the webview alive when switching tabs (better UX). Turn off to potentially reduce memory usage, but the editor may re-render when you return to the tab."
 }

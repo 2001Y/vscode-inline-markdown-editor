@@ -26,7 +26,8 @@
   - DnD の list インデントが最大深度を超える場合に VS Code 通知を出す。
 
 - `commands.ts`
-  - list の最大深度を 2 に固定し、超過時は VS Code 通知で警告。
+  - list の最大深度は `LIST_MAX_DEPTH`（`indentConfig` の上限と同値）を使用。
+  - 超過時は VS Code 通知で警告。
 
 ## 期待される挙動
 - Tab/Shift-Tab のブロックインデントがクラッシュせず動作。

@@ -6,7 +6,7 @@
 
 #### 表示条件
 - **全てのブロックタイプ**でハンドルを表示
-  - paragraph, heading, listItem, codeBlock, blockquote, horizontalRule, rawBlock, htmlBlock
+  - paragraph, heading, listItem, codeBlock, blockquote, horizontalRule, rawBlock
   - tableは専用UIで対応（TableControls）
 - **ブロックにマウスホバー時**にハンドルを表示
 - ブロックからマウスが離れたら遅延非表示（150ms）

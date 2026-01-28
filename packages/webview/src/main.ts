@@ -123,6 +123,8 @@ function handleInit(
     editorInstance.destroy();
   }
 
+  applyViewConfig(config);
+
   console.log('[handleInit] Creating new editor instance');
   editorInstance = createEditor({
     container: editorContainerEl,
@@ -145,6 +147,17 @@ function handleInit(
     contentLength: content.length,
     version: _version
   });
+}
+
+function applyViewConfig(config: WebviewConfig): void {
+  if (!editorContainerEl) {
+    return;
+  }
+  const fullWidth = config.view?.fullWidth ?? true;
+  const noWrap = config.view?.noWrap ?? false;
+  editorContainerEl.classList.toggle('is-full-width', fullWidth);
+  editorContainerEl.classList.toggle('is-no-wrap', noWrap);
+  console.log('[Main] View config applied', { fullWidth, noWrap });
 }
 
 function handleDocChanged(
@@ -293,6 +306,10 @@ window.addEventListener('message', (event) => {
   if (msg?.type === 'editorCommand' && msg.command) {
     if (!editorInstance) {
       console.warn('[Main] Editor command received but no editor instance');
+      return;
+    }
+    if (!document.hasFocus()) {
+      console.warn('[Main] Editor command ignored (webview not focused)', { command: msg.command });
       return;
     }
     if (!isValidEditorCommand(msg.command)) {

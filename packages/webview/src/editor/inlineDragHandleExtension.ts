@@ -1,32 +1,44 @@
 /**
- * Inline Drag Handle Extension (ListItem aware)
+ * Inline Drag Handle Extension (block-embedded handles)
  *
- * 役割: DragHandle の最小実装（listItem を含む任意ブロックに対応）
- * 責務: 近傍ブロック検出・ハンドル表示・ドラッグ開始
- * 不変条件: table は対象外。失敗は隠さずログに残す。
+ * 役割: ブロックごとにハンドルを埋め込み、ドラッグ開始と補助線制御を提供
+ * 方針: 絶対配置レイヤーを廃止し、各ブロック内にハンドルを配置する
+ * 不変条件: table はドラッグ対象外。失敗は隠さずログに残す。
  */
 
 import { Extension, type Editor } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey, NodeSelection, Selection } from '@tiptap/pm/state';
+import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { liftListItem, sinkListItem } from '@tiptap/pm/schema-list';
-import {
-  computePosition,
-  type ComputePositionConfig,
-  type VirtualElement,
-} from '@floating-ui/dom';
+import { isNodeRangeSelection, NodeRangeSelection } from '@tiptap/extension-node-range';
 import { DEBUG } from './debug.js';
 import { notifyHostWarn } from './hostNotifier.js';
+import { INDENT_LEVEL_MAX, INDENT_MAX_DEPTH_MESSAGE, normalizeIndentAttr } from './indentConfig.js';
 import { LIST_MAX_DEPTH } from './listIndentConfig.js';
+import { createDragHandleElement } from './blockHandlesExtension.js';
 
 const MODULE = 'InlineDragHandle';
 const TABLE_CELL_SELECTOR = 'td, th';
-const LIST_CONTAINER_SELECTOR = 'ul, ol';
 const LIST_INDENT_STEP_PX = 24;
-const LIST_MARKER_GAP_PX = 6;
-const DROPCURSOR_SELECTOR = '.inline-markdown-dropcursor';
-const HANDLE_LAYER_DECORATION_KEY = 'inline-handle-layer';
+const DROPCURSOR_SELECTOR = '.inline-markdown-dropcursor, .ProseMirror-dropcursor';
+const HANDLE_CONTAINER_SELECTOR = '.block-handle-container';
+const HANDLE_SELECTOR = '.block-handle';
+const HANDLE_NODEVIEW_EXCLUSIONS = new Set([
+  'paragraph',
+  'heading',
+  'blockquote',
+  'listItem',
+  'codeBlock',
+  'table',
+  'rawBlock',
+  'frontmatterBlock',
+  'plainTextBlock',
+  'nestedPage',
+  'horizontalRule',
+]);
+const NOOP_TOLERANCE_POS = 1;
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
   const timestamp = new Date().toISOString();
@@ -68,8 +80,6 @@ export const InlineDragHandlePluginKey = new PluginKey('inlineDragHandle');
 
 export interface InlineDragHandleOptions {
   render: () => HTMLElement;
-  computePositionConfig?: ComputePositionConfig;
-  getReferencedVirtualElement?: () => VirtualElement | null;
   locked?: boolean;
   allowedNodeTypes?: Set<string>;
   onNodeChange?: (options: { node: ProseMirrorNode | null; editor: Editor; pos: number }) => void;
@@ -79,34 +89,6 @@ export interface InlineDragHandleOptions {
 
 type PluginState = {
   locked: boolean;
-};
-
-const defaultComputePositionConfig: ComputePositionConfig = {
-  placement: 'left-start',
-  strategy: 'absolute',
-};
-
-const createHandleLayerDecorations = (doc: ProseMirrorNode, wrapper: HTMLElement): DecorationSet => {
-  return DecorationSet.create(doc, [
-    Decoration.widget(0, wrapper, {
-      key: HANDLE_LAYER_DECORATION_KEY,
-      ignoreSelection: true,
-      stopEvent: () => true,
-    }),
-  ]);
-};
-
-const isOverlayElement = (element: Element): boolean => {
-  if (!(element instanceof HTMLElement)) {
-    return false;
-  }
-  if (element.closest('.inline-handle-layer')) {
-    return true;
-  }
-  if (element.classList.contains('inline-markdown-dropcursor') || element.classList.contains('ProseMirror-dropcursor')) {
-    return true;
-  }
-  return false;
 };
 
 const clampPointToRect = (rect: DOMRect, x: number, y: number, padding = 2): { x: number; y: number } => {
@@ -136,83 +118,29 @@ const safePosAtDOM = (view: EditorView, element: HTMLElement): number | null => 
   }
 };
 
-const resolveAllowedNodeFromResolvedPos = (
-  $pos: ReturnType<ProseMirrorNode['resolve']>,
-  allowedNodeTypes?: Set<string>
-): { node: ProseMirrorNode; pos: number } | null => {
-  let fallback: { node: ProseMirrorNode; pos: number } | null = null;
-
-  for (let depth = $pos.depth; depth >= 1; depth -= 1) {
-    const node = $pos.node(depth);
-    if (node.type.spec.tableRole) {
-      continue;
-    }
-    if (allowedNodeTypes?.has('listItem') && node.type.name === 'listItem') {
-      return { node, pos: $pos.before(depth) };
-    }
-    const isAllowed = allowedNodeTypes ? allowedNodeTypes.has(node.type.name) : node.isBlock;
-    if (!fallback && isAllowed) {
-      fallback = { node, pos: $pos.before(depth) };
-    }
-  }
-
-  return fallback;
-};
-
-const estimateMarkerExtraPx = (list: HTMLElement, listItem: HTMLElement): number => {
-  const fontSize = Number.parseFloat(window.getComputedStyle(listItem).fontSize || '0');
-  if (!Number.isFinite(fontSize) || fontSize <= 0) {
-    return 8;
-  }
-
-  if (list.tagName.toLowerCase() === 'ol') {
-    const items = Array.from(list.children).filter((node) => node.tagName.toLowerCase() === 'li');
-    const startAttr = Number.parseInt(list.getAttribute('start') || '1', 10);
-    const startValue = Number.isFinite(startAttr) ? startAttr : 1;
-    const index = items.indexOf(listItem);
-    const current = Math.max(startValue, startValue + Math.max(index, 0));
-    const digits = String(current).length;
-    return fontSize * (digits + 0.6);
-  }
-
-  return fontSize * 0.9;
-};
-
-const resolveListOffsetX = (listItem: HTMLElement): number | null => {
-  const list = listItem.closest(LIST_CONTAINER_SELECTOR) as HTMLElement | null;
-  if (!list) {
-    return null;
-  }
-
-  const listRect = list.getBoundingClientRect();
-  const itemRect = listItem.getBoundingClientRect();
-  const baseOffset = itemRect.left - listRect.left;
-
-  if (!Number.isFinite(baseOffset)) {
-    return null;
-  }
-
-  const listStyles = window.getComputedStyle(list);
-  if (listStyles.listStyleType === 'none') {
-    return Math.max(0, baseOffset);
-  }
-
-  if (baseOffset <= 0) {
-    return null;
-  }
-
-  const listStylePosition = listStyles.listStylePosition;
-  const markerExtra = listStylePosition === 'inside' ? 0 : estimateMarkerExtraPx(list, listItem);
-
-  return baseOffset + markerExtra + LIST_MARKER_GAP_PX;
-};
-
-const resolveTableCell = (element: HTMLElement): HTMLElement | null => {
-  return element.closest(TABLE_CELL_SELECTOR) as HTMLElement | null;
-};
-
 const resolveListItem = (element: HTMLElement): HTMLElement | null => {
   return element.closest('li') as HTMLElement | null;
+};
+
+const getListItemDepth = (doc: ProseMirrorNode, insidePos: number): number => {
+  const $pos = doc.resolve(insidePos);
+  let depth = 0;
+  for (let d = $pos.depth; d >= 0; d -= 1) {
+    if ($pos.node(d).type.name === 'listItem') {
+      depth += 1;
+    }
+  }
+  return depth;
+};
+
+const findNearestListItemPos = (doc: ProseMirrorNode, fromPos: number): number | null => {
+  const $pos = doc.resolve(fromPos);
+  for (let d = $pos.depth; d >= 0; d -= 1) {
+    if ($pos.node(d).type.name === 'listItem') {
+      return $pos.before(d);
+    }
+  }
+  return null;
 };
 
 const resolveListItemPosFromElement = (view: EditorView, element: Element): number | null => {
@@ -244,179 +172,6 @@ const resolveListItemPosFromElement = (view: EditorView, element: Element): numb
   return null;
 };
 
-const resolveListItemTextStartX = (listItem: HTMLElement): number | null => {
-  const rect = listItem.getBoundingClientRect();
-  const style = window.getComputedStyle(listItem);
-  const paddingValue = style.paddingInlineStart || style.paddingLeft || '0';
-  const padding = Number.parseFloat(paddingValue);
-  if (!Number.isFinite(rect.left)) {
-    return null;
-  }
-  return rect.left + (Number.isFinite(padding) ? Math.max(0, padding) : 0);
-};
-
-const getListItemDepth = (doc: ProseMirrorNode, insidePos: number): number => {
-  const $pos = doc.resolve(insidePos);
-  let depth = 0;
-  for (let d = $pos.depth; d >= 0; d -= 1) {
-    if ($pos.node(d).type.name === 'listItem') {
-      depth += 1;
-    }
-  }
-  return depth;
-};
-
-const findNearestListItemPos = (doc: ProseMirrorNode, fromPos: number): number | null => {
-  const $pos = doc.resolve(fromPos);
-  for (let d = $pos.depth; d >= 0; d -= 1) {
-    if ($pos.node(d).type.name === 'listItem') {
-      return $pos.before(d);
-    }
-  }
-  return null;
-};
-
-const findClosestAllowedNode = (
-  element: Element,
-  view: EditorView,
-  allowedNodeTypes?: Set<string>
-): { element: HTMLElement; node: ProseMirrorNode; pos: number } | null => {
-  if (isOverlayElement(element)) {
-    return null;
-  }
-  if ((element as HTMLElement).closest(TABLE_CELL_SELECTOR)) {
-    return null;
-  }
-
-  let current: HTMLElement | null = element as HTMLElement;
-  const allowed = allowedNodeTypes;
-
-  while (current && current !== view.dom) {
-    if (isOverlayElement(current)) {
-      current = current.parentElement;
-      continue;
-    }
-
-    if (allowed?.has('listItem')) {
-      const listItemPos = resolveListItemPosFromElement(view, current);
-      if (listItemPos !== null) {
-        const node = view.state.doc.nodeAt(listItemPos);
-        if (node && node.type.name === 'listItem') {
-          const nodeDom = view.nodeDOM(listItemPos) as HTMLElement | null;
-          if (nodeDom && nodeDom !== view.dom) {
-            return { element: nodeDom, node, pos: listItemPos };
-          }
-        }
-      }
-    }
-
-    const pos = safePosAtDOM(view, current);
-    if (pos !== null && pos >= 0) {
-      const $pos = view.state.doc.resolve(pos);
-      const resolved = resolveAllowedNodeFromResolvedPos($pos, allowed);
-      if (resolved) {
-        const nodeDom = view.nodeDOM(resolved.pos) as HTMLElement | null;
-        if (nodeDom && nodeDom !== view.dom) {
-          return { element: nodeDom, node: resolved.node, pos: resolved.pos };
-        }
-      }
-    }
-
-    current = current.parentElement;
-  }
-
-  return null;
-};
-
-const findElementNextToCoords = (options: {
-  x: number;
-  y: number;
-  editor: Editor;
-  allowedNodeTypes?: Set<string>;
-}): { resultElement: HTMLElement | null; resultNode: ProseMirrorNode | null; pos: number | null } => {
-  const { x, y, editor, allowedNodeTypes } = options;
-  const { view } = editor;
-
-  if (allowedNodeTypes?.has('listItem')) {
-    const listItemPos = resolveListItemPosFromCoords(view, editor.state.doc, x, y);
-    if (listItemPos !== null) {
-      const node = editor.state.doc.nodeAt(listItemPos);
-      if (node && node.type.name === 'listItem') {
-        const nodeDom = view.nodeDOM(listItemPos) as HTMLElement | null;
-        if (nodeDom && nodeDom !== view.dom) {
-          if (DEBUG.enabled) {
-            DEBUG.log(MODULE, 'List item target resolved (coords)', {
-              pos: listItemPos,
-              depth: getListItemDepth(editor.state.doc, listItemPos + 1),
-            });
-          }
-          return { resultElement: nodeDom, resultNode: node, pos: listItemPos };
-        }
-      }
-    }
-  }
-
-  const viewRect = view.dom.getBoundingClientRect();
-  const clamped = clampPointToRect(viewRect, x, y, 2);
-  const offsets = [0, LIST_INDENT_STEP_PX, LIST_INDENT_STEP_PX * 2, LIST_INDENT_STEP_PX * 3];
-  const sampleXs = offsets.map((offset) => Math.min(viewRect.right - 2, clamped.x + offset));
-  let hit: { element: HTMLElement; node: ProseMirrorNode; pos: number } | null = null;
-  const debugSamples: Array<{ x: number; tags: string[] }> = [];
-
-  for (const sampleX of sampleXs) {
-    const elements = getElementsFromPoint(view, sampleX, clamped.y);
-    if (DEBUG.enabled) {
-      debugSamples.push({
-        x: Math.round(sampleX),
-        tags: elements.slice(0, 6).map((el) => {
-          const tag = el instanceof HTMLElement ? el.tagName.toLowerCase() : String(el);
-          const className = el instanceof HTMLElement ? el.className : '';
-          return className ? `${tag}.${String(className).split(' ').join('.')}` : tag;
-        }),
-      });
-    }
-    for (const el of elements) {
-      if (!view.dom.contains(el)) {
-        continue;
-      }
-      if (isOverlayElement(el)) {
-        continue;
-      }
-      const candidate = findClosestAllowedNode(el, view, allowedNodeTypes);
-      if (!candidate) {
-        continue;
-      }
-      if (!hit) {
-        hit = candidate;
-      } else if (candidate.node.type.name === 'listItem' && hit.node.type.name !== 'listItem') {
-        hit = candidate;
-      } else if (candidate.node.type.name === 'listItem' && hit.node.type.name === 'listItem') {
-        const candidateDepth = getListItemDepth(view.state.doc, candidate.pos + 1);
-        const hitDepth = getListItemDepth(view.state.doc, hit.pos + 1);
-        if (candidateDepth > hitDepth) {
-          hit = candidate;
-        }
-      }
-    }
-    if (hit) {
-      break;
-    }
-  }
-
-  if (!hit) {
-    if (DEBUG.enabled) {
-      DEBUG.warn(MODULE, 'Handle target not found (elementsFromPoint)', {
-        x,
-        y,
-        samples: debugSamples,
-      });
-    }
-    return { resultElement: null, resultNode: null, pos: null };
-  }
-
-  return { resultElement: hit.element, resultNode: hit.node, pos: hit.pos };
-};
-
 const resolveListItemPosFromCoords = (
   view: EditorView,
   doc: ProseMirrorNode,
@@ -433,9 +188,6 @@ const resolveListItemPosFromCoords = (
     const elements = getElementsFromPoint(view, sampleX, clamped.y);
     for (const el of elements) {
       if (!view.dom.contains(el)) {
-        continue;
-      }
-      if (isOverlayElement(el)) {
         continue;
       }
       const listItemPos = resolveListItemPosFromElement(view, el);
@@ -455,6 +207,17 @@ const resolveListItemPosFromCoords = (
   return best?.pos ?? null;
 };
 
+const resolveListItemTextStartX = (listItem: HTMLElement): number | null => {
+  const rect = listItem.getBoundingClientRect();
+  const style = window.getComputedStyle(listItem);
+  const paddingValue = style.paddingInlineStart || style.paddingLeft || '0';
+  const padding = Number.parseFloat(paddingValue);
+  if (!Number.isFinite(rect.left)) {
+    return null;
+  }
+  return rect.left + (Number.isFinite(padding) ? Math.max(0, padding) : 0);
+};
+
 const resolveListItemTextPos = (doc: ProseMirrorNode, listItemPos: number): number | null => {
   const listItem = doc.nodeAt(listItemPos);
   if (!listItem) {
@@ -471,22 +234,191 @@ const resolveListItemTextPos = (doc: ProseMirrorNode, listItemPos: number): numb
   return listItemPos + 1;
 };
 
+const isIndentableNode = (node: ProseMirrorNode | null | undefined): boolean => {
+  if (!node?.isBlock) {
+    return false;
+  }
+  if (node.type.name === 'listItem') {
+    return false;
+  }
+  if (node.type.spec.tableRole || node.type.name === 'table') {
+    return false;
+  }
+  return true;
+};
+
+const resolveIndentableBlockFromSelection = (editor: Editor): { pos: number; node: ProseMirrorNode } | null => {
+  const selection = editor.state.selection;
+  if (selection instanceof NodeSelection && isIndentableNode(selection.node)) {
+    return { pos: selection.from, node: selection.node };
+  }
+  const { $from } = selection;
+  for (let depth = $from.depth; depth >= 1; depth -= 1) {
+    const node = $from.node(depth);
+    if (!isIndentableNode(node)) {
+      continue;
+    }
+    return { pos: $from.before(depth), node };
+  }
+  return null;
+};
+
+const resolveBlockTextStartX = (element: HTMLElement): number | null => {
+  const rect = element.getBoundingClientRect();
+  const style = window.getComputedStyle(element);
+  const paddingValue = style.paddingInlineStart || style.paddingLeft || '0';
+  const padding = Number.parseFloat(paddingValue);
+  if (!Number.isFinite(rect.left)) {
+    return null;
+  }
+  return rect.left + (Number.isFinite(padding) ? Math.max(0, padding) : 0);
+};
+
+const createHandleDecorations = (
+  doc: ProseMirrorNode,
+  options: InlineDragHandleOptions,
+  reportCount?: (
+    count: number,
+    stats?: {
+      blockTypes: string[];
+      childCount: number;
+      docSize: number;
+      allExcluded?: boolean;
+      handleTypes?: Record<string, number>;
+      excludedTypes?: Record<string, number>;
+      skippedReasons?: Record<string, number>;
+    }
+  ) => void
+): DecorationSet => {
+  const decorations: Decoration[] = [];
+  const allowed = options.allowedNodeTypes;
+  const blockTypes = new Set<string>();
+  let handleCount = 0;
+  const handleTypes: Record<string, number> = {};
+  const excludedTypes: Record<string, number> = {};
+  const skippedReasons: Record<string, number> = {};
+  const allExcluded =
+    Boolean(allowed) &&
+    Array.from(allowed.values()).every((typeName) => HANDLE_NODEVIEW_EXCLUSIONS.has(typeName));
+
+  const bump = (target: Record<string, number>, key: string) => {
+    target[key] = (target[key] ?? 0) + 1;
+  };
+
+  doc.descendants((node, pos, parent) => {
+    if (node.isBlock) {
+      blockTypes.add(node.type.name);
+    }
+    if (node.type.spec.tableRole || node.type.name === 'table') {
+      bump(skippedReasons, 'table');
+      return false;
+    }
+    if (parent?.type.spec.tableRole) {
+      bump(skippedReasons, 'tableChild');
+      return false;
+    }
+    if (node.type.name === 'bulletList' || node.type.name === 'orderedList') {
+      bump(skippedReasons, 'listContainer');
+      return true;
+    }
+    if (parent?.type.name === 'listItem' && node.type.name !== 'listItem') {
+      bump(skippedReasons, 'listItemChild');
+      return false;
+    }
+    if (node.type.name === 'listItem') {
+      for (let i = 0; i < node.childCount; i += 1) {
+        if (node.child(i).type.name === 'plainTextBlock') {
+          bump(skippedReasons, 'listItemPlainText');
+          return false;
+        }
+      }
+    }
+    if (HANDLE_NODEVIEW_EXCLUSIONS.has(node.type.name)) {
+      bump(skippedReasons, 'nodeViewExcluded');
+      bump(excludedTypes, node.type.name);
+      return false;
+    }
+
+    const isAllowed = allowed ? allowed.has(node.type.name) : node.isBlock;
+    if (!isAllowed) {
+      bump(skippedReasons, 'notAllowed');
+      bump(excludedTypes, node.type.name);
+      return true;
+    }
+
+    const hostAttrs = {
+      class: 'block-handle-host',
+    };
+    decorations.push(Decoration.node(pos, pos + node.nodeSize, hostAttrs));
+
+    const widgetPos = Math.min(pos + 1, pos + Math.max(1, node.nodeSize - 1));
+    decorations.push(
+      Decoration.widget(
+        widgetPos,
+        () => {
+          const handle = options.render ? options.render() : createDragHandleElement();
+          handle.classList.add('block-handle-container');
+          handle.setAttribute('contenteditable', 'false');
+          handle.setAttribute('data-block-pos', String(pos));
+          handle.setAttribute('data-block-type', node.type.name);
+          handle.draggable = false;
+          return handle;
+        },
+        {
+          key: `block-handle-${pos}`,
+          ignoreSelection: true,
+          stopEvent: (event) => {
+            const target = event.target as HTMLElement | null;
+            if (!target) {
+              return false;
+            }
+            const isHandleEvent = Boolean(target.closest(HANDLE_CONTAINER_SELECTOR));
+            if (!isHandleEvent) {
+              return false;
+            }
+            if (
+              event.type === 'dragover' ||
+              event.type === 'dragenter' ||
+              event.type === 'drop' ||
+              event.type === 'dragstart'
+            ) {
+              return false;
+            }
+            return true;
+          },
+        }
+      )
+    );
+    handleCount += 1;
+    bump(handleTypes, node.type.name);
+
+    return node.type.name === 'listItem';
+  });
+
+  if (reportCount) {
+    reportCount(handleCount, {
+      blockTypes: Array.from(blockTypes.values()),
+      childCount: doc.childCount,
+      docSize: doc.content.size,
+      allExcluded,
+      handleTypes,
+      excludedTypes,
+      skippedReasons,
+    });
+  }
+
+  return DecorationSet.create(doc, decorations);
+};
+
 export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
   name: 'inlineDragHandle',
 
   addOptions() {
     return {
-      render() {
-        const el = document.createElement('div');
-        el.classList.add('block-handle-container');
-        return el;
-      },
-      computePositionConfig: {},
+      render: () => createDragHandleElement(),
       locked: false,
       allowedNodeTypes: undefined,
-      onNodeChange: () => {
-        return null;
-      },
+      onNodeChange: undefined,
       onElementDragStart: undefined,
       onElementDragEnd: undefined,
     } as InlineDragHandleOptions;
@@ -515,176 +447,448 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
   },
 
   addProseMirrorPlugins() {
-    const element = this.options.render();
     const editor = this.editor;
     const options = this.options;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'inline-handle-layer';
-    wrapper.setAttribute('contenteditable', 'false');
-    wrapper.setAttribute('aria-hidden', 'true');
-    wrapper.style.pointerEvents = 'none';
-    wrapper.style.position = 'absolute';
-    wrapper.style.top = '0';
-    wrapper.style.left = '0';
     let locked = false;
-    let currentNode: ProseMirrorNode | null = null;
-    let currentNodePos = -1;
-    let rafId: number | null = null;
-    let pendingMouseCoords: { x: number; y: number } | null = null;
-    let dragIndentState: { startX: number; sourceDepth: number; startedAt: number } | null = null;
+    let dragSelectionRange: { from: number; to: number; size: number } | null = null;
+    let dragPayload: { slice: unknown; move: boolean } | null = null;
+    let dragIndentState: { startX: number; sourceDepth: number; startedAt: number; sourcePos: number } | null = null;
+    let blockIndentState: { startX: number; sourceIndent: number; startedAt: number; sourcePos: number } | null = null;
     let pendingDropX: number | null = null;
     let pendingDropCoords: { x: number; y: number } | null = null;
+    let pendingBlockDropX: number | null = null;
+    let pendingBlockDropCoords: { x: number; y: number } | null = null;
     let indentRafId: number | null = null;
     let dropcursorRafId: number | null = null;
-    let handleVisible = false;
-    let lastNoTargetLogAt = 0;
-    let handleLayerMounted = false;
     let dropFinalizePending = false;
     let eventTarget: HTMLElement | null = null;
     let domListenersBound = false;
+    let documentListenersBound = false;
+    let lastHandleCount = -1;
+    let lastNoopState: boolean | null = null;
+    let lastDropTargetLogAt = 0;
+    let lastDomHandleCount = -1;
+    let dropHandled = false;
+    let dragSourceElement: HTMLElement | null = null;
+    let dragStartedAt: number | null = null;
+    let lastDragOverLogAt = 0;
+    let lastDragOverCoords: { x: number; y: number } | null = null;
+    let lastDragOverTarget: number | null = null;
 
-    const resolveHandleSafeZone = (): { left: number; right: number; top: number; bottom: number; gutter: number } => {
-      const container = editor.view.dom.closest('.editor-container') as HTMLElement | null;
-      const rect = container ? container.getBoundingClientRect() : editor.view.dom.getBoundingClientRect();
-      let gutter = 0;
+    const setHandleLockClass = () => {
+      editor.view.dom.classList.toggle('is-handle-locked', locked);
+    };
 
-      if (container) {
-        const styles = window.getComputedStyle(container);
-        const gutterValue = styles.getPropertyValue('--block-handle-gutter').trim();
-        const parsedGutter = Number.parseFloat(gutterValue);
-        if (Number.isFinite(parsedGutter)) {
-          gutter = parsedGutter;
+    const resolveHandleTarget = (target: EventTarget | null): {
+      node: ProseMirrorNode;
+      pos: number;
+      container: HTMLElement;
+      handle: HTMLElement;
+    } | null => {
+      if (!(target instanceof HTMLElement)) {
+        return null;
+      }
+      const handle = target.closest(HANDLE_SELECTOR) as HTMLElement | null;
+      if (!handle) {
+        return null;
+      }
+      const container = handle.closest(HANDLE_CONTAINER_SELECTOR) as HTMLElement | null;
+      if (!container) {
+        return null;
+      }
+      const resolveBlockPosFromContainer = (): number | null => {
+        const rawPos = Number(container.dataset.blockPos);
+        const rawPosValid = Number.isFinite(rawPos);
+        let resolvedPos = rawPosValid ? rawPos : null;
+        const domPos = safePosAtDOM(editor.view, container);
+        if (domPos !== null) {
+          const $pos = editor.state.doc.resolve(domPos);
+          const desiredType = container.dataset.blockType;
+          for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+            const node = $pos.node(depth);
+            if (desiredType) {
+              if (node.type.name !== desiredType) {
+                continue;
+              }
+            } else if (!node.isBlock) {
+              continue;
+            }
+            resolvedPos = depth === 0 ? 0 : $pos.before(depth);
+            break;
+          }
+        }
+        if (resolvedPos !== null) {
+          if (rawPosValid && resolvedPos !== rawPos) {
+            logInfo('Handle dataset pos corrected', {
+              rawPos,
+              resolvedPos,
+              blockType: container.dataset.blockType ?? null,
+            });
+          }
+          container.dataset.blockPos = String(resolvedPos);
+        }
+        return resolvedPos;
+      };
+
+      const posValue = resolveBlockPosFromContainer();
+      if (posValue === null || !Number.isFinite(posValue)) {
+        logError('Handle target missing position', { dataset: { ...container.dataset } });
+        return null;
+      }
+      const node = editor.state.doc.nodeAt(posValue);
+      if (!node || node.isText) {
+        logError('Handle target disallowed', { pos: posValue, type: node?.type?.name ?? 'unknown' });
+        return null;
+      }
+      if (options.allowedNodeTypes && !options.allowedNodeTypes.has(node.type.name)) {
+        logWarning('Handle target disallowed', { pos: posValue, type: node.type.name });
+        return null;
+      }
+      return { node, pos: posValue, container, handle };
+    };
+
+    const resolveHandleContainer = (target: EventTarget | null): HTMLElement | null => {
+      if (!(target instanceof HTMLElement)) {
+        return null;
+      }
+      return target.closest(HANDLE_CONTAINER_SELECTOR) as HTMLElement | null;
+    };
+
+    const resolveDropcursorElements = (): NodeListOf<HTMLElement> => {
+      const root = editor.view.root as Document | ShadowRoot | HTMLElement;
+      if (root && 'querySelectorAll' in root) {
+        return (root as Document | ShadowRoot).querySelectorAll(DROPCURSOR_SELECTOR) as NodeListOf<HTMLElement>;
+      }
+      return editor.view.dom.querySelectorAll(DROPCURSOR_SELECTOR) as NodeListOf<HTMLElement>;
+    };
+
+    const isElementInDragSource = (el: Element): boolean => {
+      if (!dragSourceElement) {
+        return false;
+      }
+      return dragSourceElement.contains(el);
+    };
+
+    const setDropcursorNoop = (isNoop: boolean): void => {
+      const dropcursors = resolveDropcursorElements();
+      if (!dropcursors.length) {
+        return;
+      }
+      dropcursors.forEach((dropcursor) => {
+        if (isNoop) {
+          dropcursor.classList.add('is-noop');
         } else {
-          const paddingLeft = Number.parseFloat(styles.paddingLeft || '0');
-          if (Number.isFinite(paddingLeft)) {
-            gutter = paddingLeft;
-          }
+          dropcursor.classList.remove('is-noop');
         }
-      }
-
-      const margin = 8;
-      return {
-        left: rect.left - margin,
-        right: rect.right + margin,
-        top: rect.top - margin,
-        bottom: rect.bottom + margin,
-        gutter,
-      };
-    };
-
-    const hideHandle = (reason?: string, data?: Record<string, unknown>) => {
-      element.style.visibility = 'hidden';
-      element.style.pointerEvents = 'none';
-      wrapper.style.pointerEvents = 'none';
-      if (handleVisible) {
-        handleVisible = false;
-        logWarning('Handle hidden', { reason, ...data });
-      }
-    };
-
-    const showHandle = (reason?: string, data?: Record<string, unknown>) => {
-      if (!editor.isEditable) {
-        hideHandle('editor-not-editable');
-        return;
-      }
-      if (!wrapper.isConnected) {
-        logError('Handle layer not connected');
-        return;
-      }
-      element.style.visibility = '';
-      element.style.pointerEvents = 'auto';
-      wrapper.style.pointerEvents = 'auto';
-      if (!handleVisible) {
-        handleVisible = true;
-        logInfo('Handle shown', { reason, ...data });
-      }
-    };
-
-    const reposition = (dom: HTMLElement, node: ProseMirrorNode | null) => {
-      if (!wrapper.isConnected) {
-        logError('Handle layer not connected (reposition skipped)');
-        return;
-      }
-      const listItem = node?.type.name === 'listItem' ? resolveListItem(dom) : null;
-      const tableCell = resolveTableCell(dom);
-      const placement = options.computePositionConfig?.placement;
-      const strategy = options.computePositionConfig?.strategy ?? defaultComputePositionConfig.strategy;
-
-      if (node?.type.name === 'listItem' && !listItem) {
-        DEBUG.error(MODULE, 'List item handle anchor not found');
-        logError('List item handle anchor not found');
-        hideHandle();
-        return;
-      }
-
-      if (tableCell) {
-        hideHandle();
-        return;
-      }
-
-      const virtualElement = options.getReferencedVirtualElement?.() || {
-        getBoundingClientRect: () => dom.getBoundingClientRect(),
-      };
-
-      computePosition(virtualElement, element, {
-        ...defaultComputePositionConfig,
-        ...options.computePositionConfig,
-        placement: placement ?? defaultComputePositionConfig.placement,
-        strategy,
-      }).then((val) => {
-        let nextX = val.x;
-        let nextY = val.y;
-
-        if (listItem) {
-          const offset = resolveListOffsetX(listItem);
-          if (offset === null) {
-            DEBUG.error(MODULE, 'List marker offset not resolved', { node: node?.type.name });
-            logError('List marker offset not resolved', { node: node?.type.name });
-            hideHandle();
-            return;
-          }
-          nextX -= offset;
-        }
-
-        Object.assign(element.style, {
-          position: val.strategy,
-          left: `${nextX}px`,
-          top: `${nextY}px`,
-        });
       });
     };
 
-    const readDropcursorBase = (
-      dropcursor: HTMLElement
-    ): { baseLeft: number; baseWidth: number; viewRect: DOMRect } | null => {
+    const resolveDropTargetPos = (clientX: number, clientY: number): number | null => {
       const viewRect = editor.view.dom.getBoundingClientRect();
-      let baseLeft = Number.parseFloat(dropcursor.style.left);
-      let baseWidth = Number.parseFloat(dropcursor.style.width);
-
-      if (!Number.isFinite(baseLeft) || !Number.isFinite(baseWidth)) {
-        const rect = dropcursor.getBoundingClientRect();
-        baseLeft = rect.left - viewRect.left;
-        baseWidth = rect.width;
+      const clamped = clampPointToRect(viewRect, clientX, clientY, 2);
+      const elements = getElementsFromPoint(editor.view, clamped.x, clamped.y);
+      for (const el of elements) {
+        if (!(el instanceof HTMLElement)) {
+          continue;
+        }
+        if (!editor.view.dom.contains(el)) {
+          continue;
+        }
+        if (el === editor.view.dom) {
+          continue;
+        }
+        if (isElementInDragSource(el)) {
+          continue;
+        }
+        if (el.closest(HANDLE_CONTAINER_SELECTOR)) {
+          continue;
+        }
+        if (el.classList.contains('inline-markdown-dropcursor') || el.classList.contains('ProseMirror-dropcursor')) {
+          continue;
+        }
+        if (el.closest(TABLE_CELL_SELECTOR)) {
+          continue;
+        }
+        const blockHost = el.closest('.block-handle-host') as HTMLElement | null;
+        if (blockHost) {
+          if (blockHost.tagName === 'LI') {
+            continue;
+          }
+          const pos = safePosAtDOM(editor.view, blockHost);
+          if (pos !== null) {
+            return pos;
+          }
+        }
       }
 
-      if (!Number.isFinite(baseLeft) || !Number.isFinite(baseWidth)) {
+      const coords = editor.view.posAtCoords({ left: clamped.x, top: clamped.y });
+      if (!coords) {
         return null;
       }
-
-      return { baseLeft, baseWidth, viewRect };
+      let target = coords.pos;
+      const draggingSlice = editor.view.dragging?.slice;
+      if (draggingSlice) {
+        const point = dropPoint(editor.state.doc, target, draggingSlice);
+        if (point !== null) {
+          target = point;
+        }
+      }
+      return target;
     };
 
-    const restoreDropcursorBase = (dropcursor: HTMLElement): void => {
-      const baseLeft = dropcursor.dataset.baseLeft;
-      const baseWidth = dropcursor.dataset.baseWidth;
-      if (baseLeft !== undefined) {
-        dropcursor.style.left = baseLeft;
+    const resolveBlockHostFromCoords = (clientX: number, clientY: number): HTMLElement | null => {
+      const viewRect = editor.view.dom.getBoundingClientRect();
+      const clamped = clampPointToRect(viewRect, clientX, clientY, 2);
+      const elements = getElementsFromPoint(editor.view, clamped.x, clamped.y);
+      for (const el of elements) {
+        if (!(el instanceof HTMLElement)) {
+          continue;
+        }
+        if (!editor.view.dom.contains(el)) {
+          continue;
+        }
+        if (el === editor.view.dom) {
+          continue;
+        }
+        if (isElementInDragSource(el)) {
+          continue;
+        }
+        if (el.closest(HANDLE_CONTAINER_SELECTOR)) {
+          continue;
+        }
+        if (el.classList.contains('inline-markdown-dropcursor') || el.classList.contains('ProseMirror-dropcursor')) {
+          continue;
+        }
+        if (el.closest(TABLE_CELL_SELECTOR)) {
+          continue;
+        }
+        const host = el.closest('.block-handle-host') as HTMLElement | null;
+        if (host) {
+          return host;
+        }
       }
-      if (baseWidth !== undefined) {
-        dropcursor.style.width = baseWidth;
+      return null;
+    };
+
+    const simulateDropNoop = (target: number, slice: any, move: boolean): boolean | null => {
+      try {
+        let insertPos = target;
+        let tr = editor.state.tr;
+        const originalDoc = tr.doc;
+
+        if (move) {
+          tr = tr.deleteSelection();
+        }
+
+        insertPos = tr.mapping.map(insertPos);
+        const drop = dropPoint(tr.doc, insertPos, slice);
+        if (drop !== null) {
+          insertPos = drop;
+        }
+
+        const isNode = slice.openStart === 0 && slice.openEnd === 0 && slice.content.childCount === 1;
+        if (isNode) {
+          tr = tr.replaceRangeWith(insertPos, insertPos, slice.content.firstChild!);
+        } else {
+          tr = tr.replaceRange(insertPos, insertPos, slice);
+        }
+
+        return tr.doc.eq(originalDoc);
+      } catch (error) {
+        logWarning('Dropcursor noop simulation failed', { error: String(error) });
+        return null;
       }
-      delete dropcursor.dataset.baseLeft;
-      delete dropcursor.dataset.baseWidth;
+    };
+
+    const updateDropcursorNoopState = (clientX: number, clientY: number): void => {
+      if (!dragSelectionRange) {
+        if (DEBUG.enabled && editor.view.dragging) {
+          DEBUG.warn(MODULE, 'Dropcursor noop skipped: missing dragSelectionRange');
+        }
+        setDropcursorNoop(false);
+        return;
+      }
+      const target = resolveDropTargetPos(clientX, clientY);
+      if (target === null) {
+        const now = Date.now();
+        if (now - lastDropTargetLogAt > 2000) {
+          lastDropTargetLogAt = now;
+          const rect = editor.view.dom.getBoundingClientRect();
+          const payload = {
+            clientX,
+            clientY,
+            viewRect: {
+              left: Math.round(rect.left),
+              top: Math.round(rect.top),
+              right: Math.round(rect.right),
+              bottom: Math.round(rect.bottom),
+            },
+          };
+          logWarning('Dropcursor target resolve failed', payload);
+          if (DEBUG.enabled) {
+            DEBUG.warn(MODULE, 'Dropcursor target resolve failed', payload);
+          }
+        }
+        setDropcursorNoop(false);
+        return;
+      }
+      const { from, to, size } = dragSelectionRange;
+      const withinRange = (value: number) =>
+        value >= from - NOOP_TOLERANCE_POS && value <= to + NOOP_TOLERANCE_POS;
+      let isNoop = withinRange(target);
+      let adjustedTarget: number | null = null;
+      if (!isNoop && size > 0 && target > to) {
+        adjustedTarget = target - size;
+        isNoop = withinRange(adjustedTarget);
+      }
+      let listTargetPos: number | null = null;
+      if (dragIndentState) {
+        listTargetPos = resolveListItemPosFromCoords(editor.view, editor.state.doc, clientX, clientY);
+        if (listTargetPos !== null) {
+          const sameItem = listTargetPos === dragIndentState.sourcePos;
+          isNoop = sameItem;
+        }
+      }
+      let simulatedNoop = false;
+      let simulatedUsed = false;
+      const dragging = editor.view.dragging;
+      if (dragging?.slice && dragging.move) {
+        const shouldSimulate = dragIndentState !== null || !isNoop;
+        if (shouldSimulate) {
+          const simulated = simulateDropNoop(target, dragging.slice, Boolean(dragging.move));
+          if (simulated !== null) {
+            simulatedNoop = simulated;
+            simulatedUsed = true;
+            if (dragIndentState) {
+              if (listTargetPos === null) {
+                isNoop = simulatedNoop;
+              }
+            } else if (!isNoop && simulatedNoop) {
+              isNoop = true;
+            }
+          }
+        }
+      }
+      if (DEBUG.enabled && lastNoopState !== isNoop) {
+        DEBUG.log(MODULE, 'Dropcursor noop state updated', {
+          isNoop,
+          target,
+          adjustedTarget,
+          simulatedNoop,
+          simulatedUsed,
+          isListDrag: Boolean(dragIndentState),
+          isBlockDrag: Boolean(blockIndentState),
+          listTargetPos,
+          listSourcePos: dragIndentState?.sourcePos ?? null,
+          range: { from, to, size },
+        });
+        lastNoopState = isNoop;
+      } else if (!isNoop && withinRange(target)) {
+        logWarning('Dropcursor noop mismatch (within tolerance but not applied)', {
+          target,
+          range: { from, to, size },
+          adjustedTarget,
+          simulatedNoop,
+        });
+      }
+      setDropcursorNoop(isNoop);
+    };
+
+    const isNoopDropTarget = (target: number): { isNoop: boolean; adjustedTarget: number | null } => {
+      if (!dragSelectionRange) {
+        return { isNoop: false, adjustedTarget: null };
+      }
+      const { from, to, size } = dragSelectionRange;
+      const withinRange = (value: number) =>
+        value >= from - NOOP_TOLERANCE_POS && value <= to + NOOP_TOLERANCE_POS;
+      let isNoop = withinRange(target);
+      let adjustedTarget: number | null = null;
+      if (!isNoop && size > 0 && target > to) {
+        adjustedTarget = target - size;
+        isNoop = withinRange(adjustedTarget);
+      }
+      return { isNoop, adjustedTarget };
+    };
+
+    const applyManualDrop = (clientX: number, clientY: number): boolean => {
+      if (!dragSelectionRange) {
+        return false;
+      }
+      const viewAny = editor.view as EditorView & { dragging?: { slice: any; move: boolean } | null };
+      const dragging = viewAny.dragging;
+      const payload = dragging?.slice ? dragging : dragPayload;
+      if (!payload || !payload.slice) {
+        logWarning('Manual drop skipped: dragging slice missing', {
+          hasDragging: Boolean(dragging),
+          hasPayload: Boolean(dragPayload),
+        });
+        return false;
+      }
+      const target = resolveDropTargetPos(clientX, clientY);
+      if (target === null) {
+        logWarning('Manual drop skipped: target resolve failed', { clientX, clientY });
+        return false;
+      }
+      const { isNoop, adjustedTarget } = isNoopDropTarget(target);
+      let finalNoop = isNoop;
+      let simulatedNoop: boolean | null = null;
+      let listTargetPos: number | null = null;
+      if (dragIndentState) {
+        listTargetPos = resolveListItemPosFromCoords(editor.view, editor.state.doc, clientX, clientY);
+        if (listTargetPos !== null) {
+          finalNoop = listTargetPos === dragIndentState.sourcePos;
+        }
+      }
+      if (dragging?.slice) {
+        simulatedNoop = simulateDropNoop(target, dragging.slice, Boolean(dragging.move));
+        if (simulatedNoop !== null) {
+          finalNoop = simulatedNoop;
+        }
+      }
+      if (finalNoop) {
+        logInfo('Manual drop noop', { target, adjustedTarget, simulatedNoop, listTargetPos });
+        return false;
+      }
+
+      const slice = payload.slice;
+      let tr = editor.state.tr;
+      if (payload.move) {
+        if (dragSelectionRange) {
+          tr = tr.delete(dragSelectionRange.from, dragSelectionRange.to);
+        } else {
+          tr = tr.deleteSelection();
+        }
+      }
+
+      let insertPos = tr.mapping.map(target);
+      const drop = dropPoint(tr.doc, insertPos, slice);
+      if (drop !== null) {
+        insertPos = drop;
+      }
+
+      const isNode = slice.openStart === 0 && slice.openEnd === 0 && slice.content.childCount === 1;
+      let insertedNode = null as ProseMirrorNode | null;
+      if (isNode) {
+        insertedNode = slice.content.firstChild as ProseMirrorNode;
+        tr = tr.replaceRangeWith(insertPos, insertPos, insertedNode);
+      } else {
+        tr = tr.replaceRange(insertPos, insertPos, slice);
+      }
+
+      const selectionAnchor =
+        insertedNode && insertedNode.type.name === 'listItem'
+          ? Math.min(tr.doc.content.size, insertPos + 1)
+          : insertPos;
+      tr = tr.setSelection(Selection.near(tr.doc.resolve(selectionAnchor), 1)).scrollIntoView();
+      editor.view.dispatch(tr);
+      logInfo('Manual drop applied', {
+        target,
+        insertPos,
+        selectionAnchor,
+        isNode,
+        insertedType: insertedNode?.type?.name ?? null,
+      });
+      return true;
     };
 
     const applyDropcursorIndent = (clientX: number, clientY: number): void => {
@@ -697,29 +901,29 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         return;
       }
 
-      const baseMetrics = readDropcursorBase(dropcursor);
-      if (!baseMetrics) {
+      const viewRect = editor.view.dom.getBoundingClientRect();
+      const baseLeft = Number.parseFloat(dropcursor.style.left) || dropcursor.getBoundingClientRect().left - viewRect.left;
+      const baseWidth = Number.parseFloat(dropcursor.style.width) || dropcursor.getBoundingClientRect().width;
+
+      if (!Number.isFinite(baseLeft) || !Number.isFinite(baseWidth)) {
         return;
       }
 
-      dropcursor.dataset.baseLeft = `${baseMetrics.baseLeft}px`;
-      dropcursor.dataset.baseWidth = `${baseMetrics.baseWidth}px`;
+      dropcursor.dataset.baseLeft = `${baseLeft}px`;
+      dropcursor.dataset.baseWidth = `${baseWidth}px`;
 
       const listItemPos = resolveListItemPosFromCoords(editor.view, editor.state.doc, clientX, clientY);
       if (listItemPos === null) {
-        restoreDropcursorBase(dropcursor);
         return;
       }
 
       const listItemDom = editor.view.nodeDOM(listItemPos) as HTMLElement | null;
       if (!listItemDom) {
-        restoreDropcursorBase(dropcursor);
         return;
       }
 
       const textStartX = resolveListItemTextStartX(listItemDom);
       if (textStartX === null) {
-        restoreDropcursorBase(dropcursor);
         return;
       }
 
@@ -728,14 +932,57 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       const deltaDepth = Math.max(-1, Math.min(1, rawDelta));
       const indentPx = deltaDepth * LIST_INDENT_STEP_PX;
 
-      if (indentPx === 0) {
-        restoreDropcursorBase(dropcursor);
+      const baseRight = baseLeft + baseWidth;
+      const textStartLeft = textStartX - viewRect.left;
+      const desiredLeft = textStartLeft + indentPx;
+      const clampedLeft = Math.min(Math.max(desiredLeft, 0), baseRight);
+      const nextWidth = Math.max(0, baseRight - clampedLeft);
+
+      dropcursor.style.left = `${clampedLeft}px`;
+      dropcursor.style.width = `${nextWidth}px`;
+    };
+
+    const applyBlockDropcursorIndent = (clientX: number, clientY: number): void => {
+      if (!blockIndentState) {
         return;
       }
 
-      const baseRight = baseMetrics.baseLeft + baseMetrics.baseWidth;
-      const textStartLeft = textStartX - baseMetrics.viewRect.left;
-      const desiredLeft = textStartLeft + indentPx;
+      const dropcursor = editor.view.dom.querySelector(DROPCURSOR_SELECTOR) as HTMLElement | null;
+      if (!dropcursor) {
+        return;
+      }
+
+      const viewRect = editor.view.dom.getBoundingClientRect();
+      const baseLeft = Number.parseFloat(dropcursor.style.left) || dropcursor.getBoundingClientRect().left - viewRect.left;
+      const baseWidth = Number.parseFloat(dropcursor.style.width) || dropcursor.getBoundingClientRect().width;
+
+      if (!Number.isFinite(baseLeft) || !Number.isFinite(baseWidth)) {
+        return;
+      }
+
+      dropcursor.dataset.baseLeft = `${baseLeft}px`;
+      dropcursor.dataset.baseWidth = `${baseWidth}px`;
+
+      const deltaPx = clientX - blockIndentState.startX;
+      const rawDelta = Math.round(deltaPx / LIST_INDENT_STEP_PX);
+      const deltaDepth = Math.max(-1, Math.min(1, rawDelta));
+      const indentPx = deltaDepth * LIST_INDENT_STEP_PX;
+
+      const baseRight = baseLeft + baseWidth;
+      const desiredIndent = Math.max(0, Math.min(INDENT_LEVEL_MAX, blockIndentState.sourceIndent + deltaDepth));
+      let targetIndent = blockIndentState.sourceIndent;
+      const host = resolveBlockHostFromCoords(clientX, clientY);
+      if (host) {
+        const hostPos = safePosAtDOM(editor.view, host);
+        if (hostPos !== null) {
+          const node = editor.state.doc.nodeAt(hostPos);
+          if (node) {
+            targetIndent = normalizeIndentAttr(node.attrs?.indent);
+          }
+        }
+      }
+      const indentDelta = desiredIndent - targetIndent;
+      const desiredLeft = baseLeft + indentDelta * LIST_INDENT_STEP_PX;
       const clampedLeft = Math.min(Math.max(desiredLeft, 0), baseRight);
       const nextWidth = Math.max(0, baseRight - clampedLeft);
 
@@ -749,14 +996,21 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       }
       dropcursorRafId = requestAnimationFrame(() => {
         dropcursorRafId = null;
-        applyDropcursorIndent(clientX, clientY);
+        if (dragIndentState) {
+          applyDropcursorIndent(clientX, clientY);
+        } else if (blockIndentState) {
+          applyBlockDropcursorIndent(clientX, clientY);
+        }
       });
     };
 
     const clearDragIndentState = (reason?: string): void => {
       dragIndentState = null;
+      blockIndentState = null;
       pendingDropX = null;
       pendingDropCoords = null;
+      pendingBlockDropX = null;
+      pendingBlockDropCoords = null;
       dropFinalizePending = false;
       if (reason) {
         DEBUG.log(MODULE, 'Drag indent state cleared', { reason });
@@ -766,7 +1020,16 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
     const restoreDropcursorAfterIndent = (): void => {
       const dropcursor = editor.view.dom.querySelector(DROPCURSOR_SELECTOR) as HTMLElement | null;
       if (dropcursor) {
-        restoreDropcursorBase(dropcursor);
+        const baseLeft = dropcursor.dataset.baseLeft;
+        const baseWidth = dropcursor.dataset.baseWidth;
+        if (baseLeft !== undefined) {
+          dropcursor.style.left = baseLeft;
+        }
+        if (baseWidth !== undefined) {
+          dropcursor.style.width = baseWidth;
+        }
+        delete dropcursor.dataset.baseLeft;
+        delete dropcursor.dataset.baseWidth;
       }
     };
 
@@ -780,19 +1043,30 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         return;
       }
 
-      const { startX, sourceDepth, startedAt } = dragIndentState;
+      const { startX, sourceDepth, startedAt, sourcePos } = dragIndentState;
       const dropX = pendingDropX;
       const dropCoords = pendingDropCoords;
       clearDragIndentState('adjust-drop');
       const durationMs = Date.now() - startedAt;
 
-    const listItemPos = (dropCoords
+      const listItemPos = (dropCoords
         ? resolveListItemPosFromCoords(editor.view, editor.state.doc, dropCoords.x, dropCoords.y)
         : null)
-        ?? findNearestListItemPos(editor.state.doc, editor.state.selection.from);
+        ?? findNearestListItemPos(editor.state.doc, editor.state.selection.from)
+        ?? sourcePos;
       if (listItemPos === null) {
         DEBUG.error(MODULE, 'List indent adjust failed: no listItem near selection');
-        logError('List indent adjust failed: no listItem near selection');
+        const selection = editor.state.selection;
+        logError('List indent adjust failed: no listItem near selection', {
+          selectionFrom: selection.from,
+          selectionTo: selection.to,
+          selectionEmpty: selection.empty,
+          fromParent: selection.$from.parent.type.name,
+          toParent: selection.$to.parent.type.name,
+          dropCoords,
+          pendingDropX,
+          docSize: editor.state.doc.content.size,
+        });
         restoreDropcursorAfterIndent();
         return;
       }
@@ -814,8 +1088,8 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       }
 
       const insidePos = resolveListItemTextPos(editor.state.doc, listItemPos) ?? listItemPos + 1;
-      const $listItem = editor.view.nodeDOM(listItemPos) as HTMLElement | null;
-      const baseX = $listItem ? resolveListItemTextStartX($listItem) : null;
+      const listItemDom = editor.view.nodeDOM(listItemPos) as HTMLElement | null;
+      const baseX = listItemDom ? resolveListItemTextStartX(listItemDom) : null;
       const anchorX = baseX ?? startX;
       const deltaPx = dropX - anchorX;
       const rawDelta = Math.round(deltaPx / LIST_INDENT_STEP_PX);
@@ -835,7 +1109,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         logWarning('List indent blocked: max depth', { desiredDepth, maxDepth, sourceDepth });
         notifyHostWarn(
           'LIST_INDENT_MAX_DEPTH',
-          `リストのインデントは最大 ${maxDepth} 段までです。`,
+          INDENT_MAX_DEPTH_MESSAGE,
           { desiredDepth, maxDepth, sourceDepth }
         );
         desiredDepth = maxDepth;
@@ -874,7 +1148,6 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       editor.view.dispatch(editor.state.tr.setSelection(nextSelection));
 
       const getCurrentDepth = () => getListItemDepth(editor.state.doc, editor.state.selection.from);
-
       let currentDepth = getCurrentDepth();
 
       if (currentDepth === desiredDepth) {
@@ -927,139 +1200,199 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       restoreDropcursorAfterIndent();
     };
 
-    const onKeydown = () => {
-      if (!element || locked) {
+    const adjustBlockIndentAfterDrop = () => {
+      if (!blockIndentState || pendingBlockDropX === null) {
+        if (dropFinalizePending) {
+          DEBUG.error(MODULE, 'Block indent adjust skipped: missing drag state');
+          logError('Block indent adjust skipped: missing drag state');
+          clearDragIndentState('missing-block-state');
+        }
         return;
       }
 
-      if (editor.view.hasFocus()) {
-        hideHandle('view-focus');
-        currentNode = null;
-        currentNodePos = -1;
-        options.onNodeChange?.({ editor, node: null, pos: -1 });
+      const { startX, sourceIndent, startedAt } = blockIndentState;
+      const dropX = pendingBlockDropX;
+      clearDragIndentState('adjust-block-drop');
+      const durationMs = Date.now() - startedAt;
+
+      const deltaPx = dropX - startX;
+      const rawDelta = Math.round(deltaPx / LIST_INDENT_STEP_PX);
+      const deltaDepth = Math.max(-1, Math.min(1, rawDelta));
+      let desiredIndent = Math.max(0, sourceIndent + deltaDepth);
+      const maxDepth = INDENT_LEVEL_MAX;
+
+      if (desiredIndent > maxDepth) {
+        logWarning('Block indent blocked: max depth', { desiredIndent, maxDepth, sourceIndent });
+        notifyHostWarn('INDENT_MAX_DEPTH', INDENT_MAX_DEPTH_MESSAGE, {
+          desiredIndent,
+          maxDepth,
+          sourceIndent,
+        });
+        desiredIndent = maxDepth;
       }
+
+      if (deltaDepth === 0) {
+        logInfo('Block drag indent noop', { sourceIndent, desiredIndent, durationMs });
+        restoreDropcursorAfterIndent();
+        return;
+      }
+
+      const target = resolveIndentableBlockFromSelection(editor);
+      if (!target) {
+        DEBUG.error(MODULE, 'Block indent adjust failed: no target');
+        logError('Block indent adjust failed: no target', {
+          selectionFrom: editor.state.selection.from,
+          selectionTo: editor.state.selection.to,
+        });
+        restoreDropcursorAfterIndent();
+        return;
+      }
+
+      const currentIndent = normalizeIndentAttr(target.node.attrs?.indent);
+      if (currentIndent === desiredIndent) {
+        logInfo('Block drag indent noop', { sourceIndent, desiredIndent, durationMs });
+        restoreDropcursorAfterIndent();
+        return;
+      }
+
+      const nextAttrs = { ...target.node.attrs, indent: desiredIndent };
+      editor.view.dispatch(editor.state.tr.setNodeMarkup(target.pos, undefined, nextAttrs));
+      logSuccess('Block drag indent applied', { finalIndent: desiredIndent, durationMs });
+      restoreDropcursorAfterIndent();
     };
 
-    const onMouseLeave = (e: MouseEvent) => {
-      if (locked) return;
+    const resolveDragCoords = (clientX: number, clientY: number): { x: number; y: number } => {
+      const viewRect = editor.view.dom.getBoundingClientRect();
+      const clamped = clampPointToRect(viewRect, clientX, clientY, 2);
+      const elements = getElementsFromPoint(editor.view, clamped.x, clamped.y);
+      const hit = elements.find((el) => {
+        if (!(el instanceof HTMLElement)) {
+          return false;
+        }
+        if (!editor.view.dom.contains(el)) {
+          return false;
+        }
+        if (isElementInDragSource(el)) {
+          return false;
+        }
+        if (el.closest(HANDLE_CONTAINER_SELECTOR)) {
+          return false;
+        }
+        if (el.classList.contains('inline-markdown-dropcursor') || el.classList.contains('ProseMirror-dropcursor')) {
+          return false;
+        }
+        if (el.closest(TABLE_CELL_SELECTOR)) {
+          return false;
+        }
+        return true;
+      }) as HTMLElement | undefined;
 
-      const related = e.relatedTarget as HTMLElement | null;
-      const container = eventTarget ?? (editor.view.dom.closest('.editor-container') as HTMLElement | null);
-      if (
-        related &&
-        (editor.view.dom.contains(related) ||
-          wrapper.contains(related) ||
-          element.contains(related) ||
-          (container ? container.contains(related) : false))
-      ) {
-        return;
+      if (hit) {
+        const rect = hit.getBoundingClientRect();
+        return clampPointToRect(rect, clamped.x, clamped.y, 2);
       }
 
-      const zone = resolveHandleSafeZone();
-      const withinZone =
-        Number.isFinite(e.clientX) &&
-        Number.isFinite(e.clientY) &&
-        e.clientX >= zone.left &&
-        e.clientX <= zone.right &&
-        e.clientY >= zone.top &&
-        e.clientY <= zone.bottom;
-
-      if (withinZone) {
-        DEBUG.log(MODULE, 'Handle hide skipped (safe zone)', {
-          clientX: e.clientX,
-          clientY: e.clientY,
-          zone,
-        });
-        return;
-      }
-
-      if (currentNodePos !== -1) {
-        logWarning('Handle hide skipped (keep current)', {
-          clientX: e.clientX,
-          clientY: e.clientY,
-          relatedTag: related?.tagName,
-          zone,
-        });
-        return;
-      }
-
-      if (e.target) {
-        hideHandle('mouseleave', {
-          clientX: e.clientX,
-          clientY: e.clientY,
-          relatedTag: related?.tagName,
-          zone,
-        });
-        currentNode = null;
-        currentNodePos = -1;
-        options.onNodeChange?.({ editor, node: null, pos: -1 });
-      }
+      return clamped;
     };
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!element || locked) {
-        return;
-      }
-
-      pendingMouseCoords = { x: e.clientX, y: e.clientY };
-
-      if (rafId) {
-        return;
-      }
-
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-
-        if (!pendingMouseCoords) {
-          return;
-        }
-
-        const { x, y } = pendingMouseCoords;
-        pendingMouseCoords = null;
-
-        const result = findElementNextToCoords({
-          x,
-          y,
-          editor,
-          allowedNodeTypes: options.allowedNodeTypes,
-        });
-
-        if (!result.resultElement || !result.resultNode || result.pos === null) {
-          const now = Date.now();
-          if (now - lastNoTargetLogAt > 2000) {
-            lastNoTargetLogAt = now;
-            logWarning('Handle target not found', { x, y });
-          }
-          // Keep last handle visible to avoid flicker in gutter areas
-          return;
-        }
-
-        if (result.pos !== currentNodePos || !handleVisible) {
-          currentNode = result.resultNode;
-          currentNodePos = result.pos;
-          options.onNodeChange?.({ editor, node: currentNode, pos: currentNodePos });
-          reposition(result.resultElement, currentNode);
-          showHandle('mousemove', { nodeType: currentNode.type.name, pos: currentNodePos });
-        }
+    const dispatchDropcursorUpdate = (clientX: number, clientY: number): void => {
+      const coords = resolveDragCoords(clientX, clientY);
+      updateDropcursorNoopState(coords.x, coords.y);
+      const event = new DragEvent('dragover', {
+        clientX: coords.x,
+        clientY: coords.y,
+        bubbles: true,
       });
+      editor.view.dom.dispatchEvent(event);
+      if (dragIndentState || blockIndentState) {
+        scheduleDropcursorIndentUpdate(coords.x, coords.y);
+      }
     };
 
     const onDragOver = (e: DragEvent) => {
-      if (!dragIndentState) {
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+      e.preventDefault();
+      const resolvedTarget = resolveDropTargetPos(e.clientX, e.clientY);
+      lastDragOverCoords = { x: e.clientX, y: e.clientY };
+      lastDragOverTarget = resolvedTarget;
+      const now = Date.now();
+      if (now - lastDragOverLogAt > 1000) {
+        lastDragOverLogAt = now;
+        logInfo('Drag over', {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          target: resolvedTarget,
+          hasDragSelectionRange: Boolean(dragSelectionRange),
+          hasDragIndent: Boolean(dragIndentState),
+          hasBlockIndent: Boolean(blockIndentState),
+          dragging: Boolean(editor.view.dragging),
+          dropHandled,
+          dataTransferTypes: e.dataTransfer ? Array.from(e.dataTransfer.types) : [],
+        });
+      }
+      if (!dragIndentState && !blockIndentState) {
+        updateDropcursorNoopState(e.clientX, e.clientY);
         return;
       }
       scheduleDropcursorIndentUpdate(e.clientX, e.clientY);
+      updateDropcursorNoopState(e.clientX, e.clientY);
     };
 
     const onDrop = (e: DragEvent) => {
-      if (!dragIndentState) {
+      if (dropHandled) {
+        logInfo('Drop ignored: already handled', {
+          dropX: e.clientX,
+          dropY: e.clientY,
+          dragging: Boolean(editor.view.dragging),
+        });
         return;
       }
-
-      pendingDropX = e.clientX;
-      pendingDropCoords = { x: e.clientX, y: e.clientY };
+      dropHandled = true;
+      lastDragOverCoords = { x: e.clientX, y: e.clientY };
+      lastDragOverTarget = resolveDropTargetPos(e.clientX, e.clientY);
+      if (!dragSelectionRange) {
+        logWarning('Drop received without drag selection range', {
+          dropX: e.clientX,
+          dropY: e.clientY,
+          dragging: Boolean(editor.view.dragging),
+        });
+      }
+      if (dragSelectionRange) {
+        const applied = applyManualDrop(e.clientX, e.clientY);
+        logInfo('Manual drop evaluated', {
+          applied,
+          dropX: e.clientX,
+          dropY: e.clientY,
+          range: dragSelectionRange,
+          dragging: Boolean(editor.view.dragging),
+        });
+        if (applied) {
+          e.preventDefault();
+          e.stopPropagation();
+        } else {
+          dropHandled = false;
+        }
+      }
+      if (!dragIndentState && !blockIndentState) {
+        logInfo('Drag drop captured (no indent adjust)', {
+          dropX: e.clientX,
+          dropY: e.clientY,
+          hasDragging: Boolean(editor.view.dragging),
+        });
+        return;
+      }
       dropFinalizePending = true;
-      logInfo('Drag drop captured', { dropX: pendingDropX });
+      if (dragIndentState) {
+        pendingDropX = e.clientX;
+        pendingDropCoords = { x: e.clientX, y: e.clientY };
+        logInfo('Drag drop captured', { dropX: pendingDropX });
+      } else if (blockIndentState) {
+        pendingBlockDropX = e.clientX;
+        pendingBlockDropCoords = { x: e.clientX, y: e.clientY };
+        logInfo('Block drag drop captured', { dropX: pendingBlockDropX });
+      }
 
       scheduleDropcursorIndentUpdate(e.clientX, e.clientY);
 
@@ -1069,8 +1402,326 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
 
       indentRafId = requestAnimationFrame(() => {
         indentRafId = null;
-        adjustListIndentAfterDrop();
+        if (dragIndentState) {
+          adjustListIndentAfterDrop();
+        } else if (blockIndentState) {
+          adjustBlockIndentAfterDrop();
+        }
       });
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (!editor.isEditable) {
+        return;
+      }
+      if (e.button !== 0) {
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+      if (target.closest(HANDLE_CONTAINER_SELECTOR)) {
+        return;
+      }
+      const host = target.closest('.block-handle-host.is-empty') as HTMLElement | null;
+      if (!host) {
+        return;
+      }
+      const hostPos = safePosAtDOM(editor.view, host);
+      if (hostPos !== null) {
+        const $pos = editor.state.doc.resolve(Math.min(hostPos + 1, editor.state.doc.content.size));
+        editor.view.dispatch(editor.state.tr.setSelection(Selection.near($pos, 1)));
+        logInfo('Placeholder focus forced', { pos: hostPos, targetTag: target.tagName });
+        return;
+      }
+      logError('Placeholder focus resolve failed', { clientX: e.clientX, clientY: e.clientY });
+    };
+
+    const onDocumentDragOver = (e: DragEvent) => {
+      const hasActiveDrag = Boolean(dragSelectionRange || dragPayload || editor.view.dragging);
+      if (!hasActiveDrag) {
+        return;
+      }
+      lastDragOverCoords = { x: e.clientX, y: e.clientY };
+      lastDragOverTarget = resolveDropTargetPos(e.clientX, e.clientY);
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+      e.preventDefault();
+      const inView = editor.view.dom.contains(e.target as Node);
+      if (inView) {
+        updateDropcursorNoopState(e.clientX, e.clientY);
+        return;
+      }
+      dispatchDropcursorUpdate(e.clientX, e.clientY);
+    };
+
+    const onDocumentPointerMove = (e: PointerEvent) => {
+      const hasActiveDrag = Boolean(dragSelectionRange || dragPayload || editor.view.dragging);
+      if (!hasActiveDrag) {
+        return;
+      }
+      if (editor.view.dom.contains(e.target as Node)) {
+        return;
+      }
+      dispatchDropcursorUpdate(e.clientX, e.clientY);
+    };
+
+    const onDocumentDrop = (e: DragEvent) => {
+      const hasActiveDrag = Boolean(dragSelectionRange || dragPayload);
+      if (dropHandled || !hasActiveDrag) {
+        return;
+      }
+      lastDragOverCoords = { x: e.clientX, y: e.clientY };
+      lastDragOverTarget = resolveDropTargetPos(e.clientX, e.clientY);
+      logInfo('Document drop captured', {
+        dropX: e.clientX,
+        dropY: e.clientY,
+        targetTag: (e.target as HTMLElement | null)?.tagName,
+      });
+      onDrop(e);
+    };
+
+    const onDocumentDragEnd = (e: DragEvent) => {
+      const hasActiveDrag = Boolean(dragSelectionRange || dragPayload);
+      if (!hasActiveDrag) {
+        return;
+      }
+      logInfo('Document drag end captured', {
+        targetTag: (e.target as HTMLElement | null)?.tagName,
+        hasDragging: Boolean(editor.view.dragging),
+        hasRange: Boolean(dragSelectionRange),
+        hasPayload: Boolean(dragPayload),
+      });
+      onDragEnd(e);
+    };
+
+    const onDragStart = (e: DragEvent) => {
+      if (locked || !editor.isEditable) {
+        logWarning('Drag start blocked', { locked, editable: editor.isEditable });
+        e.preventDefault();
+        return;
+      }
+      const target = resolveHandleTarget(e.target);
+      if (!target) {
+        const container = resolveHandleContainer(e.target);
+        if (container) {
+          logWarning('Drag start ignored: handle target not resolved', {
+            targetTag: (e.target as HTMLElement | null)?.tagName,
+            containerDataset: { ...container.dataset },
+          });
+        }
+        return;
+      }
+
+      editor.view.focus();
+      options.onElementDragStart?.(e);
+
+      const { node, pos } = target;
+      dragStartedAt = Date.now();
+      const activeSelection = editor.state.selection;
+      let selection: Selection;
+
+      const createRangeSelection = (): Selection | null => {
+        try {
+          return NodeRangeSelection.create(editor.state.doc, pos, pos + node.nodeSize);
+        } catch (error) {
+          logWarning('NodeRangeSelection create failed', { pos, error: String(error) });
+          return null;
+        }
+      };
+
+      const createNodeSelection = (): Selection | null => {
+        try {
+          return NodeSelection.create(editor.state.doc, pos);
+        } catch (error) {
+          logError('NodeSelection create failed', { pos, error: String(error) });
+          return null;
+        }
+      };
+
+      if (isNodeRangeSelection(activeSelection)) {
+        const withinRange = activeSelection.ranges.some(
+          (range) => pos >= range.$from.pos && pos < range.$to.pos
+        );
+        selection = withinRange ? activeSelection : createNodeSelection();
+      } else {
+        selection = createNodeSelection();
+      }
+
+      if (!selection) {
+        logError('Drag start aborted: selection unavailable', { pos, nodeType: node.type.name });
+        dragStartedAt = null;
+        return;
+      }
+
+      const activeAfter = selection;
+      const slice = activeAfter.content();
+      const selectionSize = Math.max(slice.size, activeAfter.to - activeAfter.from);
+      dragSelectionRange = { from: activeAfter.from, to: activeAfter.to, size: selectionSize };
+      dropHandled = false;
+      lastDragOverCoords = null;
+      lastDragOverTarget = null;
+
+      const serialized = editor.view.serializeForClipboard ? editor.view.serializeForClipboard(slice) : null;
+      const dataTransfer = e.dataTransfer ?? null;
+      const beforeTypes = dataTransfer ? Array.from(dataTransfer.types) : [];
+      let setDataError: string | null = null;
+      let plainTextLength = 0;
+      let usedPlainTextFallback = false;
+      if (dataTransfer) {
+        try {
+          if (serialized?.dom) {
+            dataTransfer.setData('text/html', serialized.dom.innerHTML);
+          }
+          const plainTextPayload =
+            typeof serialized?.text === 'string' && serialized.text.length > 0 ? serialized.text : ' ';
+          plainTextLength = plainTextPayload.length;
+          usedPlainTextFallback = plainTextPayload === ' ';
+          dataTransfer.setData('text/plain', plainTextPayload);
+          dataTransfer.effectAllowed = 'copyMove';
+        } catch (error) {
+          setDataError = String(error);
+          logWarning('Drag start dataTransfer set failed', { error: setDataError });
+        }
+      }
+      const afterTypes = dataTransfer ? Array.from(dataTransfer.types) : [];
+
+      // Ensure ProseMirror drop handler treats this as an internal move.
+      const viewAny = editor.view as EditorView & {
+        dragging?: { slice: unknown; move: boolean; node?: Selection | null } | null;
+      };
+      const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+      const move = isMac ? !e.altKey : !e.ctrlKey;
+      const dragSlice = serialized?.slice ?? slice;
+      viewAny.dragging = {
+        slice: dragSlice,
+        move,
+        node: activeAfter instanceof NodeSelection ? activeAfter : null,
+      };
+      dragPayload = { slice: dragSlice, move };
+
+      if (node.type.name === 'listItem') {
+        const listItemDom = editor.view.nodeDOM(pos) as HTMLElement | null;
+        const listItem = listItemDom ? resolveListItem(listItemDom) : null;
+        const baseX = listItem ? resolveListItemTextStartX(listItem) : null;
+        dragIndentState = {
+          startX: baseX ?? e.clientX,
+          sourceDepth: getListItemDepth(editor.state.doc, pos + 1),
+          startedAt: Date.now(),
+          sourcePos: pos,
+        };
+        dragSourceElement = listItem ?? listItemDom ?? null;
+        blockIndentState = null;
+      } else {
+        dragIndentState = null;
+        const dom = editor.view.nodeDOM(pos) as HTMLElement | null;
+        dragSourceElement =
+          dom ?? target.container.closest('.block-handle-host') ?? target.container ?? null;
+        if (isIndentableNode(node) && dom) {
+          const baseX = resolveBlockTextStartX(dom);
+          blockIndentState = {
+            startX: baseX ?? e.clientX,
+            sourceIndent: normalizeIndentAttr(node.attrs?.indent),
+            startedAt: Date.now(),
+            sourcePos: pos,
+          };
+        } else {
+          blockIndentState = null;
+        }
+      }
+
+      logInfo('Drag start', {
+        nodeType: node.type.name,
+        pos,
+        isListItem: node.type.name === 'listItem',
+        selection: {
+          from: activeAfter.from,
+          to: activeAfter.to,
+          empty: activeAfter.empty,
+          type: activeAfter instanceof NodeSelection ? 'NodeSelection' : activeAfter.constructor?.name ?? 'Selection',
+        },
+        selectionDispatched: false,
+        dragSelectionRange,
+        dataTransfer: {
+          present: Boolean(dataTransfer),
+          beforeTypes,
+          afterTypes,
+          setDataError,
+          plainTextLength,
+          usedPlainTextFallback,
+        },
+        handle: {
+          targetTag: (e.target as HTMLElement | null)?.tagName ?? null,
+          blockPos: target.container.dataset.blockPos ?? null,
+          blockType: target.container.dataset.blockType ?? null,
+        },
+        move,
+        editable: editor.isEditable,
+        focused: editor.view.hasFocus(),
+      });
+    };
+
+    const onDragEnd = (e: DragEvent) => {
+      options.onElementDragEnd?.(e);
+      const durationMs = dragStartedAt ? Date.now() - dragStartedAt : null;
+      dragStartedAt = null;
+      const viewAny = editor.view as EditorView & { dragging?: { slice: unknown; move: boolean } | null };
+      const rangeAtEnd = dragSelectionRange;
+      const draggingSnapshot = viewAny.dragging ?? null;
+      logInfo('Drag end', {
+        durationMs,
+        dropHandled,
+        hasRange: Boolean(rangeAtEnd),
+        hasDragging: Boolean(draggingSnapshot),
+        hasPayload: Boolean(dragPayload),
+        lastTarget: lastDragOverTarget,
+        lastCoords: lastDragOverCoords,
+      });
+      setDropcursorNoop(true);
+
+      if (dropFinalizePending || indentRafId) {
+        logInfo('Drag end deferred (awaiting drop finalize)', { durationMs });
+        dragSelectionRange = null;
+        viewAny.dragging = null;
+        dragSourceElement = null;
+        return;
+      }
+
+      const fallbackCoords = lastDragOverCoords ?? (Number.isFinite(e.clientX) && Number.isFinite(e.clientY)
+        ? { x: e.clientX, y: e.clientY }
+        : null);
+      if (!dropHandled && rangeAtEnd && fallbackCoords) {
+        logError('Drop missing before drag end; applying manual drop on drag end', {
+          durationMs,
+          lastTarget: lastDragOverTarget,
+          lastCoords: fallbackCoords,
+          range: rangeAtEnd,
+        });
+        const applied = applyManualDrop(fallbackCoords.x, fallbackCoords.y);
+        if (applied) {
+          dropHandled = true;
+        }
+        if (!applied) {
+          logError('Manual drop failed on drag end', {
+            lastTarget: lastDragOverTarget,
+            lastCoords: lastDragOverCoords,
+            range: rangeAtEnd,
+          });
+        }
+      }
+
+      clearDragIndentState('drag-end');
+      if (dropcursorRafId) {
+        cancelAnimationFrame(dropcursorRafId);
+        dropcursorRafId = null;
+      }
+      restoreDropcursorAfterIndent();
+      dragSelectionRange = null;
+      viewAny.dragging = null;
+      dragSourceElement = null;
+      dragPayload = null;
     };
 
     const bindDomEvents = () => {
@@ -1081,112 +1732,60 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       if (!eventTarget) {
         eventTarget = editor.view.dom;
       }
-      eventTarget.addEventListener('mousemove', onMouseMove, { capture: true, passive: true });
-      eventTarget.addEventListener('mouseleave', onMouseLeave, { capture: true });
+      eventTarget.addEventListener('dragstart', onDragStart, { capture: true });
+      eventTarget.addEventListener('dragend', onDragEnd, { capture: true });
       eventTarget.addEventListener('dragover', onDragOver, { capture: true });
       eventTarget.addEventListener('drop', onDrop, { capture: true });
-      editor.view.dom.addEventListener('keydown', onKeydown, { capture: true });
+      eventTarget.addEventListener('mousedown', onMouseDown, { capture: true });
       domListenersBound = true;
       logSuccess('Handle DOM listeners bound', { targetTag: eventTarget.tagName });
+    };
+
+    const bindDocumentEvents = () => {
+      if (documentListenersBound) {
+        return;
+      }
+      document.addEventListener('dragover', onDocumentDragOver, { capture: true });
+      document.addEventListener('pointermove', onDocumentPointerMove, { capture: true, passive: true });
+      document.addEventListener('drop', onDocumentDrop, { capture: true });
+      document.addEventListener('dragend', onDocumentDragEnd, { capture: true });
+      documentListenersBound = true;
+      logSuccess('Handle document listeners bound', { targetTag: 'document' });
     };
 
     const unbindDomEvents = () => {
       if (!domListenersBound || !eventTarget) {
         return;
       }
-      eventTarget.removeEventListener('mousemove', onMouseMove, { capture: true } as EventListenerOptions);
-      eventTarget.removeEventListener('mouseleave', onMouseLeave, { capture: true } as EventListenerOptions);
+      eventTarget.removeEventListener('dragstart', onDragStart, { capture: true } as EventListenerOptions);
+      eventTarget.removeEventListener('dragend', onDragEnd, { capture: true } as EventListenerOptions);
       eventTarget.removeEventListener('dragover', onDragOver, { capture: true } as EventListenerOptions);
       eventTarget.removeEventListener('drop', onDrop, { capture: true } as EventListenerOptions);
-      editor.view.dom.removeEventListener('keydown', onKeydown, { capture: true } as EventListenerOptions);
+      eventTarget.removeEventListener('mousedown', onMouseDown, { capture: true } as EventListenerOptions);
       domListenersBound = false;
       logSuccess('Handle DOM listeners unbound', { targetTag: eventTarget.tagName });
       eventTarget = null;
     };
 
-    const onDragStart = (e: DragEvent) => {
-      options.onElementDragStart?.(e);
-      if (!currentNode || currentNodePos < 0) {
-        DEBUG.warn(MODULE, 'Drag start ignored: no active node');
-        logWarning('Drag start ignored: no active node');
-        e.preventDefault();
+    const unbindDocumentEvents = () => {
+      if (!documentListenersBound) {
         return;
       }
-
-      const selection = NodeSelection.create(editor.state.doc, currentNodePos);
-      let slice = selection.content();
-      editor.view.dispatch(editor.state.tr.setSelection(selection));
-
-      if (currentNode.type.name === 'listItem') {
-        const listItemDom = editor.view.nodeDOM(currentNodePos) as HTMLElement | null;
-        const listItem = listItemDom ? resolveListItem(listItemDom) : null;
-        const baseX = listItem ? resolveListItemTextStartX(listItem) : null;
-        dragIndentState = {
-          startX: baseX ?? e.clientX,
-          sourceDepth: getListItemDepth(editor.state.doc, currentNodePos + 1),
-          startedAt: Date.now(),
-        };
-      } else {
-        dragIndentState = null;
-      }
-
-      editor.view.dragging = { slice, move: true };
-
-      if (e.dataTransfer) {
-        e.dataTransfer.setData('text/plain', '');
-        e.dataTransfer.effectAllowed = 'move';
-      } else {
-        logWarning('Drag start: dataTransfer missing');
-      }
-
-      element.dataset.dragging = 'true';
-      setTimeout(() => {
-        element.style.pointerEvents = 'none';
-      }, 0);
-
-      logInfo('Drag start', {
-        nodeType: currentNode.type.name,
-        pos: currentNodePos,
-        isListItem: currentNode.type.name === 'listItem',
-      });
+      document.removeEventListener('dragover', onDocumentDragOver, { capture: true } as EventListenerOptions);
+      document.removeEventListener('pointermove', onDocumentPointerMove, { capture: true } as EventListenerOptions);
+      document.removeEventListener('drop', onDocumentDrop, { capture: true } as EventListenerOptions);
+      document.removeEventListener('dragend', onDocumentDragEnd, { capture: true } as EventListenerOptions);
+      documentListenersBound = false;
+      logSuccess('Handle document listeners unbound', { targetTag: 'document' });
     };
-
-    const onDragEnd = (e: DragEvent) => {
-      options.onElementDragEnd?.(e);
-      logInfo('Drag end');
-      hideHandle('drag-end');
-      element.style.pointerEvents = 'auto';
-      element.dataset.dragging = 'false';
-      currentNode = null;
-      currentNodePos = -1;
-      options.onNodeChange?.({ editor, node: null, pos: -1 });
-      if (dropFinalizePending || indentRafId) {
-        logInfo('Drag end deferred (awaiting drop finalize)');
-        return;
-      }
-
-      clearDragIndentState('drag-end');
-      if (dropcursorRafId) {
-        cancelAnimationFrame(dropcursorRafId);
-        dropcursorRafId = null;
-      }
-      const dropcursor = editor.view.dom.querySelector(DROPCURSOR_SELECTOR) as HTMLElement | null;
-      if (dropcursor) {
-        restoreDropcursorBase(dropcursor);
-      }
-    };
-
-    element.addEventListener('dragstart', onDragStart);
-    element.addEventListener('dragend', onDragEnd);
-
-    wrapper.appendChild(element);
 
     return [
       new Plugin({
         key: InlineDragHandlePluginKey,
         state: {
           init() {
-            return { locked: false } as PluginState;
+            locked = options.locked ?? false;
+            return { locked } as PluginState;
           },
           apply(tr, value) {
             const isLocked = tr.getMeta('lockDragHandle');
@@ -1194,95 +1793,56 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
 
             if (isLocked !== undefined) {
               locked = isLocked as boolean;
+              setHandleLockClass();
             }
 
             if (hideDragHandle) {
-              hideHandle();
               locked = false;
-              currentNode = null;
-              currentNodePos = -1;
+              setHandleLockClass();
               options.onNodeChange?.({ editor, node: null, pos: -1 });
               return value;
             }
 
-            if (tr.docChanged && currentNodePos !== -1) {
-              const mapped = tr.mapping.map(currentNodePos);
-              if (mapped !== currentNodePos) {
-                currentNodePos = mapped;
-              }
+            if (tr.docChanged && dragSelectionRange) {
+              const mappedFrom = tr.mapping.map(dragSelectionRange.from);
+              const mappedTo = tr.mapping.map(dragSelectionRange.to);
+              dragSelectionRange = {
+                from: mappedFrom,
+                to: mappedTo,
+                size: dragSelectionRange.size,
+              };
             }
 
             return value;
           },
         },
-
-        view: (view) => {
-          element.draggable = true;
-          element.style.pointerEvents = 'auto';
-          element.dataset.dragging = 'false';
-          bindDomEvents();
-
-          requestAnimationFrame(() => {
-            if (wrapper.isConnected && !handleLayerMounted) {
-              handleLayerMounted = true;
-              logSuccess('Handle layer mounted', {
-                parentTag: editor.view.dom.tagName,
-                childCount: editor.view.dom.children.length,
-              });
-            }
-            if (!wrapper.isConnected) {
-              logError('Handle layer mount failed');
-            }
+        view: () => {
+          logInfo('Inline drag handle plugin view init', {
+            editable: editor.isEditable,
+            allowedNodeTypes: options.allowedNodeTypes ? Array.from(options.allowedNodeTypes.values()) : 'block',
           });
+          bindDomEvents();
+          bindDocumentEvents();
+          setHandleLockClass();
 
           return {
-            update(_, oldState) {
-              if (!element) return;
+            update() {
               if (!editor.isEditable) {
-                hideHandle('editor-not-editable');
-                return;
+                editor.view.dom.classList.add('is-handle-disabled');
+              } else {
+                editor.view.dom.classList.remove('is-handle-disabled');
               }
-              if (wrapper.isConnected && !handleLayerMounted) {
-                handleLayerMounted = true;
-                logSuccess('Handle layer mounted', {
-                  parentTag: editor.view.dom.tagName,
-                  childCount: editor.view.dom.children.length,
+              const domCount = editor.view.dom.querySelectorAll(HANDLE_CONTAINER_SELECTOR).length;
+              if (domCount !== lastDomHandleCount) {
+                logInfo('Handle DOM count updated', {
+                  count: domCount,
+                  isHandleLocked: editor.view.dom.classList.contains('is-handle-locked'),
+                  isHandleDisabled: editor.view.dom.classList.contains('is-handle-disabled'),
                 });
-              } else if (!wrapper.isConnected && handleLayerMounted) {
-                handleLayerMounted = false;
-                logError('Handle layer detached');
+                lastDomHandleCount = domCount;
               }
-
-              element.draggable = !locked;
-
-              if (view.state.doc.eq(oldState.doc) || currentNodePos === -1) {
-                return;
-              }
-
-              const domNode = view.nodeDOM(currentNodePos) as HTMLElement | null;
-              if (!domNode || domNode === view.dom) {
-                return;
-              }
-
-              const node = view.state.doc.nodeAt(currentNodePos);
-              if (!node) {
-                hideHandle('node-missing', { pos: currentNodePos });
-                currentNode = null;
-                currentNodePos = -1;
-                options.onNodeChange?.({ editor, node: null, pos: -1 });
-                return;
-              }
-
-              currentNode = node;
-              options.onNodeChange?.({ editor, node: currentNode, pos: currentNodePos });
-              reposition(domNode, currentNode);
             },
             destroy() {
-              if (rafId) {
-                cancelAnimationFrame(rafId);
-                rafId = null;
-                pendingMouseCoords = null;
-              }
               if (indentRafId) {
                 cancelAnimationFrame(indentRafId);
                 indentRafId = null;
@@ -1292,13 +1852,38 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
                 dropcursorRafId = null;
               }
               unbindDomEvents();
-              wrapper.remove();
+              unbindDocumentEvents();
             },
           };
         },
         props: {
           decorations(state) {
-            return createHandleLayerDecorations(state.doc, wrapper);
+            return createHandleDecorations(state.doc, options, (count, stats) => {
+              if (count !== lastHandleCount) {
+                logInfo('Handle decorations updated', {
+                  count,
+                  blockTypes: stats?.blockTypes ?? [],
+                  docChildCount: stats?.childCount ?? 0,
+                  docSize: stats?.docSize ?? 0,
+                  handleTypes: stats?.handleTypes ?? {},
+                  excludedTypes: stats?.excludedTypes ?? {},
+                  skippedReasons: stats?.skippedReasons ?? {},
+                });
+                if (count === 0 && !stats?.allExcluded) {
+                  logWarning('Handle decorations empty', {
+                    blockTypes: stats?.blockTypes ?? [],
+                    docChildCount: stats?.childCount ?? 0,
+                    docSize: stats?.docSize ?? 0,
+                    handleTypes: stats?.handleTypes ?? {},
+                    excludedTypes: stats?.excludedTypes ?? {},
+                    skippedReasons: stats?.skippedReasons ?? {},
+                  });
+                }
+                lastHandleCount = count;
+              } else if (DEBUG.enabled) {
+                DEBUG.log(MODULE, 'Handle decorations unchanged', { count });
+              }
+            });
           },
         },
       }),

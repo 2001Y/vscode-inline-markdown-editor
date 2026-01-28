@@ -34,7 +34,7 @@
  * - 危険スキーム禁止: javascript:/command:/vscode:/file: は常にブロック
  * - リンクは openExternal 経由で開く
  * - 画像: ワークスペース内は asWebviewUri、リモートはオプション
- * - HTML: デフォルト RAW、renderHtml=true なら DOMPurify でサニタイズ
+ * - HTML: コードブロックとして表示
  * 
  * docUri の扱い (設計書 9.2 補足):
  * - Webview から来た docUri は信頼しない（照合のみ）
@@ -53,6 +53,9 @@ import {
   createDocChangedMessage,
   createErrorMessage,
   createImageResolvedMessage,
+  createNestedPageCreatedMessage,
+  createNestedPageCreateAckMessage,
+  createNestedPageCreateFailedMessage,
   isValidWebviewMessage,
 } from '../protocol/messages.js';
 import {
@@ -350,6 +353,14 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       details: { type: msg.type },
     });
 
+    if (msg.type === 'createNestedPage') {
+      logger.warn('Nested page create message received', {
+        clientId,
+        docUri: document.uri.toString(),
+        details: { requestId: msg.requestId, title: msg.title },
+      });
+    }
+
     switch (msg.type) {
       case 'ready':
         await this.handleReady(document, state, panel);
@@ -386,6 +397,12 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         break;
       case 'resolveImage':
         await this.handleResolveImage(document, state, panel, clientId, msg);
+        break;
+      case 'createNestedPage':
+        await this.handleCreateNestedPage(document, state, panel, clientId, msg);
+        break;
+      case 'openNestedPage':
+        await this.handleOpenNestedPage(document, clientId, msg);
         break;
       case 'notifyHost':
         await this.handleNotifyHost(document, state, panel, clientId, msg);
@@ -608,30 +625,18 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
     const confirmExternalLinks = securityConfig.get<boolean>('confirmExternalLinks', true);
 
-    if (confirmExternalLinks) {
-      const openButton = vscode.l10n.t('Open');
-      const cancelButton = vscode.l10n.t('Cancel');
-      
-      logger.debug('Showing external link confirmation dialog', { clientId, details: { url } });
-      
-      const result = await vscode.window.showInformationMessage(
-        vscode.l10n.t('Do you want to open this external link?\n{0}', url),
-        { modal: true },
-        openButton,
-        cancelButton
-      );
-
-      if (result !== openButton) {
-        logger.info('External link opening cancelled by user', { clientId, details: { url } });
-        return;
-      }
-    }
-
-    // Open the link using VS Code's openExternal
     try {
       const uri = vscode.Uri.parse(url);
-      await vscode.env.openExternal(uri);
-      logger.info('External link opened', { clientId, details: { url } });
+      if (confirmExternalLinks) {
+        logger.debug('Opening external link via VS Code opener', { clientId, details: { url } });
+        await vscode.commands.executeCommand('vscode.open', uri);
+      } else {
+        await vscode.env.openExternal(uri);
+      }
+      logger.info('External link opened', {
+        clientId,
+        details: { url, method: confirmExternalLinks ? 'vscode.open' : 'openExternal' },
+      });
     } catch (error) {
       logger.error('Failed to open external link', { 
         clientId, 
@@ -915,6 +920,459 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     }
   }
 
+  private async safeStat(uri: vscode.Uri): Promise<vscode.FileStat | null> {
+    try {
+      return await vscode.workspace.fs.stat(uri);
+    } catch {
+      return null;
+    }
+  }
+
+  private createAutoNestedPageBaseName(): string {
+    const now = new Date();
+    const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+    const y = now.getFullYear();
+    const m = pad(now.getMonth() + 1);
+    const d = pad(now.getDate());
+    const hh = pad(now.getHours());
+    const mm = pad(now.getMinutes());
+    const ss = pad(now.getSeconds());
+    const ms = pad(now.getMilliseconds(), 3);
+    return `page-${y}${m}${d}-${hh}${mm}${ss}-${ms}`;
+  }
+
+  private async handleCreateNestedPage(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'createNestedPage' }
+  ): Promise<void> {
+    const startedAt = Date.now();
+    const { requestId, title } = msg;
+    const docUri = document.uri.toString();
+
+    const withTimeout = async <T>(label: string, promise: PromiseLike<T>, timeoutMs: number): Promise<T> => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      try {
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`timeout:${label}`));
+          }, timeoutMs);
+        });
+        return await Promise.race([Promise.resolve(promise), timeoutPromise]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+    };
+
+    const fsTimeoutMs = 3000;
+
+    const postToPanel = (target: WebviewPanel, context: string, payload: unknown) => {
+      const timeoutMs = 1000;
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          logger.warn('Nested page response delivery timeout', {
+            clientId: target.clientId,
+            docUri,
+            details: { requestId, context, timeoutMs },
+          });
+        }
+      }, timeoutMs);
+
+      logger.info('Nested page response send attempt', {
+        clientId: target.clientId,
+        docUri,
+        details: {
+          requestId,
+          context,
+          panelReady: target.ready,
+          panelVisible: target.panel.visible,
+          panelActive: target.panel.active,
+          panelTitle: target.panel.title,
+        },
+      });
+
+      try {
+        Promise.resolve(target.panel.webview.postMessage(payload))
+          .then((delivered) => {
+            settled = true;
+            clearTimeout(timeoutId);
+            if (!delivered) {
+              logger.warn('Nested page response not delivered', {
+                clientId: target.clientId,
+                docUri,
+                details: { requestId, context },
+              });
+            } else {
+              logger.info('Nested page response delivered', {
+                clientId: target.clientId,
+                docUri,
+                details: { requestId, context },
+              });
+            }
+          })
+          .catch((error) => {
+            settled = true;
+            clearTimeout(timeoutId);
+            logger.error('Nested page response post failed', {
+              clientId: target.clientId,
+              docUri,
+              details: { requestId, context, error: String(error) },
+            });
+          });
+      } catch (error) {
+        settled = true;
+        clearTimeout(timeoutId);
+        logger.error('Nested page response post threw', {
+          clientId: target.clientId,
+          docUri,
+          details: { requestId, context, error: String(error) },
+        });
+      }
+    };
+
+    const postToRequestingPanel = (context: string, payload: unknown): boolean => {
+      if (!panel.ready) {
+        logger.error('Nested page response blocked: panel not ready', {
+          clientId: panel.clientId,
+          docUri,
+          details: { requestId, context },
+        });
+        return false;
+      }
+      if (state.panels.get(panel.clientId) !== panel) {
+        logger.error('Nested page response blocked: panel disposed', {
+          clientId: panel.clientId,
+          docUri,
+          details: { requestId, context },
+        });
+        return false;
+      }
+      postToPanel(panel, context, payload);
+      return true;
+    };
+
+    logger.warn('Nested page create requested', {
+      clientId,
+      docUri,
+      details: { requestId, title },
+    });
+
+    postToRequestingPanel('nestedPageCreateAck', createNestedPageCreateAckMessage(requestId, state.sessionId));
+
+    const fail = (message: string, code: string, details?: Record<string, unknown>) => {
+      logger.error('Nested page create failed', {
+        clientId,
+        docUri,
+        errorCode: code,
+        errorStack: message,
+        details: { requestId, title, durationMs: Date.now() - startedAt, ...(details || {}) },
+      });
+      postToRequestingPanel(
+        'nestedPageCreateFailed',
+        createNestedPageCreateFailedMessage(requestId, message, state.sessionId, code, details)
+      );
+    };
+
+    try {
+      if (document.uri.scheme !== 'file') {
+        fail('Only file-based documents are supported', 'NESTED_PAGE_UNSUPPORTED_SCHEME', {
+          scheme: document.uri.scheme,
+        });
+        return;
+      }
+
+      const trimmedTitle = title.trim();
+      const displayTitle = trimmedTitle ? trimmedTitle.replace(/\.md$/i, '').trim() : 'New Page';
+
+      const docInfo = path.parse(document.uri.fsPath);
+      const docBaseName = docInfo.name;
+      const docExt = docInfo.ext || '.md';
+      if (!docBaseName) {
+        fail('Document name is empty', 'NESTED_PAGE_INVALID_DOCUMENT');
+        return;
+      }
+
+      const parentDir = path.dirname(document.uri.fsPath);
+      const parentDirName = path.basename(parentDir);
+      const needsRelocate = parentDirName !== docBaseName;
+      const baseFolderUri = needsRelocate
+        ? vscode.Uri.file(path.join(parentDir, docBaseName))
+        : vscode.Uri.file(parentDir);
+
+      if (needsRelocate) {
+        try {
+          const folderStat = await withTimeout('stat-base-folder', this.safeStat(baseFolderUri), fsTimeoutMs);
+          if (folderStat && folderStat.type !== vscode.FileType.Directory) {
+            fail('Target folder exists and is not a directory', 'NESTED_PAGE_FOLDER_INVALID', {
+              folderPath: baseFolderUri.fsPath,
+            });
+            return;
+          }
+          if (!folderStat) {
+            await withTimeout('create-base-folder', vscode.workspace.fs.createDirectory(baseFolderUri), fsTimeoutMs);
+          }
+        } catch (error) {
+          fail('Failed to create target folder', 'NESTED_PAGE_FOLDER_CREATE_FAILED', {
+            folderPath: baseFolderUri.fsPath,
+            error: String(error),
+          });
+          return;
+        }
+
+        try {
+          if (document.isDirty) {
+            const saved = await withTimeout('save-doc', document.save(), fsTimeoutMs);
+            if (!saved) {
+              fail('Failed to save document before move', 'NESTED_PAGE_DOC_SAVE_FAILED');
+              return;
+            }
+          }
+        } catch (error) {
+          fail('Failed to save document before move', 'NESTED_PAGE_DOC_SAVE_FAILED', {
+            error: String(error),
+          });
+          return;
+        }
+
+        const relocatedDocUri = vscode.Uri.file(path.join(baseFolderUri.fsPath, `${docBaseName}${docExt}`));
+        try {
+          const existingDoc = await withTimeout('stat-move-target', this.safeStat(relocatedDocUri), fsTimeoutMs);
+          if (existingDoc) {
+            fail('Target document already exists', 'NESTED_PAGE_DOC_MOVE_TARGET_EXISTS', {
+              filePath: relocatedDocUri.fsPath,
+            });
+            return;
+          }
+        } catch (error) {
+          fail('Failed to stat target document', 'NESTED_PAGE_DOC_MOVE_TARGET_STAT_FAILED', {
+            filePath: relocatedDocUri.fsPath,
+            error: String(error),
+          });
+          return;
+        }
+
+        try {
+          await withTimeout(
+            'move-doc',
+            vscode.workspace.fs.rename(document.uri, relocatedDocUri, { overwrite: false }),
+            fsTimeoutMs
+          );
+          logger.info('Nested page source document moved', {
+            clientId,
+            docUri,
+            details: {
+              requestId,
+              from: document.uri.fsPath,
+              to: relocatedDocUri.fsPath,
+            },
+          });
+        } catch (error) {
+          fail('Failed to move document into folder', 'NESTED_PAGE_DOC_MOVE_FAILED', {
+            from: document.uri.fsPath,
+            to: relocatedDocUri.fsPath,
+            error: String(error),
+          });
+          return;
+        }
+      }
+
+      const childrenFolderUri = vscode.Uri.file(path.join(baseFolderUri.fsPath, '_children'));
+      try {
+        const childrenStat = await withTimeout(
+          'stat-children-folder',
+          this.safeStat(childrenFolderUri),
+          fsTimeoutMs
+        );
+        if (childrenStat && childrenStat.type !== vscode.FileType.Directory) {
+          fail('Children folder exists and is not a directory', 'NESTED_PAGE_CHILDREN_FOLDER_INVALID', {
+            folderPath: childrenFolderUri.fsPath,
+          });
+          return;
+        }
+        if (!childrenStat) {
+          await withTimeout(
+            'create-children-folder',
+            vscode.workspace.fs.createDirectory(childrenFolderUri),
+            fsTimeoutMs
+          );
+        }
+      } catch (error) {
+        fail('Failed to create children folder', 'NESTED_PAGE_CHILDREN_FOLDER_CREATE_FAILED', {
+          folderPath: childrenFolderUri.fsPath,
+          error: String(error),
+        });
+        return;
+      }
+
+      const fileBaseName = this.createAutoNestedPageBaseName();
+      const fileName = `${fileBaseName}.md`;
+      const targetFileUri = vscode.Uri.joinPath(childrenFolderUri, fileName);
+
+      try {
+        const existing = await withTimeout('stat-file', this.safeStat(targetFileUri), fsTimeoutMs);
+        if (existing) {
+          fail('Target file already exists', 'NESTED_PAGE_FILE_EXISTS', {
+            filePath: targetFileUri.fsPath,
+          });
+          return;
+        }
+      } catch (error) {
+        fail('Failed to stat target file', 'NESTED_PAGE_FILE_STAT_FAILED', {
+          filePath: targetFileUri.fsPath,
+          error: String(error),
+        });
+        return;
+      }
+
+      const tmpFileUri = vscode.Uri.joinPath(childrenFolderUri, `.tmp.inlineMark.${requestId}.md`);
+      try {
+        await withTimeout('write-temp', vscode.workspace.fs.writeFile(tmpFileUri, new TextEncoder().encode('')), fsTimeoutMs);
+        await withTimeout('rename-temp', vscode.workspace.fs.rename(tmpFileUri, targetFileUri, { overwrite: false }), fsTimeoutMs);
+      } catch (error) {
+        try {
+          await withTimeout('cleanup-temp', vscode.workspace.fs.delete(tmpFileUri), fsTimeoutMs);
+        } catch (cleanupError) {
+          logger.warn('Nested page temp cleanup failed', {
+            clientId,
+            details: { requestId, error: String(cleanupError) },
+          });
+        }
+        fail('Failed to create nested page file', 'NESTED_PAGE_FILE_CREATE_FAILED', {
+          filePath: targetFileUri.fsPath,
+          error: String(error),
+        });
+        return;
+      }
+
+      const relativePath = path
+        .relative(baseFolderUri.fsPath, targetFileUri.fsPath)
+        .replace(/\\/g, '/');
+
+      const delivered = postToRequestingPanel(
+        'nestedPageCreated',
+        createNestedPageCreatedMessage(requestId, displayTitle, relativePath, state.sessionId)
+      );
+
+      if (!delivered) {
+        try {
+          const viewColumn =
+            panel.panel.viewColumn ??
+            vscode.window.activeTextEditor?.viewColumn ??
+            vscode.window.tabGroups.activeTabGroup.viewColumn;
+          const options = viewColumn ? { viewColumn, preview: false } : { preview: false };
+          await vscode.commands.executeCommand('vscode.openWith', targetFileUri, InlineMarkProvider.viewType, options);
+          logger.info('Nested page opened by extension', {
+            clientId,
+            docUri,
+            details: {
+              requestId,
+              path: targetFileUri.fsPath,
+              reason: 'panel-unavailable',
+            },
+          });
+        } catch (error) {
+          logger.error('Nested page open failed (extension)', {
+            clientId,
+            docUri,
+            errorCode: 'NESTED_PAGE_OPEN_FAILED',
+            errorStack: String(error),
+            details: { requestId, path: targetFileUri.fsPath },
+          });
+        }
+      }
+
+      logger.info('Nested page created', {
+        clientId,
+        docUri,
+        details: {
+          requestId,
+          title: displayTitle,
+          path: relativePath,
+          moved: needsRelocate,
+          baseFolder: baseFolderUri.fsPath,
+          durationMs: Date.now() - startedAt,
+        },
+      });
+    } catch (error) {
+      fail('Nested page create unexpected error', 'NESTED_PAGE_CREATE_UNEXPECTED', {
+        error: String(error),
+      });
+    }
+  }
+
+  private async handleOpenNestedPage(
+    document: vscode.TextDocument,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'openNestedPage' }
+  ): Promise<void> {
+    const { path: relativePath } = msg;
+    const docUri = document.uri.toString();
+
+    logger.info('Nested page open requested', {
+      clientId,
+      docUri,
+      details: { path: relativePath },
+    });
+
+    if (!relativePath || typeof relativePath !== 'string') {
+      vscode.window.showErrorMessage('Nested page path is missing.');
+      logger.error('Nested page open failed: missing path', { clientId, docUri });
+      return;
+    }
+
+    if (document.uri.scheme !== 'file') {
+      vscode.window.showErrorMessage('Only file-based documents are supported.');
+      logger.error('Nested page open failed: unsupported scheme', {
+        clientId,
+        docUri,
+        details: { scheme: document.uri.scheme },
+      });
+      return;
+    }
+
+    const baseDir = path.dirname(document.uri.fsPath);
+    const targetPath = path.resolve(baseDir, relativePath);
+    const targetUri = vscode.Uri.file(targetPath);
+
+    const exists = await this.safeStat(targetUri);
+    if (!exists || exists.type !== vscode.FileType.File) {
+      vscode.window.showErrorMessage(`Nested page not found: ${relativePath}`);
+      logger.error('Nested page open failed: file missing', {
+        clientId,
+        docUri,
+        details: { targetPath },
+      });
+      return;
+    }
+
+    try {
+      const viewColumn =
+        vscode.window.activeTextEditor?.viewColumn ?? vscode.window.tabGroups.activeTabGroup.viewColumn;
+      await vscode.commands.executeCommand('vscode.openWith', targetUri, InlineMarkProvider.viewType, {
+        viewColumn,
+        preview: false,
+      });
+      logger.info('Nested page opened', {
+        clientId,
+        docUri,
+        details: { targetPath },
+      });
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to open nested page: ${relativePath}`);
+      logger.error('Nested page open failed', {
+        clientId,
+        docUri,
+        errorCode: 'NESTED_PAGE_OPEN_FAILED',
+        errorStack: String(error),
+      });
+    }
+  }
+
   private async handleNotifyHost(
     document: vscode.TextDocument,
     state: DocumentState,
@@ -1023,6 +1481,15 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     const syncConfig = vscode.workspace.getConfiguration('inlineMark.sync');
     const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
     const debugConfig = vscode.workspace.getConfiguration('inlineMark.debug');
+    const viewConfig = vscode.workspace.getConfiguration('inlineMark.view');
+    const editorConfig = vscode.workspace.getConfiguration('editor', { languageId: 'markdown' });
+    const wordWrap = editorConfig.get<string>('wordWrap', 'off');
+    const noWrapInspect = viewConfig.inspect<boolean | null>('noWrap');
+    const explicitNoWrap =
+      noWrapInspect?.workspaceValue ??
+      noWrapInspect?.workspaceFolderValue ??
+      noWrapInspect?.globalValue;
+    const resolvedNoWrap = typeof explicitNoWrap === 'boolean' ? explicitNoWrap : wordWrap === 'off';
 
     return {
       debounceMs: syncConfig.get<number>('debounceMs', 250),
@@ -1032,11 +1499,14 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         maxChangedChars: syncConfig.get<number>('changeGuard.maxChangedChars', 50000),
         maxHunks: syncConfig.get<number>('changeGuard.maxHunks', 200),
       },
+      view: {
+        fullWidth: viewConfig.get<boolean>('fullWidth', true),
+        noWrap: resolvedNoWrap,
+      },
       security: {
         allowWorkspaceImages: securityConfig.get<boolean>('allowWorkspaceImages', true),
         allowRemoteImages: securityConfig.get<boolean>('allowRemoteImages', false),
         allowInsecureRemoteImages: securityConfig.get<boolean>('allowInsecureRemoteImages', false),
-        renderHtml: securityConfig.get<boolean>('renderHtml', false),
         confirmExternalLinks: securityConfig.get<boolean>('confirmExternalLinks', true),
       },
       debug: {

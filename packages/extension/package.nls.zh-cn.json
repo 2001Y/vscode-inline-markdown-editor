@@ -1,6 +1,6 @@
 {
-  "extension.displayName": "inlineMark",
-  "extension.description": "Notion风格Markdown块编辑器。内联编辑、拖拽移动、嵌套md文件、TipTap驱动WYSIWYG",
+  "extension.displayName": "inlineMark - Notion风格Markdown块编辑器",
+  "extension.description": "内联编辑、拖放、嵌套md文件、Tiptap驱动WYSIWYG",
   "customEditor.displayName": "inlineMark",
   "command.resetSession.title": "重置编辑器会话",
   "command.reopenWithTextEditor.title": "不使用 inlineMark 打开",
@@ -19,7 +19,8 @@
   "configuration.security.allowWorkspaceImages.description": "允许从工作区加载图片（仅限受信任的工作区）",
   "configuration.security.allowRemoteImages.description": "允许通过 HTTPS 加载远程图片（仅限受信任的工作区）",
   "configuration.security.allowInsecureRemoteImages.description": "允许通过 HTTP 加载远程图片（强烈不推荐）",
-  "configuration.security.renderHtml.description": "渲染 HTML 内容（已净化）而不是显示为原始块",
   "configuration.security.confirmExternalLinks.description": "打开外部链接前显示确认对话框",
+  "configuration.view.fullWidth.description": "inlineMark 编辑器使用全宽布局",
+  "configuration.view.noWrap.description": "禁用 inlineMark 编辑器自动换行。设为 null 时跟随 VS Code 的 editor.wordWrap 设置",
   "configuration.webview.retainContextWhenHidden.description": "在切换标签页时保持 Webview（更好的体验）。关闭可能显著减少内存占用，但返回标签页时编辑器可能会重新渲染。"
 }

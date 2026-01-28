@@ -49,6 +49,15 @@
 - `DragHandle.configure({ render, onNodeChange, computePositionConfig, locked })`
 - `computePositionConfig` は floating-ui の設定（例: `{ placement, strategy, middleware }`）で位置計算を上書きするためのオプション
   - **注**: 公式 DragHandle の API 名はバージョン差異があり得るため、`computePositionConfig` / `floatingOptions` など実名は一次情報で確認する
+
+### 3.5) DragHandle API 確認スパイク（事前必須）
+- @tiptap/extension-drag-handle の **実 API** を確認し、暫定名称を確定名称へ置換する。
+- 確認項目:
+  - `DragHandle.configure` で受け取れる **オプション名**（`computePositionConfig` / `floatingOptions` など）
+  - storage で参照できる状態（`activePos` などの有無）
+  - lock/unlock コマンドの有無（UI 固定に使えるか）
+  - onNodeChange / onDragStart / onDrop 等の **イベント有無と署名**
+- 結果をこの設計書に追記し、曖昧記述を削除してから実装に進む。
 - `render` で作るDOM
   - コンテナ（class: `block-handle-container`）
   - 6点グリップ（class: `block-handle`）

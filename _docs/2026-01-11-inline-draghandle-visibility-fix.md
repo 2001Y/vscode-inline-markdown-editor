@@ -21,18 +21,19 @@
 ## 実装概要
 - `inlineDragHandleExtension.ts`
   - `Decoration.widget(0, wrapper, { key, ignoreSelection, stopEvent })` を使って handle layer を挿入。
+    - `stopEvent` は **mousemove を通す条件付き**にする（例: `mousedown/click/dragstart` のみ stop）。
   - `editor.view.dom.appendChild(wrapper)` を廃止。
   - `showHandle`/`hideHandle` で wrapper の pointer-events を制御。
   - `mousemove` で `handleVisible` を見て再表示。
   - `dragend` で `currentNode`/`currentNodePos` をリセット。
 
 ## 残リスク / 次の確認
-- widget の `stopEvent: () => true` により、**ハンドル上の mousemove が ProseMirror に届かない**。
-  - 必要に応じて `stopEvent` を条件付きにするか、hover 監視を別経路に切り替える。
+- **stopEvent を条件付きにした場合の副作用**（選択/ドラッグ挙動）が残るため要検証。
+  - mousemove が ProseMirror に届くこと（`handleVisible` 再表示が動くこと）
+  - click/dragstart で selection が暴れないこと
 - indentBlock の内部で **座標近傍のブロックを拾う精度**がまだ不足する可能性あり。
 - 実機で **Chrome MCP の console/network/trace** を見て動作確認が必要。
 
 ## 外部調査
 - Context7 で ProseMirror view docs を確認したが、`handleDOMEvents`/`posAtCoords` の実務情報は不足。
 - o3 MCP は `Invalid value: 'xhigh'` エラーで実行不能（相談方法変更も失敗）。
-

@@ -12,6 +12,8 @@ const getDebugEnabled = (): boolean => {
   }
 };
 
+let groupDepth = 0;
+
 export const DEBUG = {
   /** デバッグモード有効/無効 */
   get enabled(): boolean {
@@ -74,18 +76,24 @@ export const DEBUG = {
   group(module: string, label: string): void {
     if (!getDebugEnabled()) return;
     console.groupCollapsed(`%c[${module}] ${label}`, 'color: #4a9eff');
+    groupDepth += 1;
   },
 
   /** グループ終了 */
   groupEnd(): void {
-    if (!getDebugEnabled()) return;
+    if (groupDepth <= 0) {
+      groupDepth = 0;
+      return;
+    }
+    groupDepth -= 1;
     console.groupEnd();
   },
 
   /** 要素の位置情報をログ */
   logRect(module: string, label: string, rect: DOMRect | { left: number; top: number; width: number; height: number }): void {
     if (!getDebugEnabled()) return;
-    console.log(`%c[${module}] ${label}`, 'color: #4a9eff', {
+    const timestamp = new Date().toISOString().slice(11, 23);
+    console.log(`%c[${module}] ${timestamp} ${label}`, 'color: #4a9eff', {
       left: Math.round(rect.left),
       top: Math.round(rect.top),
       width: Math.round(rect.width),
