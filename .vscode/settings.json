@@ -1,14 +1,39 @@
 {
+  "workbench.colorCustomizations": {
+    "editor.background": "#000000",
+    "tab.activeBorder": "#000000",
+    "sideBar.background": "#0f0f0f",
+    "activityBar.background": "#410A56",
+    "titleBar.activeBackground": "#5A0E78",
+    "titleBar.activeForeground": "#FEFBFF",
+    "editor.lineHighlightBackground": "#ffffff20",
+    "editor.lineHighlightBorder": "#ffffff00",
+    "editorIndentGuide.background1": "#ff000060",
+    "editorIndentGuide.background2": "#ffff0050",
+    "editorIndentGuide.background3": "#00ff0050",
+    "editorIndentGuide.background4": "#00ffff50",
+    "editorIndentGuide.background5": "#0000ff9a",
+    "editorIndentGuide.background6": "#ff00ff60",
+    "editorIndentGuide.activeBackground1": "#ffffff",
+    "editorIndentGuide.activeBackground2": "#ffffff",
+    "editorIndentGuide.activeBackground3": "#ffffff",
+    "editorIndentGuide.activeBackground4": "#ffffff",
+    "editorIndentGuide.activeBackground5": "#ffffff",
+    "editorIndentGuide.activeBackground6": "#ffffff",
+    "textCodeBlock.background": "#1b1b1b",
+    "titleBar.inactiveBackground": "#410A56",
+    "titleBar.inactiveForeground": "#FEFBFF",
+    "statusBar.background": "#410A56",
+    "statusBar.foreground": "#FEFBFF",
+    "statusBar.debuggingBackground": "#410A56",
+    "statusBar.debuggingForeground": "#FEFBFF",
+    "statusBar.noFolderBackground": "#410A56",
+    "statusBar.noFolderForeground": "#FEFBFF"
+  },
   "editor.formatOnSave": false,
   "editor.formatOnType": false,
   "editor.formatOnPaste": false,
   "editor.codeActionsOnSave": {},
   "files.trimTrailingWhitespace": false,
-  "files.insertFinalNewline": false,
-  "workbench.colorCustomizations": {
-    "activityBar.background": "#123505",
-    "titleBar.activeBackground": "#194A06",
-    "titleBar.activeForeground": "#F3FEEF"
-  },
-  "chatgpt.openOnStartup": false
+  "files.insertFinalNewline": false
 }

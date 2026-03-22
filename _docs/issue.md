@@ -7,3 +7,15 @@
 - ネストページ作成の応答が Webview に届かずタイムアウトする事象の再検証（拡張側 Output ログ / postMessage 配送確認）。
 - table wrapper 導入後の列幅/セル選択/コピーが問題ないか UI で検証（colgroup 未使用でも成立するか）。
 - NodeView を全ブロックに導入したことによる長文性能の確認（1k+ blocks）。
+- Find widget: overview ruler/minimap 相当の一致可視化は未対応（必要なら設計追加）。
+- Find widget: prosemirror-search の textblock 走査によりブロック跨ぎ検索は未対応。
+- Codicon 未対応アイコン（H1/H2/H3, outdent など）は文字ラベルで代替中。必要なら独自アイコン/画像で補う。
+- Webview 側の console ログが常時大量出力されており、入力/スクロール/ドラッグのホットパスを圧迫している可能性。
+- InlineDragHandle の DecorationSet が `doc.descendants` で毎回全走査され、ブロック数に比例して重くなる可能性。
+- `main.ts` の MutationObserver が変更のたびに全 `img` を走査し、巨大ドキュメントで負荷になる可能性。
+- `createEditor.ts` の `computeChanges` が `editor.getMarkdown()` で全文シリアライズ → diff を毎回実行している。
+- `applyChanges` が外部変更を `setContent` で全文再構築するため、外部編集や複数パネルでの体感負荷が上がる可能性。
+- `styles.css` の `content-visibility: auto` がハンドル都合で無効化される箇所があり、疑似仮想化の効果が薄い可能性。
+- `debug.ts` の `DEBUG.enabled` が `localStorage` を毎回読み、ログ呼び出しごとにチェックが発生する。
+- Webview の prelude で `Found unexpected service worker controller... Waiting for controllerchange.` が出るケースがあり、init 停滞との相関を再検証する余地。
+- ブロックハンドルの重なりは、`Decoration.widget` が `contentDOM` 側に入る一方で本文ガターを `block-handle-host` にしか持たせていない構造が主因。`block-content` かハンドルレイヤーのどちらかを再設計しない限り再発しやすい。

@@ -1,0 +1,1981 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: packages/webview/src/styles.css, packages/webview/src/editor/inlineDragHandleExtension.ts, packages/webview/src/editor/blockHandlesExtension.ts, packages/webview/src/editor/disableKeyboardShortcuts.ts, _docs/2026-03-22-handle-overlap-debug.md, _docs/2026-03-22-handle-overlap-history.md, _docs/2026-03-22-handle-overlap-design-review.md, _docs/2026-01-13-block-handle-wrapper-design.md, _docs/2026-01-14-block-wrapper-implementation.md, _docs/2026-02-04-handle-active-changeguard-vsix.md, _docs/2026-02-07-preview-handle-frontmatter-alignment-fix.md
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+_docs/
+  2026-01-13-block-handle-wrapper-design.md
+  2026-01-14-block-wrapper-implementation.md
+  2026-02-04-handle-active-changeguard-vsix.md
+  2026-02-07-preview-handle-frontmatter-alignment-fix.md
+  2026-03-22-handle-overlap-debug.md
+  2026-03-22-handle-overlap-design-review.md
+  2026-03-22-handle-overlap-history.md
+packages/
+  webview/
+    src/
+      editor/
+        blockHandlesExtension.ts
+        disableKeyboardShortcuts.ts
+        inlineDragHandleExtension.ts
+      styles.css
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="_docs/2026-02-04-handle-active-changeguard-vsix.md">
+# 2026-02-04 VSIX作成 / ハンドル1件表示 / ChangeGuard整理
+
+## VSIX作成結果
+- `npm run package` 実行済み。
+- 出力: `packages/extension/inlinemark-0.1.1.vsix`
+
+## アクティブ1件のみハンドル表示の実装方針（現状のコード前提）
+対象: `packages/webview/src/editor/inlineDragHandleExtension.ts`
+
+現状:
+- `createHandleDecorations()` で `doc.descendants` を走査し、
+  すべての対象ブロックに `Decoration.node` + `Decoration.widget` を生成。
+- 表示は CSS の `:hover` に依存（`.block-handle-host:hover .block-handle-container`）。
+- その結果、装飾数・DOM数が O(N) になる。
+
+アクティブ1件化の基本手順:
+1. Plugin state に `activeHandle` (pos / nodeType / isVisible) を追加。
+2. `pointermove` / `mouseover` でホバー中ブロックを特定し、
+   `tr.setMeta(InlineDragHandlePluginKey, { activePos })` で state を更新。
+3. `props.decorations` では `activePos` の 1件だけ `Decoration.widget` を作成。
+4. `Decoration.node` に依存している `block-handle-host` の padding を
+   全ブロックに適用する場合は CSS 側で共通パディングを与える。
+   (例: `.inline-markdown-editor-content > * { padding-left: ... }` など)
+5. hover 解除時は `activePos = null` に戻す。
+
+備考:
+- `posAtCoords` と `resolveListItemPosFromCoords` のどちらを使うかで
+  listItem の精度が変わるため、既存の listItem 系ユーティリティの
+  再利用が安全。
+- 「装飾1件だけ + 余白CSS」パターンは DOM 数を最小化できる。
+- 余白を Decoration に依存し続ける場合は、
+  `Decoration.node` だけ全ブロック維持 → widget のみ 1件に絞る方式も可能。
+  (今回はこちらを先に実装)
+- NodeView 側で `block-handle-container` を生成しているブロックは
+  引き続きブロックごとにハンドルDOMが残るため、
+  “完全に1件化”するには NodeView 側の変更も必要。
+
+関連コード:
+- `packages/webview/src/editor/inlineDragHandleExtension.ts`
+- `packages/webview/src/styles.css`
+
+## ChangeGuard
+### 現状
+- Webview 側の ChangeGuard はコメントアウト済み。
+  - `packages/webview/src/editor/createEditor.ts`
+  - `packages/webview/src/main.ts`
+- Extension 側は `handleEdit` で ChangeGuard 判定を実行するが、
+  しきい値超過時はログ出力のみ（ブロックしない）。
+  - `packages/extension/src/editors/inlineMarkProvider.ts`
+
+### 大量貼り付け時の挙動
+- 大量ペーストや全文置換では `calculateChangeMetrics` が閾値を超える可能性が高い。
+- ただし現状は「警告ログのみ」で編集自体は継続される。
+
+### コメントアウトする場合の修正範囲
+- 実際に触る必要があるのは基本的に 1 箇所。
+  - `packages/extension/src/editors/inlineMarkProvider.ts` の
+    `metrics` 計算 + `isChangeGuardExceeded` 判定部分。
+- `packages/extension/src/util/textEdits.ts` の関数定義は残しても問題ない。
+  (使わないだけ)
+</file>
+
+<file path="_docs/2026-02-07-preview-handle-frontmatter-alignment-fix.md">
+# 2026-02-07 Preview/Handle/Frontmatter 調整
+
+## 依頼
+- `.block-preview-iframe` の最小高さを 40px にする
+- `.inline-markdown-editor-content > :not(.ProseMirror-widget):not(ul):not(ol)` の個別セレクタを削除
+- 直書きHTML / Mermaid iframe のデフォルト背景を透明にする
+- Frontmatter が code block と共通化されていない原因を特定・修正
+- ハンドル位置ズレの計算を見直す
+
+## 原因
+### 1) Frontmatter が code block と揃わない
+- `frontmatter` 専用ルールで `white-space: pre-wrap` が指定されており、通常 code block の表示特性（折り返ししない `pre`）と乖離していた。
+- さらに code/frontmatter で二重管理セレクタがあり、見た目統一の変更が漏れやすい状態だった。
+
+### 2) ハンドル位置がズレる
+- トップレベルに対する `> :not(.ProseMirror-widget):not(ul):not(ol)` が全ブロックへ左右 padding を付与し、
+  blockquote/table 側の個別 padding と重なってオフセットが過剰になっていた。
+- ドラッグ時のブロック開始X計測が「ホスト要素の padding のみ」基準で、
+  実際のテキスト開始位置（`pre`/`blockquote`/`table`）とズレるケースがあった。
+
+## 修正
+- `packages/webview/src/styles.css`
+  - `.block-preview-iframe` の `min-height` を `40px` に変更。
+  - `> :not(.ProseMirror-widget):not(ul):not(ol)` を削除。
+  - 代わりに `> .block-handle-host` へ統一的に左右 gutter を適用。
+  - blockquote/table の重複 gutter 指定を削除。
+  - code/frontmatter のシェル指定を `code-block` 基準へ整理（重複セレクタ削減）。
+  - `frontmatter-block-content` を code block 準拠（`white-space: pre`）に変更。
+
+- `packages/webview/src/editor/blockPreview.ts`
+  - `PREVIEW_MIN_HEIGHT` を `40` に変更。
+  - HTML preview iframe 内で `.inline-markdown-editor-content` / `.preview-markdown-content` の背景を透明化。
+  - Mermaid payload の `background` / `themeVariables.background` / `edgeLabelBackground` を透明化。
+
+- `packages/webview/src/editor/inlineDragHandleExtension.ts`
+  - `resolveBlockTextStartX` を更新し、
+    `block-content` → 直下のテキスト系要素（pre/p/heading/blockquote/table）→ ホスト の順で
+    開始Xを解決するよう変更。
+
+## 検証
+- `npm run lint -w packages/webview` ✅
+- `npm run build -w packages/webview` ✅
+- `npm run test` ✅
+</file>
+
+<file path="_docs/2026-03-22-handle-overlap-debug.md">
+# 2026-03-22 ハンドルが文字にかぶる件の調査
+
+## 目的
+- ブロックハンドルが本文テキストと重なる原因を特定する。
+- Playwright Interactive / VS Code デバッグのどちらを主軸にすべきかも整理する。
+
+## 調査方法
+- ソースコードの配置と CSS を突き合わせて、ハンドルの描画レイヤーと本文の余白レイヤーを確認した。
+- 追加で、`coding-confidant` を使って Playwright Interactive と VS Code 拡張デバッグの公開情報も確認した。
+- この環境では main webview の単独 preview 入口が見当たらなかったため、実機再現はせず、DOM 構造ベースで原因を絞り込んだ。
+
+## 結論
+ハンドルは「本文を押しのける余白」ではなく「本文の上に重なる絶対配置」で描画されている。  
+そのため、`block-handle-host` に付けた padding では本文とハンドルの重なりが解消しない。
+
+## 原因候補
+### 1. ハンドル widget が `contentDOM` の中に入っている
+- `Decoration.widget(...)` は `pos + 1` に置かれており、本文ノードの `contentDOM` 側に挿入される。
+- つまり、ハンドルは本文と同じ内容ボックス基準で位置決めされる。
+- 該当箇所: [inlineDragHandleExtension.ts](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/editor/inlineDragHandleExtension.ts#L356)
+
+### 2. ハンドルの位置指定が `left: 0`
+- `.block-handle-container` は `position: absolute; left: 0; top: 50%; transform: translateY(-50%);`。
+- 余白がなければ、ハンドルは本文の先頭文字と同じ起点に乗る。
+- 該当箇所: [styles.css](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/styles.css#L1277)
+
+### 3. 余白を付けているのが `block-handle-host` だけ
+- `block-handle-host` に padding があるが、本文も同じコンテナ内なので、ハンドルだけを外に逃がせていない。
+- 該当箇所: [styles.css](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/styles.css#L473)
+
+### 4. `block-content` 側に専用の左ガターがない
+- `.block-content` は `position: relative; width: 100%` で、ハンドルの逃げ場になる左右余白を持たない。
+- Paragraph / Heading は `block-content` がインラインブロック化されていても、起点は本文と同じ。
+- 該当箇所: [styles.css](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/styles.css#L1304)
+
+### 5. コードブロック系はシェル padding の内側に重なる
+- `pre.code-block` / `pre.raw-block-content` に padding はあるが、その内側でハンドルも本文も同じ起点を共有する。
+- そのため、コードブロックでも見た目上は重なりやすい。
+- 該当箇所: [styles.css](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/styles.css#L230) と [styles.css](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/styles.css#L269)
+
+### 6. z-index で前面に出ている
+- ハンドルは `z-index: 2` で本文より前に描かれる。
+- 余白が足りない状態だと「本文を避ける」のではなく「本文の上に被さる」見え方になる。
+- 該当箇所: [styles.css](/Users/2001y/_dev/vscode-inline-markdown-editor/packages/webview/src/styles.css#L1277)
+
+## 補足
+- `block-handle-host` の padding を増やすだけでは不十分。
+- 本質的には、ハンドル専用の左ガターを `block-content` 側に持たせるか、ハンドルを本文とは別のレイヤーに出す必要がある。
+- 以前の設計メモでも「Decoration に依存し続けるなら widget のみ 1 件化しても、余白 CSS が必要」と書かれている。
+- 参考: [2026-02-04 ハンドル1件表示の復旧 / 不明ブロック表示](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-02-04-handle-unknownblock-fix.md)
+
+## デバッグ手段の評価
+- Playwright Interactive は、この手の DOM/CSS/座標系の重なり確認には向いている。
+- ただし VS Code 拡張ホストや webview 固有の挙動は、VS Code の DevTools と `--inspect-extensions` を併用する方が確実。
+- このリポジトリでは、まず `code --extensionDevelopmentPath` + DevTools で実機を見て、レイアウトだけを Playwright で切り分けるのが最短。
+
+## 次の実装候補
+- `.block-content` 側に左ガターを持たせる。
+- もしくは `block-handle-container` を `block-content` の外に出して、本文と完全に別レイヤーにする。
+- どちらかに統一しない限り、重なりは再発しやすい。
+</file>
+
+<file path="_docs/2026-03-22-handle-overlap-design-review.md">
+# 2026-03-22 ハンドル重なり問題 設計再検討ログ
+
+## 目的
+- 「ハンドルが文字にかぶる」問題について、外部相談を併用しながら解決方針を慎重に比較検討する。
+- その検討過程を、後から追跡できる形で step-by-step に記録する。
+
+## 進め方
+1. 既存の `_docs` と git 履歴から、内部で分かっている事実を固定する。
+2. 現在の構造に対して、どの設計案があり得るかを整理する。
+3. 外部相談を行い、公式情報・公開知見と照らして比較する。
+4. 案ごとの利点 / 欠点 / リスク / 実装コストを評価する。
+5. 最終的な推奨案と、次にやるべき最小実装単位を決める。
+
+## Step 1. 内部で固定できている事実
+- 現在のハンドルは `Decoration.widget(...)` で生成され、本文側 `contentDOM` に差し込まれている。
+- `.block-handle-host` / `.block-content` / `.block-handle-container` の見た目は 2 カラム構造に近いが、実体としては本文レイヤーとハンドルレイヤーが完全分離されていない。
+- 2026-01-10 以降、list marker / heading / blockquote / code block で繰り返し位置ズレや重なりが調整されている。
+- 履歴調査は [2026-03-22-handle-overlap-history.md](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-03-22-handle-overlap-history.md) にまとめた。
+
+## Step 2. 現時点での設計候補
+### 案A. 現行構造を維持し、CSS オフセットだけで押し切る
+- 例: `left` / `margin-left` / `padding-left` を再調整する。
+- 想定メリット:
+  - 変更量が小さい。
+- 想定リスク:
+  - node type ごとの再調整が続きやすく、再発しやすい。
+
+### 案B. `block-content` に本当の左ガターを持たせる
+- 本文列そのものにハンドル用の固定ガターを予約する。
+- 想定メリット:
+  - handle が本文開始位置を侵食しにくくなる。
+- 想定リスク:
+  - list / code / table / blockquote で text start が異なるため、共通化に失敗すると別のズレが出る。
+
+### 案C. ハンドルを本文レイヤーの外へ出す
+- `block-handle-container` を `contentDOM` と兄弟関係にする。
+- 想定メリット:
+  - 本文とハンドルの座標系を分離できる。
+- 想定リスク:
+  - ProseMirror / NodeView / Decoration の責務を整理し直す必要がある。
+
+### 案D. 旧 overlay 型へ戻す
+- 独立オーバーレイとして handle を浮かせる。
+- 想定メリット:
+  - 本文と完全分離できる。
+- 想定リスク:
+  - ProseMirror 管理外 DOM の扱いで過去に問題化している。
+
+## Step 3. 外部相談の問い
+- `Decoration.widget` を本文側に差し込む構造のまま、安定して本文との重なりを防ぐのは現実的か。
+- Tiptap / ProseMirror の Custom Editor で、block handle を sibling column として持つのは妥当か。
+- NodeView shell と widget overlay の混在は長期的に保守しやすいか。
+- このリポジトリでは、案A/B/C/D のどれが最も単純で再発しにくいか。
+
+## Step 4. 外部相談ログ
+- まだ実行前
+
+## Step 5. 暫定判断
+- まだ確定しない。外部相談後に更新する。
+</file>
+
+<file path="_docs/2026-03-22-handle-overlap-history.md">
+# 2026-03-22 ハンドル重なり問題の履歴調査
+
+## 目的
+- 現在の「ハンドルが文字にかぶる」問題について、過去の設計判断と実装変遷を時系列で整理する。
+- どの変更が現在の症状につながったかを、`_docs` と git 履歴の両方から特定する。
+
+## 調査対象
+- `packages/webview/src/styles.css`
+- `packages/webview/src/editor/inlineDragHandleExtension.ts`
+- `packages/webview/src/editor/blockHandlesExtension.ts`
+- `packages/webview/src/editor/disableKeyboardShortcuts.ts`
+- `_docs` 内のハンドル関連メモ
+- git commit / blame / `-S` 履歴
+
+## エグゼクティブサマリー
+- この問題は単発の CSS バグではなく、**ハンドルをどのレイヤーに置くか**という設計が複数回変わった結果として再発している。
+- 大きな流れは次の通り。
+  1. 2026-01-09 時点では、ハンドルは独立した絶対配置オーバーレイとして導入された。
+  2. 2026-01-11 に ProseMirror 管理下へ入れるため `Decoration.widget` へ寄せた。
+  3. 2026-01-13 から 2026-01-15 にかけて、「ハンドル列 + コンテンツ列」の2カラム構造へ寄せる設計が検討・導入された。
+  4. 2026-01-19 から 2026-01-20 にかけて、見出し・引用・リスト・コードブロックで個別調整が増え、症状対応が積み重なった。
+  5. 2026-01-28 の大規模変更で `.block-handle-container` / `.block-handle-host` / `.block-content` が本格導入された。
+  6. 2026-02-04 にアクティブ1件表示へ寄せた結果、`Decoration.node` の host と `Decoration.widget` の handle に再び依存する構造が前面に出た。
+  7. 2026-02-07 に padding/gutter と text start 計測の調整が入ったが、根本のレイヤー不整合は残った。
+- 現在の問題は、**「2カラム構造にしたい」設計意図**と、**実際には handle widget が contentDOM 側へ差し込まれる実装**が食い違っていることが主因。
+
+## 現在の根本原因
+### 1. 目指していた構造と実装構造が一致していない
+- 理想形としては、`block-handle-host` の中に「ハンドル列」と「本文列」を分ける構造が何度も設計されている。
+- しかし現在の実装では、ハンドルは `Decoration.widget(...)` により本文ノードの `contentDOM` 側に入っており、実際には本文と同じ座標系を共有している。
+- そのため、`block-handle-host` に付けた padding は「本文を押しのける余白」ではなく、見た目上の外枠調整にしかなっていない。
+
+### 2. 2026-01-28 以降の host/content 導入で「列分離したように見える」状態になった
+- `.block-handle-container` / `.block-handle-host` / `.block-content` の導入により、CSS 上は列分離したように読める。
+- ただし handle 実体は widget で差し込まれるため、DOM 実体としては「列分離」ではなく「本文の上に重なる絶対配置」である。
+
+### 3. 以後の修正が構造修正ではなくオフセット調整中心になった
+- 見出しの margin、blockquote の padding、list marker との衝突回避、`resolveBlockTextStartX` の改善など、各ブロック種別ごとの微調整が増えた。
+- これは症状緩和には効くが、根本の「widget が本文側にある」構造を変えていないため、別ノード種別や別 CSS 変更で再発しやすい。
+
+## 時系列
+### 2026-01-09 初期導入
+- コミット: `1fe992d` `fix: resolve BubbleMenu display bug and implement block handles`
+- 内容:
+  - ブロックハンドルが新規導入された。
+  - 当時の CSS は `.block-handle` 単体を `position: absolute` で扱うオーバーレイ型。
+  - `git show 1fe992d:packages/webview/src/styles.css` では、`.block-handle` 自体が絶対配置・高 z-index のドラッグ UI になっている。
+- 意味:
+  - この段階では「ハンドル列 + 本文列」の明示的分離はまだない。
+  - まずはハンドルを出すことが主目的で、重なり問題を構造で解く段階ではなかった。
+
+### 2026-01-10 公式 DragHandle / 独自実装 / Decoration の比較検討
+- 参考メモ:
+  - `_docs/2026-01-10-ui-handle-table-o3.md`
+  - `_docs/2026-01-10-handle-menu-o3.md`
+  - `_docs/2026-01-10-draghandle-dropcursor-design.md`
+  - `_docs/2026-01-10-list-marker-css.md`
+- 当時の論点:
+  - list marker とハンドルが衝突する。
+  - テーブルは別 UI として分離したい。
+  - `@tiptap/extension-drag-handle` を使うか、自前実装を継続するか検討していた。
+  - listItem では marker とハンドルの競合が最初期から問題化していた。
+- 意味:
+  - 「ハンドルが本文や marker と重なる」問題は、少なくとも 2026-01-10 には既に顕在化していた。
+  - この時点で、問題は単なる CSS 値ではなく「アンカー位置と DOM 構造」にあると認識されていた。
+
+### 2026-01-11 ProseMirror 管理下へ寄せる判断
+- 参考メモ: `_docs/2026-01-11-inline-draghandle-visibility-fix.md`
+- 内容:
+  - `editor.view.dom` 配下に未知の DOM を直接 append すると ProseMirror に除去されうるため、`Decoration.widget` を使う方針へ転換した。
+  - ここで「handle layer を widget でマウントする」という基本路線が確定した。
+- 意味:
+  - この判断自体は正しい。
+  - ただし、この時点で「widget は本文 DOM に寄生する」性質を持つため、のちの 2 カラム構造と緊張関係が生まれた。
+
+### 2026-01-13 理想形としての 2 カラム設計
+- 参考メモ: `_docs/2026-01-13-block-handle-wrapper-design.md`
+- 内容:
+  - 明確に次の理想構造が定義された。
+
+```text
+.block-handle-host
+  .block-handle-container
+  .block-content
+```
+
+- 目的:
+  - ハンドル位置を CSS 主体で安定化。
+  - 既存スタイルは `.block-content` に集約。
+  - ハンドルは共通コンポーネントとして扱う。
+- 重要点:
+  - listItem、pre、table、NodeView 系で例外パターンまで丁寧に分けている。
+  - つまりこの時点で、問題の本質が「座標調整」ではなく「DOM 構造統一」にあることは理解されていた。
+
+### 2026-01-14 2 カラム設計の実装
+- 参考メモ: `_docs/2026-01-14-block-wrapper-implementation.md`
+- 内容:
+  - `Paragraph/Heading/Blockquote/ListItem` NodeView に handle + block-content を持たせる方針。
+  - `CodeBlock/Raw/Frontmatter/...` は wrapper + block-content。
+  - `TableBlock` も wrapper 型。
+- 意味:
+  - ここで一度、「すべてのブロックを共通 shell に寄せる」方向へ大きく舵が切られた。
+  - 以後のハンドル問題は、この理想構造をどこまで実装できたか、どこで崩れたかで読むべき。
+
+### 2026-01-15 block-content へのスタイル移行
+- 参考メモ:
+  - `_docs/2026-01-15-block-content-style-handle-scope-nested-open.md`
+  - `_docs/2026-01-15-block-handle-style-fix.md`
+- 内容:
+  - block-content に見た目を集約。
+  - `block-handle-host` に gutter を持たせる整理が進んだ。
+  - 一方で NodeView 化後に CSS セレクタが外れ、ハンドルスタイルが当たらない問題も起きている。
+- 意味:
+  - DOM 構造変更に CSS が追随できず、ハンドル周りはすでに不安定化していた。
+  - ここから先は、構造変更と CSS 追随のズレが慢性化している。
+
+### 2026-01-19 〜 2026-01-20 レイアウト症状への個別対応期
+- 参考メモ:
+  - `_docs/2026-01-19-handle-drag-debug-logging.md`
+  - `_docs/2026-01-19-drag-drop-heading-blockquote-fix.md`
+  - `_docs/2026-01-19-link-drag-heading-blockquote-fix.md`
+  - `_docs/2026-01-20-handle-center-tight-spacing-codeblock-label.md`
+- 内容:
+  - 見出しでハンドルが出ない、縦位置がズレる、blockquote の余白が過剰、drag が不発、などの症状が連続している。
+  - 見出しの margin/padding、blockquote の padding、ハンドルの上下中央配置、list や code block の個別調整が続いた。
+- 意味:
+  - ここでは構造を再整理するより、症状ごとのオフセット・余白調整に比重が移っている。
+  - 長期的には、このフェーズが「症状対応の蓄積」を増やした。
+
+### 2026-01-28 大規模再編成
+- コミット: `67a410c`
+- git diff 規模:
+  - `inlineDragHandleExtension.ts` 1945 行規模の大改修
+  - `disableKeyboardShortcuts.ts` 808 行規模
+  - `styles.css` 485 行規模
+- 導入/定着した要素:
+  - `.block-handle-container`
+  - `.block-handle-host`
+  - `.block-content`
+  - ListItem など各 NodeView で `contentDOM` を `block-content` に寄せる構造
+- 履歴根拠:
+  - `git log -S 'block-handle-host'`
+  - `git log -S 'block-handle-container'`
+  - `git log -S 'block-content'`
+- 意味:
+  - 現在の設計の土台はこのコミットでほぼ確立している。
+  - ただし `git show 67a410c:packages/webview/src/editor/inlineDragHandleExtension.ts` では、handle は依然として `Decoration.widget` で差し込まれている。
+  - つまり **見た目は2カラム、実体は widget overlay** というハイブリッド構造がここで成立した。
+
+### 2026-02-04 アクティブ1件表示への寄せ戻し
+- 参考メモ:
+  - `_docs/2026-02-04-handle-active-changeguard-vsix.md`
+  - `_docs/2026-02-04-handle-unknownblock-fix.md`
+- 内容:
+  - アクティブ1件のみハンドル表示する設計へ変更。
+  - ドキュメントには明確に次が書かれている。
+    - `Decoration.node` で host を付ける
+    - `Decoration.widget` でハンドルを1件だけ出す
+    - その場合、padding は CSS 側で共通に与える必要がある
+- 重要な示唆:
+  - この時点で、**handle の配置が Decoration 依存であること**と、**余白は CSS 依存で補うしかないこと**が明文化されている。
+  - これは現在の再発構造と一致する。
+
+### 2026-02-07 preview まわりの CSS 共通化で再びガター設計が揺れた
+- 参考メモ:
+  - `_docs/2026-02-07-preview-handle-frontmatter-alignment-fix.md`
+  - `_docs/2026-02-07-preview-ui-csp-table-followup.md`
+- 内容:
+  - `> :not(.ProseMirror-widget):not(ul):not(ol)` の個別セレクタを削除
+  - 代わりに `> .block-handle-host` へ統一的に左右 gutter を適用
+  - `resolveBlockTextStartX` を、`block-content -> 直下のテキスト系要素 -> host` の順で解決するよう変更
+- 意味:
+  - 2 月上旬の時点でも、「host padding と実際の text start がズレる」ことが問題として認識されていた。
+  - つまり、現在の重なりは突然の退行ではなく、当時から続く未完の構造問題の延長線上にある。
+
+### 2026-03-22 現在のワークツリー
+- 重要点:
+  - 現在のワークツリーには未コミット変更が含まれている。
+  - `git blame` 上では、以下が `Not Committed Yet` になっている。
+    - `activePos` 前提の1件表示ロジック
+    - `.block-handle-container.is-active`
+    - `.inline-markdown-editor-content > .block-handle-host` の padding 付与
+- 意味:
+  - 現在ユーザーが見ている症状は、単一コミットではなく、**2026-01-28 基盤 + 2026-02-04 系の1件化ロジック + 2026-02-07 系のガター調整 + 現在の未コミット差分**が合成された結果である。
+
+## 根本原因の一覧
+### A. ハンドルレイヤーが本文レイヤーの外へ完全に分離されていない
+- 理想は `handle column` と `content column` の分離。
+- 実装は `Decoration.widget` による本文側差し込み。
+- この不一致が、すべてのズレの出発点になっている。
+
+### B. `block-handle-host` の padding が「handle を置く列」ではなく「外枠の余白」になっている
+- widget は `contentDOM` 側にいるため、host padding を増やしても handle の衝突は構造的には解決しない。
+- 一部ノードでは見かけ上改善しても、別ノードで再発する。
+
+### C. `block-content` の text start と host start が一致しない
+- `pre`, `blockquote`, `table`, `li`, heading などは text start が host start と異なる。
+- これにより、`left: 0` のハンドルが本文先頭と衝突しやすい。
+- 2026-02-07 に `resolveBlockTextStartX` が強化されたのは、このズレを計測で吸収しようとした証拠。
+
+### D. 微調整がノード種別ごとに増え、全体整合が崩れやすくなった
+- heading margin
+- blockquote padding
+- list marker と padding-left
+- code block / frontmatter / raw shell
+- これらが個別修正されるほど、共通構造の破綻は見えにくくなるが、再発確率は上がる。
+
+### E. 現在のワークツリーは未コミット差分を含む
+- そのため、ドキュメントだけでは説明し切れず、現在の実装は「履歴に残った設計」と「まだ固まっていない作業中変更」の混合状態。
+- 今回の症状も、その混合状態で顕在化している可能性が高い。
+
+## 設計上の失敗点
+### 1. 2026-01-13 の理想構造を最後まで貫けていない
+- 設計書は良い。
+- 問題は、実装で `Decoration.widget` と NodeView shell が混ざったこと。
+
+### 2. 根本修正より症状修正が優先され続けた
+- 2026-01-19 以降は、ズレのたびに margin / padding / offset の修正が入っている。
+- これは短期的には正しいが、長期的には問題を深くした。
+
+### 3. host/content の責務が曖昧
+- host がレイアウトの責務を持つのか
+- content が本文列の責務を持つのか
+- widget が列外 UI なのか本文内 UI なのか
+- これが文書と実装でずれたまま残っている。
+
+## 現在の判断
+- この問題は「left 値をいじれば終わる」問題ではない。
+- 長期履歴を見ると、何度も似たズレを個別修正しており、再発のたびに別ノード種別へ波及している。
+- したがって、次に直すときは **handle を本文レイヤーの外へ完全に出す** か、**block-content 側に本当の左列を持たせる** かのどちらかに統一すべき。
+
+## 次に実装すべきこと
+1. `handle` がどの DOM に属すべきかを一意に決める
+2. `host` / `content` / `widget` の責務を再定義する
+3. list/blockquote/code/table への個別オフセットを減らす
+4. 「重なりが再発しない構造」へ寄せてから細部調整する
+
+## 参照
+- [2026-03-22-handle-overlap-debug.md](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-03-22-handle-overlap-debug.md)
+- [2026-01-13-block-handle-wrapper-design.md](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-01-13-block-handle-wrapper-design.md)
+- [2026-01-14-block-wrapper-implementation.md](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-01-14-block-wrapper-implementation.md)
+- [2026-02-04-handle-active-changeguard-vsix.md](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-02-04-handle-active-changeguard-vsix.md)
+- [2026-02-07-preview-handle-frontmatter-alignment-fix.md](/Users/2001y/_dev/vscode-inline-markdown-editor/_docs/2026-02-07-preview-handle-frontmatter-alignment-fix.md)
+</file>
+
+<file path="_docs/2026-01-13-block-handle-wrapper-design.md">
+# 2026-01-13 ブロック共通ラッパー設計（block-handle-container + content）
+
+## 目的
+- 全ブロックを **「ハンドル列 + コンテンツ列」**の2カラム構造で統一。
+- ハンドル位置を CSS 主体で安定させ、JS 依存を最小化。
+- 既存スタイルは `content` 側に集約し、ハンドルは共通コンポーネントで扱う。
+
+---
+
+## 前提・制約
+- Tiptap/ProseMirror の DOM は **ノード種別ごとに制約**がある（`pre`, `table`, `li` 等）。
+- セマンティクス（`li` の marker）や ProseMirror の編集互換性を壊さないことが最優先。
+- 失敗は即エラー。フォールバックで延命しない。
+
+---
+
+## 共通構造（理想形）
+```
+.block-handle-host
+  .block-handle-container   // +ボタン + ドラッグハンドル
+  .block-content            // 既存のスタイルはここへ
+```
+
+### 共通化できるもの
+- `.block-handle-container` の生成とイベント処理
+- `.block-content` に適用する typographic / spacing / color の大半
+- hover/focus の表示制御
+
+### 例外になりやすいもの
+- `pre` / `table` / `li` など **構造・セマンティクス制約**が強いノード
+- NodeView を持つ既存ブロック（raw/frontmatter/plaintext/nestedPage 等）
+
+---
+
+## パターン分け（実装単位）
+
+### A) 既存の通常ブロック（paragraph/heading/blockquote など）
+**方式:** NodeView を導入して上記2カラム構造を厳密に作る
+- `contentDOM` を `.block-content` に割り当てる
+- `block-handle-container` は NodeView の DOM 直下に配置
+
+**メリット**
+- DOM 構造が一貫する（理想形）
+- CSS で `content` だけを操作できる
+
+**デメリット**
+- NodeView が増える（パフォーマンス負荷）
+- update/ignoreMutation 実装が必要
+
+### B) セマンティクス制約ブロック（listItem/ul/ol）
+**方式:** `li` の DOM を壊さない構成を維持
+- `li` 自体を `.block-handle-host` にする
+- `block-handle-container` を `li` 直下に差し込む（Decoration.widget）
+- `content` は **ラップしない**（marker を壊さない）
+
+**スタイル対応**
+- `li::before` / marker の位置は `block-handle-gutter` を考慮した padding 調整
+- `li` には `padding-left: var(--block-handle-gutter) + marker幅` を適用
+
+### C) pre/table（構造的に内包が特殊）
+**方式:** 1つ外側に wrapper を追加して2カラム構造を確保
+```
+.block-handle-host
+  .block-handle-container
+  .block-content
+    pre / table
+```
+
+- pre/table 直下に handle を置かない
+- 既存 CSS は `.block-content` に移す
+
+### D) NodeView 系ブロック（raw/frontmatter/plaintext/nestedPage 等）
+**方式:** 既存 NodeView の DOM を **統一ラッパーに寄せる**
+- NodeView DOM を「Aパターン」に合わせる
+- すでに独自 label/UI を持つので衝突が少ない
+
+---
+
+## NodeView 導入のパフォーマンス評価
+
+### 影響の方向性
+- **NodeView増 = DOM ノード増 + update呼び出し増**
+- ただし **各 NodeView が軽量で、update が true/false だけ返すなら負荷は限定的**
+
+### 実測系の観点
+- 1ドキュメント数百〜千ブロック程度なら現実的
+- 長文で 1万ブロック級になると明確に負荷が出る可能性
+
+### 設計上の妥協点（推奨）
+- まずは **ハンドル制御に必要な最小限の NodeView** だけ導入
+- performance が問題なければ段階的に拡張
+
+---
+
+## 実装ステップ（提案）
+1. **NodeView化対象のノード一覧を決定**
+   - paragraph / heading / blockquote / codeBlock / table / listItem / etc
+2. **共通 wrapper コンポーネント**を作成（block DOM）
+3. **NodeView 更新処理の最小実装**（update/ignoreMutation）
+4. 既存 CSS の `block-handle-host` 直下 → `.block-content` へ移行
+5. listItem 用の marker 調整と hover 範囲検証
+
+### Migration Strategy
+- **in-place**: 既存ドキュメントは再パース時に新 wrapper を付与（保存時に旧構造は消える）
+- listItem は **構造維持**（marker 破壊を避ける）。必要な場合のみ listItem 内の block を wrapper 化
+- 互換性が必要なら **feature flag** で旧/新の NodeView を切替（同一 markdown から両方生成可能）
+
+### Testing Plan
+- Unit: NodeView `update` / `ignoreMutation` / `stopEvent` の挙動
+- Integration: パターン A–D を含むドキュメントで編集/ドラッグ/メニューが成立すること
+- Visual: CSS 移行後に block/handle/marker のズレがないかスクショ差分で確認
+
+### Rollback Plan
+- **feature flag** で旧構造に即時切替
+- パフォーマンス劣化（1k+ blocks）や drag 不安定化が出たら旧構造へ戻す
+- Markdown 互換性は維持（wrapper はレンダリング層のみ、保存フォーマットは同一）
+
+---
+
+## この設計で明確にしておくこと
+- `listItem` は **wrapper を作らず** marker を維持（構造破壊しない）
+- `pre/table` は **必ず wrapper を追加**（pre直下の handle は不可）
+- NodeView は **最小限から導入**し、問題なければ拡大
+
+---
+
+## 次の決定待ち
+- NodeView を **全ブロックで一気に導入**するか、段階導入にするか
+- 既存 CSS の移行範囲（`content` に移す具体ルール）
+</file>
+
+<file path="_docs/2026-01-14-block-wrapper-implementation.md">
+# 2026-01-14 ブロック共通ラッパー導入 + UI/同期修正
+
+## 目的
+- **全ブロックの UI を .block-handle-container + .block-content に統一**し、CSS 主導でハンドル位置を固定化。
+- pre/table は構造制約が強いため **外側 wrapper** を持つ二層構造にする。
+- メニュー2回クリック / Enter時の選択停滞 / ネストページ ack timeout を根本解決。
+- 「失敗は即エラー」「完全ログ主義」を満たす。
+
+---
+
+## 実装方針（確定）
+### 1) 2パターン統一
+- **通常ブロック（p/h/blockquote/li 等）**
+  - 既存要素の子として `.block-handle-container` + `.block-content` を挿入。
+  - p/h は **span のみ**で内包（HTML 妥当性維持）。
+- **pre/table 系**
+  - 外側 wrapper を追加して `.block-content` に本体を内包。
+  - `table` は `tbody` を contentDOM として維持。
+
+### 2) NodeView 化
+- paragraph/heading/blockquote/listItem/codeBlock/horizontalRule
+- raw/frontmatter/plainText/html/nestedPage
+- table は TableBlock で wrapper NodeView
+
+---
+
+## 変更点（主要）
+### ブロック共通ラッパー
+- `Paragraph/Heading/Blockquote/ListItem` NodeView: handle + block-content を内包。
+- `CodeBlock/Raw/Frontmatter/PlainText/Html/NestedPage` NodeView: wrapper + block-content。
+- `TableBlock` NodeView: wrapper + block-content + table/tbody (contentDOM)。
+
+### インデント属性の反映
+- NodeView 化により `data-indent` / `margin-left` が自動反映されなくなるため、
+  `applyIndentAttributesToDom()` を導入し **全 NodeView に反映**。
+
+### メニュー2回クリック問題
+- ブロックハンドルは **pointerdown/up + 移動閾値**でクリック確定。
+- `suppressNextDocumentClick` で即時クローズを防止。
+
+### Enter 時の選択停滞
+- `EnterSelectionFix` を追加。
+  - inputType が insertParagraph/insertLineBreak かつ selection が動いていない場合のみ補正。
+  - old selection を mapping 後に比較、`addToHistory=false` で履歴汚染を防止。
+
+### ネストページ ack timeout
+- `menuStateChange` は **v付きプロトコルメッセージ**で送信。
+- `createNestedPage` は **要求元 panel のみ**に ack/created/failed を返却。
+- 送信可否・配送状況をログで記録。
+
+---
+
+## 観測ログ強化
+- Enter補正/ドラッグ/ネストページ送信の成功/失敗を時刻付きで記録。
+- 失敗時はホスト通知で即エラー化。
+
+---
+
+## 既知リスク / 要確認
+### Risk: Table wrapper DOM replacement
+- Severity: High
+- Impact: 列幅/セル選択/コピーが崩れるとテーブル操作が不可になる。
+- Mitigation: UI 検証シナリオを事前に定義し、テーブル UI を固定化してから release。
+- Owner: Table UI 担当
+- Timeline: 次のリリース前（2026-01-22 まで）
+- Validation criteria: `table` で列幅変更/セル選択/コピーが全て成立し、スクロール下でもズレないこと。
+- Escalation criteria: UI テストで 1 件でも崩れが出たら即 rollback 検討。
+
+### Risk: 大量ブロック時の NodeView パフォーマンス
+- Severity: Medium
+- Impact: 1k+ ブロックでスクロール/入力遅延が発生する可能性。
+- Mitigation: 1k/5k ブロックでのベンチを実施し、NodeView の過剰更新を抑制する。
+- Owner: Editor コア担当
+- Timeline: 次回ベータ配布まで（2026-01-23 まで）
+- Validation criteria: 1k/5k ブロックでスクロール FPS と入力遅延が許容範囲（体感遅延なし）であること。
+- Escalation criteria: 体感遅延/フリーズが出たら NodeView 再設計に移行。
+
+### Action: html-block ラベル二重化の整理
+- Severity: Low
+- Impact: DOM/CSS が二重化されて保守性が低下。
+- Mitigation: `.html-block::before` を削除し `.html-block-label` に一本化。
+- Owner: UI スタイル担当
+- Timeline: 2026-01-22 まで
+- Validation criteria: html-block ラベルが二重表示されず、表示が崩れないこと。
+- Escalation criteria: ラベル崩れが確認されたら優先度を上げて対応。
+
+### Action: Frontmatter ラベル表記の見直し
+- Severity: Low
+- Impact: RAW と同じ表記で混同を招く。
+- Mitigation: `Frontmatter` / `YAML` / `Metadata` など候補を提示し UI で選定。
+- Owner: UI/UX 担当
+- Timeline: 2026-01-22 まで
+- Validation criteria: Frontmatter ラベルが明確になり RAW と区別できること。
+- Escalation criteria: 混同報告があれば即再デザイン。
+
+---
+
+## 参照
+- ProseMirror NodeView 仕様（contentDOM の原則）
+- 2026-01-13 ブロック共通ラッパー設計
+- Outputログ（menuStateChange/createNestedPage invalid, ack timeout）
+</file>
+
+<file path="packages/webview/src/editor/inlineDragHandleExtension.ts">
+/**
+ * Inline Drag Handle Extension (block-embedded handles)
+ *
+ * 役割: ブロックごとにハンドルを埋め込み、ドラッグ開始と補助線制御を提供
+ * 方針: 絶対配置レイヤーを廃止し、各ブロック内にハンドルを配置する
+ * 不変条件: table はドラッグ対象外。失敗は隠さずログに残す。
+ */
+⋮----
+import { Extension, type Editor } from '@tiptap/core';
+import type { Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
+import { Plugin, PluginKey, NodeSelection, Selection } from '@tiptap/pm/state';
+import { dropPoint } from '@tiptap/pm/transform';
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+import { liftListItem, sinkListItem } from '@tiptap/pm/schema-list';
+import { isNodeRangeSelection } from '@tiptap/extension-node-range';
+import { DEBUG } from './debug.js';
+import { notifyHostWarn } from './hostNotifier.js';
+import { INDENT_LEVEL_MAX, INDENT_MAX_DEPTH_MESSAGE, normalizeIndentAttr } from './indentConfig.js';
+import { LIST_MAX_DEPTH } from './listIndentConfig.js';
+import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { createLogger } from '../logger.js';
+⋮----
+const logInfo = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logSuccess = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logWarning = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logError = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+export interface InlineDragHandleOptions {
+  render: () => HTMLElement;
+  locked?: boolean;
+  allowedNodeTypes?: Set<string>;
+  onNodeChange?: (options: { node: ProseMirrorNode | null; editor: Editor; pos: number }) => void;
+  onElementDragStart?: (e: DragEvent) => void;
+  onElementDragEnd?: (e: DragEvent) => void;
+}
+⋮----
+type PluginState = {
+  locked: boolean;
+  activePos: number | null;
+};
+⋮----
+const clampPointToRect = (rect: DOMRect, x: number, y: number, padding = 2):
+⋮----
+const getElementsFromPoint = (view: EditorView, x: number, y: number): Element[] =>
+⋮----
+const safePosAtDOM = (view: EditorView, element: HTMLElement): number | null =>
+⋮----
+const resolveListItem = (element: HTMLElement): HTMLElement | null =>
+⋮----
+const getListItemDepth = (doc: ProseMirrorNode, insidePos: number): number =>
+⋮----
+const findNearestListItemPos = (doc: ProseMirrorNode, fromPos: number): number | null =>
+⋮----
+const resolveListItemPosFromElement = (view: EditorView, element: Element): number | null =>
+⋮----
+const resolveListItemPosFromCoords = (
+  view: EditorView,
+  doc: ProseMirrorNode,
+  x: number,
+  y: number
+): number | null =>
+⋮----
+const resolveListItemTextStartX = (listItem: HTMLElement): number | null =>
+⋮----
+const resolveListItemTextPos = (doc: ProseMirrorNode, listItemPos: number): number | null =>
+⋮----
+const isIndentableNode = (node: ProseMirrorNode | null | undefined): boolean =>
+⋮----
+const resolveIndentableBlockFromSelection = (editor: Editor):
+⋮----
+const resolveBlockTextStartX = (element: HTMLElement): number | null =>
+⋮----
+const parseStartPadding = (target: HTMLElement): number =>
+⋮----
+const readStartX = (target: HTMLElement): number | null =>
+⋮----
+const createHandleDecorations = (
+  doc: ProseMirrorNode,
+  options: InlineDragHandleOptions,
+  activePos: number | null,
+  reportCount?: (
+    count: number,
+    stats?: {
+      blockTypes: string[];
+      childCount: number;
+      docSize: number;
+      allExcluded?: boolean;
+      eligibleCount?: number;
+      activePos?: number | null;
+      activeType?: string | null;
+      activeFound?: boolean;
+      handleTypes?: Record<string, number>;
+      excludedTypes?: Record<string, number>;
+      skippedReasons?: Record<string, number>;
+    }
+  ) => void
+): DecorationSet =>
+⋮----
+const bump = (target: Record<string, number>, key: string) =>
+⋮----
+addOptions()
+⋮----
+addCommands()
+⋮----
+addProseMirrorPlugins()
+⋮----
+const setHandleLockClass = () =>
+⋮----
+const getActivePos = (): number | null =>
+⋮----
+const dispatchActivePos = (nextPos: number | null): void =>
+⋮----
+const scheduleActivePos = (nextPos: number | null): void =>
+⋮----
+const resolveHoverPosFromTarget = (
+      target: EventTarget | null,
+      clientX: number,
+      clientY: number
+): number | null =>
+⋮----
+const resolveHandleTarget = (target: EventTarget | null):
+⋮----
+const resolveBlockPosFromContainer = (): number | null =>
+⋮----
+const resolveHandleContainer = (target: EventTarget | null): HTMLElement | null =>
+⋮----
+const resolveDropcursorElements = (): NodeListOf<HTMLElement> =>
+⋮----
+const isElementInDragSource = (el: Element): boolean =>
+⋮----
+const setDropcursorNoop = (isNoop: boolean): void =>
+⋮----
+const resolveDropTargetPos = (clientX: number, clientY: number): number | null =>
+⋮----
+const resolveBlockHostFromCoords = (clientX: number, clientY: number): HTMLElement | null =>
+⋮----
+const simulateDropNoop = (target: number, slice: Slice, move: boolean): boolean | null =>
+⋮----
+const updateDropcursorNoopState = (clientX: number, clientY: number): void =>
+⋮----
+const withinRange = (value: number)
+⋮----
+const isNoopDropTarget = (target: number):
+⋮----
+const applyManualDrop = (clientX: number, clientY: number): boolean =>
+⋮----
+const applyDropcursorIndent = (clientX: number, clientY: number): void =>
+⋮----
+const applyBlockDropcursorIndent = (clientX: number, clientY: number): void =>
+⋮----
+const scheduleDropcursorIndentUpdate = (clientX: number, clientY: number): void =>
+⋮----
+const clearDragIndentState = (reason?: string): void =>
+⋮----
+const restoreDropcursorAfterIndent = (): void =>
+⋮----
+const adjustListIndentAfterDrop = () =>
+⋮----
+const getCurrentDepth = ()
+⋮----
+const adjustBlockIndentAfterDrop = () =>
+⋮----
+const resolveDragCoords = (clientX: number, clientY: number):
+⋮----
+const dispatchDropcursorUpdate = (clientX: number, clientY: number): void =>
+⋮----
+const onDragOver = (e: DragEvent) =>
+⋮----
+const onDrop = (e: DragEvent) =>
+⋮----
+const onMouseDown = (e: MouseEvent) =>
+⋮----
+const onPointerMove = (e: PointerEvent) =>
+⋮----
+const onPointerLeave = () =>
+⋮----
+const onDocumentDragOver = (e: DragEvent) =>
+⋮----
+const onDocumentPointerMove = (e: PointerEvent) =>
+⋮----
+const onDocumentDrop = (e: DragEvent) =>
+⋮----
+const onDocumentDragEnd = (e: DragEvent) =>
+⋮----
+const onDragStart = (e: DragEvent) =>
+⋮----
+const createNodeSelection = (): Selection | null =>
+⋮----
+// Ensure ProseMirror drop handler treats this as an internal move.
+⋮----
+const onDragEnd = (e: DragEvent) =>
+⋮----
+const bindDomEvents = () =>
+⋮----
+const bindDocumentEvents = () =>
+⋮----
+const unbindDomEvents = () =>
+⋮----
+const unbindDocumentEvents = () =>
+⋮----
+init()
+apply(tr, value)
+⋮----
+update()
+destroy()
+⋮----
+decorations(state)
+</file>
+
+<file path="packages/webview/src/editor/disableKeyboardShortcuts.ts">
+/**
+ * Tiptapビルトインショートカットを無効化する拡張
+ *
+ * VSCodeのkeybindingsで全てのショートカットを管理するため、
+ * Tiptap側のビルトインショートカットを無効化する。
+ *
+ * 各拡張をextendしてaddKeyboardShortcutsを空にオーバーライド
+ */
+⋮----
+import { mergeAttributes } from '@tiptap/core';
+import type { MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
+import Bold from '@tiptap/extension-bold';
+import Italic from '@tiptap/extension-italic';
+import Strike from '@tiptap/extension-strike';
+import Code from '@tiptap/extension-code';
+import Underline from '@tiptap/extension-underline';
+import Paragraph from '@tiptap/extension-paragraph';
+import Heading from '@tiptap/extension-heading';
+import BulletList from '@tiptap/extension-bullet-list';
+import OrderedList from '@tiptap/extension-ordered-list';
+import ListItem from '@tiptap/extension-list-item';
+import Blockquote from '@tiptap/extension-blockquote';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import HorizontalRule from '@tiptap/extension-horizontal-rule';
+import History from '@tiptap/extension-history';
+import { applyIndentAttributesToDom, indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
+import { resolveBlockHandleEligibility, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { BlockPreviewController } from './blockPreview.js';
+import { createLogger } from '../logger.js';
+⋮----
+const logInfo = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logSuccess = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logWarning = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const createHandleDecisionLogger = (nodeType: string) =>
+⋮----
+const logDecision = (
+    phase: string,
+    decision: ReturnType<typeof resolveBlockHandleEligibility>,
+    handleExists: boolean
+) =>
+⋮----
+const logHandlePos = (pos: number | null, handleExists: boolean) =>
+⋮----
+const logHandleState = (action: 'created' | 'removed', pos: number | null, reason?: string) =>
+⋮----
+const parseCodeBlockInfo = (token: MarkdownToken):
+⋮----
+const buildCodeBlockInfo = (language: string | null, filename: string | null): string =>
+⋮----
+const buildCodeBlockLabelNodes = (language: string | null, filename: string | null): (string | unknown[])[] =>
+⋮----
+/**
+ * Bold拡張 (Mod-b 無効化)
+ */
+⋮----
+addKeyboardShortcuts()
+⋮----
+/**
+ * Italic拡張 (Mod-i 無効化)
+ */
+⋮----
+/**
+ * Strike拡張 (Mod-Shift-s 無効化)
+ */
+⋮----
+/**
+ * Code拡張 (Mod-e 無効化)
+ */
+⋮----
+/**
+ * Paragraph拡張 (Mod-Alt-0 無効化 + indent対応)
+ */
+⋮----
+addAttributes()
+⋮----
+// Image.inline=true 構成では、画像単独段落をアンラップすると
+// doc 直下に inline image が出て schema 不整合になる。
+⋮----
+addNodeView()
+⋮----
+const syncIndent = (updatedNode: typeof node) =>
+⋮----
+/**
+ * Underline拡張 (Mod-u 無効化)
+ */
+⋮----
+/**
+ * Heading拡張 (Mod-Alt-1~6 無効化)
+ */
+⋮----
+/**
+ * BulletList拡張 (Mod-Shift-8 無効化)
+ */
+⋮----
+/**
+ * OrderedList拡張 (Mod-Shift-7 無効化)
+ */
+⋮----
+/**
+ * ListItem拡張 (Tab/Shift-Tab 無効化)
+ */
+⋮----
+// Allow plainTextBlock as the first child for per-item plain text editing.
+⋮----
+const syncHandleState = () =>
+⋮----
+/**
+ * Blockquote拡張 (Mod-Shift-b 無効化)
+ */
+⋮----
+/**
+ * CodeBlock拡張 (Mod-Alt-c 無効化)
+ */
+⋮----
+renderHTML(
+⋮----
+const isMermaidLanguage = (candidate: typeof node): boolean =>
+⋮----
+const buildLabelText = (language: string | null, filename: string | null): string =>
+⋮----
+const parseLabelText = (value: string):
+⋮----
+const applyLabelChange = () =>
+⋮----
+const updateLabel = (language: string | null, filename: string | null) =>
+⋮----
+const syncAttrs = (updatedNode: typeof node) =>
+⋮----
+const onLabelFocus = () =>
+const onLabelBlur = () =>
+const onLabelKeyDown = (event: KeyboardEvent) =>
+⋮----
+/**
+ * HorizontalRule拡張 (Mod-Shift-- 無効化 + indent対応)
+ */
+⋮----
+/**
+ * History拡張 (Mod-z, Mod-Shift-z 無効化)
+ */
+</file>
+
+<file path="packages/webview/src/editor/blockHandlesExtension.ts">
+/**
+ * Block Handles Extension for Tiptap
+ * Provides Notion-like block menus:
+ * - + button for block-type menu
+ * - Context menu on handle click (delete/copy)
+ * - Slash command for block-type menu
+ *
+ * Note: Drag & drop is handled by InlineDragHandle (custom, listItem-aware).
+ */
+⋮----
+import { Extension } from '@tiptap/core';
+import { Plugin, PluginKey } from 'prosemirror-state';
+import type { Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model';
+import { DEBUG } from './debug.js';
+import { t } from './i18n.js';
+import { icons, createIconElement } from './icons.js';
+import { createBlockMenu, createBlockMenuItem, getBlockMenuItems, positionBlockMenu, updateBlockMenuSelection } from './blockMenu.js';
+import { closeMenu, isMenuActive, openMenu, registerMenu } from './menuManager.js';
+import { executeCommand } from './commands.js';
+import { normalizeIndentAttr } from './indentConfig.js';
+import { notifyHostError } from './hostNotifier.js';
+import { serializeMarkdown } from './markdownUtils.js';
+import { createLogger } from '../logger.js';
+⋮----
+const logInfo = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logSuccess = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logWarning = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+export const isDragHandleTarget = (node: ProseMirrorNode | null): boolean =>
+⋮----
+const hasAncestor = ($pos: ResolvedPos, predicate: (node: ProseMirrorNode) => boolean): boolean =>
+⋮----
+export type BlockHandleEligibility = {
+  allowed: boolean;
+  reason:
+    | 'ok'
+    | 'missing-getPos'
+    | 'getPos-error'
+    | 'pos-not-finite'
+    | 'resolve-failed'
+    | 'in-table'
+    | 'in-list'
+    | 'in-blockquote';
+  pos: number | null;
+  selfType?: string;
+  inTableCell?: boolean;
+  inListItem?: boolean;
+  inBlockquote?: boolean;
+  error?: string;
+};
+⋮----
+export const resolveBlockHandleEligibility = (
+  state: { doc: ProseMirrorNode },
+  getPos: (() => number) | false | undefined,
+  selfType?: string
+): BlockHandleEligibility =>
+⋮----
+export const shouldRenderBlockHandle = (
+  state: { doc: ProseMirrorNode },
+  getPos: (() => number) | false | undefined,
+  selfType?: string
+): boolean =>
+⋮----
+export const createDragHandleElement = (): HTMLElement =>
+⋮----
+// Prevent drag start from the add button
+⋮----
+interface BlockTypeDefinition {
+  icon?: string;
+  iconText?: string;
+  label: string;
+  blockType: string;
+  keywords: string[];
+}
+⋮----
+export interface BlockHandlesStorage {
+  blockTypeMenu: HTMLElement | null;
+  showBlockTypeMenu: ((x: number, y: number, filterText?: string) => void) | null;
+  hideBlockTypeMenu: (() => void) | null;
+  hideContextMenu: (() => void) | null;
+  slashCommandRange: { from: number; to: number } | null;
+  // Block type menu state
+  selectedMenuIndex: number;
+  menuItemCount: number;
+  // Context menu state
+  selectedContextIndex: number;
+  contextItemCount: number;
+  // Unified menu navigation
+  selectPrevMenuItem: (() => void) | null;
+  selectNextMenuItem: (() => void) | null;
+  selectCurrentMenuItem: (() => void) | null;
+  isMenuVisible: () => boolean;
+  getActiveMenuType: () => 'blockType' | 'blockContext' | null;
+  // Active node from InlineDragHandle
+  currentNode: ProseMirrorNode | null;
+  currentNodePos: number;
+  setActiveNode: (node: ProseMirrorNode | null, pos: number) => void;
+}
+⋮----
+// Block type menu state
+⋮----
+// Context menu state
+⋮----
+// Unified menu navigation
+⋮----
+// Active node from InlineDragHandle
+⋮----
+export interface BlockHandlesOptions {
+  createNestedPage?: (title: string) => Promise<{ path: string; title: string }>;
+  openNestedPage?: (path: string) => void;
+}
+⋮----
+addOptions()
+⋮----
+addStorage()
+⋮----
+setActiveNode(node, pos)
+⋮----
+addKeyboardShortcuts()
+⋮----
+addProseMirrorPlugins()
+⋮----
+const getActiveBlock = () =>
+⋮----
+const resolveBlockFromHandleTarget = (target: HTMLElement | null) =>
+⋮----
+const resolvePosFromContainer = (): number | null =>
+⋮----
+const setActiveBlockFromHandleTarget = (target: HTMLElement | null) =>
+⋮----
+const resolveIndentFromSelection = (): number =>
+⋮----
+const resolveIndentFromBlock = (block:
+⋮----
+const createNestedPageAt = async (pos: number, indent: number, reason: 'slash' | 'menu') =>
+⋮----
+const triggerOpen = () =>
+⋮----
+const syncDragHandleLock = () =>
+⋮----
+const hideContextMenu = () =>
+⋮----
+const hideBlockTypeMenu = () =>
+⋮----
+const updateBlockTypeMenuSelection = () =>
+⋮----
+const updateContextMenuSelection = () =>
+⋮----
+const getActiveMenuType = (): 'blockType' | 'blockContext' | null =>
+⋮----
+const isAnyMenuVisible = () =>
+⋮----
+const selectPrevMenuItem = () =>
+⋮----
+const selectNextMenuItem = () =>
+⋮----
+const selectCurrentMenuItem = () =>
+⋮----
+const getBlockTypes = (): BlockTypeDefinition[] =>
+⋮----
+const createBlockTypeItem = (item: BlockTypeDefinition): HTMLElement =>
+⋮----
+const showBlockTypeMenu = (x: number, y: number, filterText?: string) =>
+⋮----
+const createBlockContextMenu = (): HTMLElement =>
+⋮----
+const createMenuItem = (label: string, action: string, icon?: string, iconText?: string): HTMLElement =>
+⋮----
+const createBlockTypeMenu = (): HTMLElement =>
+⋮----
+const deleteBlock = (block:
+⋮----
+const collectContentJson = (node: ProseMirrorNode): unknown[] =>
+⋮----
+const serializeNodeToMarkdown = (node: ProseMirrorNode, context: Record<string, unknown>): string | null =>
+⋮----
+const serializeListItemContentToMarkdown = (node: ProseMirrorNode): string | null =>
+⋮----
+const serializeBlockForClipboard = (block:
+⋮----
+const convertListItemToPlainText = (block:
+⋮----
+const convertBlockToPlainText = (block:
+⋮----
+const handleContextMenuAction = async (action: string, block:
+⋮----
+const showContextMenu = (x: number, y: number, block:
+⋮----
+view()
+⋮----
+const onBlockTypeMenuClick = async (e: MouseEvent) =>
+⋮----
+const onContextMenuClick = (e: MouseEvent) =>
+⋮----
+const openBlockTypeMenuFromButton = (addBtn: HTMLElement) =>
+⋮----
+const openContextMenuFromHandle = (handleBtn: HTMLElement, event: PointerEvent) =>
+⋮----
+const resolvePointerAction = (target: HTMLElement) =>
+⋮----
+const clearPendingPointerAction = () =>
+⋮----
+const onHandlePointerDown = (e: PointerEvent) =>
+⋮----
+const onHandlePointerMove = (e: PointerEvent) =>
+⋮----
+const onHandlePointerUp = (e: PointerEvent) =>
+⋮----
+const onHandlePointerCancel = (e: PointerEvent) =>
+⋮----
+const onHandleDragStart = (e: DragEvent) =>
+⋮----
+const onDocumentClick = (e: MouseEvent) =>
+⋮----
+update(view)
+destroy()
+</file>
+
+<file path="packages/webview/src/styles.css">
+/**
+ * Role: Webview styles with VS Code theme following
+ * Responsibility: Style the editor to match VS Code's theme using CSS variables
+ * Invariant: No fixed colors; all colors must use --vscode-* variables
+ */
+⋮----
+* {
+⋮----
+html,
+⋮----
+body {
+⋮----
+.codicon {
+⋮----
+#app {
+⋮----
+.app-loading {
+⋮----
+.app-loading.is-visible {
+⋮----
+.app-loading-spinner {
+⋮----
+.editor-container {
+⋮----
+/* Keep content centered with a readable max width (Japanese-first). */
+⋮----
+.editor-container.is-full-width {
+⋮----
+.editor-container.is-full-width .inline-markdown-editor-content {
+⋮----
+.editor-container.is-no-wrap .inline-markdown-editor-content {
+⋮----
+.inline-markdown-editor-content {
+⋮----
+.inline-markdown-editor-content:focus {
+⋮----
+.inline-markdown-editor-content::after,
+⋮----
+/* Headings */
+.inline-markdown-editor-content h1,
+⋮----
+.inline-markdown-editor-content h1 > .block-content,
+⋮----
+.inline-markdown-editor-content h1 > .block-content {
+⋮----
+.inline-markdown-editor-content h2 > .block-content {
+⋮----
+.inline-markdown-editor-content h3 > .block-content {
+⋮----
+.inline-markdown-editor-content h4 > .block-content {
+⋮----
+.inline-markdown-editor-content h5 > .block-content {
+⋮----
+.inline-markdown-editor-content h6 > .block-content {
+⋮----
+/* Paragraphs */
+.inline-markdown-editor-content p {
+⋮----
+.inline-markdown-editor-content p > .block-content {
+⋮----
+.inline-markdown-editor-content p:last-child > .block-content {
+⋮----
+/* Links */
+.inline-markdown-editor-content a {
+⋮----
+.inline-markdown-editor-content a:hover {
+⋮----
+body.inline-markdown-link-modifier .inline-markdown-editor-content a:hover {
+⋮----
+/* Code */
+.inline-markdown-editor-content code {
+⋮----
+/* Code-like block shell (code / frontmatter / unknown / blockquote / table) */
+.inline-markdown-editor-content .code-block-wrapper > .block-content,
+⋮----
+.inline-markdown-editor-content pre {
+⋮----
+.inline-markdown-editor-content pre.code-block,
+⋮----
+.inline-markdown-editor-content .code-block-wrapper pre.code-block {
+⋮----
+.inline-markdown-editor-content .code-block-wrapper > .block-content {
+⋮----
+.inline-markdown-editor-content pre.code-block {
+⋮----
+.inline-markdown-editor-content .block-content > pre.code-block {
+⋮----
+.inline-markdown-editor-content .block-content > pre.code-block > code {
+⋮----
+.inline-markdown-editor-content pre.code-block[data-has-label='true'],
+⋮----
+.inline-markdown-editor-content pre code {
+⋮----
+/* Code highlight (lowlight / highlight.js classes) */
+.inline-markdown-editor-content pre code .hljs-comment,
+⋮----
+.inline-markdown-editor-content pre code .hljs-keyword,
+⋮----
+.inline-markdown-editor-content pre code .hljs-string,
+⋮----
+.inline-markdown-editor-content pre code .hljs-number,
+⋮----
+/* Blockquotes */
+.inline-markdown-editor-content .blockquote-block {
+⋮----
+.inline-markdown-editor-content .blockquote-block > blockquote {
+⋮----
+.inline-markdown-editor-content .blockquote-block > blockquote > .block-content {
+⋮----
+.inline-markdown-editor-content .blockquote-block > blockquote p > .block-content {
+⋮----
+/* Lists */
+.inline-markdown-editor-content ul,
+⋮----
+.inline-markdown-editor-content ol {
+⋮----
+.inline-markdown-editor-content li {
+⋮----
+.inline-markdown-editor-content ol > li {
+⋮----
+.inline-markdown-editor-content ul > li::before,
+⋮----
+.inline-markdown-editor-content ul > li::before {
+⋮----
+.inline-markdown-editor-content ol > li::before {
+⋮----
+.inline-markdown-editor-content li p > .block-content {
+⋮----
+/* Horizontal Rule */
+.inline-markdown-editor-content hr {
+⋮----
+.inline-markdown-editor-content .horizontal-rule-block > .block-content {
+⋮----
+/* Images */
+.inline-markdown-editor-content img {
+⋮----
+.inline-markdown-editor-content .image {
+⋮----
+.inline-markdown-editor-content .image > img {
+⋮----
+/* Selection */
+.inline-markdown-editor-content ::selection {
+⋮----
+/* Bold and Italic */
+.inline-markdown-editor-content strong {
+⋮----
+.inline-markdown-editor-content em {
+⋮----
+/* Strikethrough */
+.inline-markdown-editor-content s {
+⋮----
+/* Tables (if supported) */
+.inline-markdown-editor-content table {
+⋮----
+.inline-markdown-editor-content th,
+⋮----
+.inline-markdown-editor-content tr > :last-child {
+⋮----
+.inline-markdown-editor-content tbody tr:last-child > td {
+⋮----
+.inline-markdown-editor-content th {
+⋮----
+.inline-markdown-editor-content .table-block > .block-content {
+⋮----
+/* Pseudo-virtualization for large documents */
+.inline-markdown-editor-content > * {
+⋮----
+.inline-markdown-editor-content > .block-handle-host {
+⋮----
+/* Handles need overflow outside block bounds, so disable containment on host blocks/lists */
+.inline-markdown-editor-content > .block-handle-host,
+⋮----
+/* Ensure ProseMirror widgets stay visible during scroll */
+.inline-markdown-editor-content > .ProseMirror-widget {
+⋮----
+/* ProseMirror specific styles */
+.ProseMirror {
+⋮----
+/* Do not force a fixed height (it breaks scrolling for long docs). */
+⋮----
+.ProseMirror-focused {
+⋮----
+/* Placeholder for empty editor */
+.ProseMirror p.is-editor-empty:first-child::before {
+⋮----
+/* Caret color */
+⋮----
+/* RAW blocks */
+.raw-block {
+⋮----
+.raw-block > .block-content {
+⋮----
+.raw-block[data-kind='html'] > .block-content {
+⋮----
+.raw-block:not([data-kind='html']) > .block-content {
+⋮----
+/* Block label (used for RAW, code language, filename) */
+.block-label {
+⋮----
+.raw-block .block-label {
+⋮----
+.code-block-label-language {
+⋮----
+.code-block-label {
+⋮----
+.code-block-label.is-empty::before {
+⋮----
+.code-block-label-separator {
+⋮----
+.code-block-label-filename {
+⋮----
+/* Action button for RAW blocks */
+.block-label-action {
+⋮----
+.block-label-action:hover {
+⋮----
+.block-label-action:focus-visible {
+⋮----
+/* Legacy info icon style (kept for backward-compatible DOM) */
+.block-label-info {
+⋮----
+.block-label-info svg {
+⋮----
+.block-label-info .codicon {
+⋮----
+.block-label-info:hover {
+⋮----
+/* Tooltip for info button */
+.block-label-info::after {
+⋮----
+.block-label-info:hover::after {
+⋮----
+.inline-markdown-editor-content pre.raw-block-content {
+⋮----
+.raw-block-content:focus,
+⋮----
+/* Frontmatter: share code-block text behavior (no forced wrap). */
+.frontmatter-block-content {
+⋮----
+/* PlainText: editable markdown buffer keeps wrapped behavior. */
+.plain-text-content {
+⋮----
+/* Plain text edit toolbar */
+.plain-text-toolbar {
+⋮----
+.plain-text-toolbar > * {
+⋮----
+.plain-text-done {
+⋮----
+.plain-text-done:hover {
+⋮----
+/* Block preview toolbar (HTML RAW / Mermaid) */
+.block-preview-toolbar {
+⋮----
+.block-preview-toolbar.is-hidden {
+⋮----
+.block-preview-toolbar > * {
+⋮----
+.block-preview-switch {
+⋮----
+.block-preview-switch-label {
+⋮----
+.block-preview-switch-input {
+⋮----
+.block-preview-switch-track {
+⋮----
+.block-preview-switch-thumb {
+⋮----
+.block-preview-switch-input:checked + .block-preview-switch-track {
+⋮----
+.block-preview-switch-input:checked + .block-preview-switch-track .block-preview-switch-thumb {
+⋮----
+.block-preview-switch:hover .block-preview-switch-track {
+⋮----
+.block-preview-switch-input:focus-visible + .block-preview-switch-track {
+⋮----
+.block-preview-switch-input:disabled + .block-preview-switch-track {
+⋮----
+.block-preview-switch.is-disabled .block-preview-switch-label {
+⋮----
+.block-preview-container {
+⋮----
+.block-preview-container.is-visible {
+⋮----
+.block-preview-container.is-padded {
+⋮----
+.block-preview-iframe {
+⋮----
+.inline-markdown-editor-content .block-preview-content-hidden,
+⋮----
+/* Nested Page block */
+.nested-page {
+⋮----
+.nested-page > .block-content {
+⋮----
+.nested-page-button {
+⋮----
+.nested-page-icon {
+⋮----
+.nested-page-icon svg {
+⋮----
+.nested-page-text {
+⋮----
+.nested-page-title {
+⋮----
+.nested-page-path {
+⋮----
+.nested-page:hover > .block-content {
+⋮----
+.nested-page.is-error > .block-content {
+⋮----
+/* ========================================
+   Notion/Slack風 UI コンポーネント
+   ======================================== */
+⋮----
+/* Placeholder - 空のノード用プレースホルダー */
+.ProseMirror .is-empty::before {
+⋮----
+.ProseMirror .is-editor-empty:first-child::before {
+⋮----
+/* NodeRange selection (multiple block selection) */
+.ProseMirror-selectednoderange {
+⋮----
+/* BubbleMenu - 選択時フォーマットツールバー */
+.bubble-menu {
+⋮----
+/* 初期状態: Floating UIが位置設定するまで非表示 */
+⋮----
+/* レイアウト */
+⋮----
+.bubble-menu.is-suspended {
+⋮----
+.bubble-menu-button {
+⋮----
+.bubble-menu-button:hover {
+⋮----
+.bubble-menu-button.is-active {
+⋮----
+.bubble-menu-button:active {
+⋮----
+/* Bubble Menu button style variations (CSP-safe) */
+.bubble-menu-bold {
+⋮----
+.bubble-menu-italic {
+⋮----
+.bubble-menu-strike {
+⋮----
+.bubble-menu-code {
+⋮----
+/* FloatingMenu - 空行メニュー（+ボタン） */
+.floating-menu {
+⋮----
+/* レイアウト - 縦方向（サブメニューは下に展開） */
+⋮----
+.floating-menu-trigger {
+⋮----
+.floating-menu-trigger:hover {
+⋮----
+/* FloatingMenu サブメニュー（下向きドロップダウン） */
+.floating-menu-submenu {
+⋮----
+.floating-menu-button {
+⋮----
+.floating-menu-button:hover {
+⋮----
+.floating-menu-button:active {
+⋮----
+.floating-menu-icon {
+⋮----
+.floating-menu-label {
+⋮----
+/* Tippy.js（BubbleMenu/FloatingMenuが使用）のスタイル調整 */
+.tippy-box {
+⋮----
+.tippy-content {
+⋮----
+.tippy-arrow {
+⋮----
+/* ========================================
+   スラッシュコマンドメニュー
+   ======================================== */
+⋮----
+.slash-command-popup {
+⋮----
+.slash-command-item {
+⋮----
+.slash-command-item:hover,
+⋮----
+.slash-command-icon {
+⋮----
+.slash-command-text {
+⋮----
+.slash-command-title {
+⋮----
+.slash-command-description {
+⋮----
+/* ========================================
+   テーブルコントロール UI (固定位置 - BlockHandles方式)
+   ======================================== */
+⋮----
+/* テーブル + ボタン（共通スタイル） */
+.table-add-btn {
+⋮----
+.table-add-btn svg {
+⋮----
+.table-add-btn .codicon {
+⋮----
+.table-add-btn.is-visible {
+⋮----
+.table-add-btn:hover {
+⋮----
+/* ========================================
+   ブロックハンドル UI
+   ======================================== */
+⋮----
+/* ブロックハンドルコンテナ（+ボタンと6点ハンドルの親） */
+.block-handle-container {
+⋮----
+.block-handle-container.is-active {
+⋮----
+/* ブロック側ホスト */
+.block-handle-host {
+⋮----
+.block-content {
+⋮----
+.inline-markdown-editor-content p > .block-content,
+⋮----
+.block-handle-host:hover .block-handle-container,
+⋮----
+.inline-markdown-editor-content li.block-handle-host {
+⋮----
+.ProseMirror.is-handle-locked .block-handle-container,
+⋮----
+/* +ボタン（ブロック追加） */
+.block-add-btn {
+⋮----
+.block-add-btn .codicon {
+⋮----
+.block-add-btn:hover {
+⋮----
+/* ブロックハンドル（6点ドラッグ） */
+.block-handle {
+⋮----
+.block-handle:hover {
+⋮----
+.block-handle:active {
+⋮----
+.block-handle svg {
+⋮----
+.block-handle .codicon {
+⋮----
+/* ブロックメニュー（block-type / block-context 共通） */
+.block-menu {
+⋮----
+.block-menu.is-visible {
+⋮----
+.block-menu-separator {
+⋮----
+.block-menu-item {
+⋮----
+.block-menu-item:hover,
+⋮----
+.block-menu-item.is-selected {
+⋮----
+.block-menu-item:active {
+⋮----
+.block-menu-item:disabled {
+⋮----
+.block-menu-icon {
+⋮----
+/* Tiptap公式dropcursorスタイル（カスタムインジケーター削除、公式プラグインを使用） */
+.ProseMirror-dropcursor,
+⋮----
+.inline-markdown-dropcursor.is-noop,
+⋮----
+/* ドラッグ中のブロック */
+.is-dragging {
+⋮----
+/* ブロックメニュー共通スタイルに統合 */
+⋮----
+/* ========================================
+   テーブル行/列ハンドル UI
+   ======================================== */
+⋮----
+/* 行ハンドルコンテナ */
+.table-row-handles {
+⋮----
+.table-row-handles.is-visible {
+⋮----
+/* 個別の行ハンドル */
+.table-row-handle {
+⋮----
+.table-row-handle:hover {
+⋮----
+.table-row-handle:active {
+⋮----
+.table-row-handle svg {
+⋮----
+.table-row-handle .codicon {
+⋮----
+/* 列ハンドルコンテナ */
+.table-col-handles {
+⋮----
+.table-col-handles.is-visible {
+⋮----
+/* 個別の列ハンドル */
+.table-col-handle {
+⋮----
+.table-col-handle:hover {
+⋮----
+.table-col-handle:active {
+⋮----
+.table-col-handle svg {
+⋮----
+.table-col-handle .codicon {
+⋮----
+/* テーブルドロップインジケーター */
+.table-drop-indicator {
+⋮----
+.table-drop-indicator.is-visible {
+⋮----
+/* 行ドロップインジケーター（水平線） */
+.table-drop-indicator-row {
+⋮----
+/* 列ドロップインジケーター（垂直線） */
+.table-drop-indicator-col {
+⋮----
+/* テーブルセルのドラッグ中ハイライト */
+.inline-markdown-editor-content table tr.is-dragging {
+⋮----
+.inline-markdown-editor-content table td.is-dragging,
+⋮----
+/* ========================================
+   Find / Replace Widget (VS Code-like)
+   ======================================== */
+⋮----
+.find-widget {
+⋮----
+.find-widget.is-visible {
+⋮----
+.find-widget.is-dragging {
+⋮----
+.find-widget.is-dragging * {
+⋮----
+.find-layout {
+⋮----
+.find-widget.is-invalid .find-input-group {
+⋮----
+.find-row {
+⋮----
+.find-group-stack {
+⋮----
+.find-meta-stack {
+⋮----
+.find-widget:not(.is-replace-visible) .find-group-stack .find-input-group.is-replace {
+⋮----
+.find-widget:not(.is-replace-visible) .find-meta-stack .replace-actions {
+⋮----
+.find-widget:not(.is-replace-visible) .find-meta-stack {
+⋮----
+.find-input-group {
+⋮----
+.find-input-group:focus-within {
+⋮----
+.find-input,
+⋮----
+.find-input:focus,
+⋮----
+.find-input::placeholder,
+⋮----
+.find-toggles {
+⋮----
+.find-replace-toggles {
+⋮----
+.find-action-button,
+⋮----
+.find-toggle .codicon {
+⋮----
+.find-toggle.is-active {
+⋮----
+.find-toggle.is-disabled {
+⋮----
+.find-toggle-area {
+⋮----
+.find-side-actions {
+⋮----
+.find-action-button {
+⋮----
+.find-action-button .codicon {
+⋮----
+.find-action-button:hover,
+⋮----
+.find-count {
+⋮----
+.find-status {
+⋮----
+.find-status[data-level='WARNING'] {
+⋮----
+.find-status[data-level='ERROR'] {
+⋮----
+.find-status.is-empty {
+⋮----
+.find-toggle-replace {
+⋮----
+.find-toggle-replace.is-open {
+⋮----
+.replace-actions {
+⋮----
+.replace-action-button {
+⋮----
+.replace-action-button:hover {
+⋮----
+/* Search match highlights */
+.ProseMirror-search-match {
+⋮----
+.ProseMirror-active-search-match {
+</file>
+
+</files>

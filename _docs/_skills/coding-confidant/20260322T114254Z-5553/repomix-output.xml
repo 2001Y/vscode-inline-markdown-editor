@@ -1,0 +1,2434 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: package.json, packages/extension/package.json, packages/webview/package.json, packages/extension/src/editors/inlineMarkProvider.ts, packages/webview/src/editor/blockHandlesExtension.ts, packages/webview/src/editor/disableKeyboardShortcuts.ts, packages/webview/src/editor/inlineDragHandleExtension.ts, packages/webview/src/styles.css, _docs/2026-01-13-ui-fixes.md, _docs/2026-01-15-block-content-style-handle-scope-nested-open.md, _docs/2026-02-04-handle-unknownblock-fix.md, _docs/2026-02-04-handle-active-changeguard-vsix.md
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+_docs/
+  2026-01-13-ui-fixes.md
+  2026-01-15-block-content-style-handle-scope-nested-open.md
+  2026-02-04-handle-active-changeguard-vsix.md
+  2026-02-04-handle-unknownblock-fix.md
+packages/
+  extension/
+    src/
+      editors/
+        inlineMarkProvider.ts
+    package.json
+  webview/
+    src/
+      editor/
+        blockHandlesExtension.ts
+        disableKeyboardShortcuts.ts
+        inlineDragHandleExtension.ts
+      styles.css
+    package.json
+package.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="_docs/2026-02-04-handle-active-changeguard-vsix.md">
+# 2026-02-04 VSIX作成 / ハンドル1件表示 / ChangeGuard整理
+
+## VSIX作成結果
+- `npm run package` 実行済み。
+- 出力: `packages/extension/inlinemark-0.1.1.vsix`
+
+## アクティブ1件のみハンドル表示の実装方針（現状のコード前提）
+対象: `packages/webview/src/editor/inlineDragHandleExtension.ts`
+
+現状:
+- `createHandleDecorations()` で `doc.descendants` を走査し、
+  すべての対象ブロックに `Decoration.node` + `Decoration.widget` を生成。
+- 表示は CSS の `:hover` に依存（`.block-handle-host:hover .block-handle-container`）。
+- その結果、装飾数・DOM数が O(N) になる。
+
+アクティブ1件化の基本手順:
+1. Plugin state に `activeHandle` (pos / nodeType / isVisible) を追加。
+2. `pointermove` / `mouseover` でホバー中ブロックを特定し、
+   `tr.setMeta(InlineDragHandlePluginKey, { activePos })` で state を更新。
+3. `props.decorations` では `activePos` の 1件だけ `Decoration.widget` を作成。
+4. `Decoration.node` に依存している `block-handle-host` の padding を
+   全ブロックに適用する場合は CSS 側で共通パディングを与える。
+   (例: `.inline-markdown-editor-content > * { padding-left: ... }` など)
+5. hover 解除時は `activePos = null` に戻す。
+
+備考:
+- `posAtCoords` と `resolveListItemPosFromCoords` のどちらを使うかで
+  listItem の精度が変わるため、既存の listItem 系ユーティリティの
+  再利用が安全。
+- 「装飾1件だけ + 余白CSS」パターンは DOM 数を最小化できる。
+- 余白を Decoration に依存し続ける場合は、
+  `Decoration.node` だけ全ブロック維持 → widget のみ 1件に絞る方式も可能。
+  (今回はこちらを先に実装)
+- NodeView 側で `block-handle-container` を生成しているブロックは
+  引き続きブロックごとにハンドルDOMが残るため、
+  “完全に1件化”するには NodeView 側の変更も必要。
+
+関連コード:
+- `packages/webview/src/editor/inlineDragHandleExtension.ts`
+- `packages/webview/src/styles.css`
+
+## ChangeGuard
+### 現状
+- Webview 側の ChangeGuard はコメントアウト済み。
+  - `packages/webview/src/editor/createEditor.ts`
+  - `packages/webview/src/main.ts`
+- Extension 側は `handleEdit` で ChangeGuard 判定を実行するが、
+  しきい値超過時はログ出力のみ（ブロックしない）。
+  - `packages/extension/src/editors/inlineMarkProvider.ts`
+
+### 大量貼り付け時の挙動
+- 大量ペーストや全文置換では `calculateChangeMetrics` が閾値を超える可能性が高い。
+- ただし現状は「警告ログのみ」で編集自体は継続される。
+
+### コメントアウトする場合の修正範囲
+- 実際に触る必要があるのは基本的に 1 箇所。
+  - `packages/extension/src/editors/inlineMarkProvider.ts` の
+    `metrics` 計算 + `isChangeGuardExceeded` 判定部分。
+- `packages/extension/src/util/textEdits.ts` の関数定義は残しても問題ない。
+  (使わないだけ)
+</file>
+
+<file path="_docs/2026-02-04-handle-unknownblock-fix.md">
+# 2026-02-04 ハンドル1件表示の復旧 / 不明ブロック表示
+
+## 目的
+- アクティブ1件のみ表示のハンドルが出なくなった問題を復旧。
+- Markdown直書きHTML/未知構文を「不明なブロック」としてそのまま表示。
+- Enter補正中の contentMatchAt 例外をホスト通知で顕在化。
+
+## ハンドル表示復旧
+- `InlineDragHandle` のホバー解決を `.block-handle-host` 依存から脱却。
+  - `posAtCoords` + `resolveListItemPosFromCoords` でブロック位置を決定。
+  - テーブルは `.table-block` から pos を解決。
+- `Decoration.widget` で生成するハンドルに `is-active` クラスを付与し、
+  CSS で常時表示できるように。
+- `position: relative` を direct child に付与し、NodeViewでも絶対配置が安定。
+- `li` / `blockquote` ではハンドルの left をオフセットし、
+  文字開始位置との距離を他ブロックと揃える。
+
+## 不明ブロック (HTML / :::...)
+- `HtmlToCodeBlock` を `rawBlock` へ変換する設計に変更。
+  - HTML ブロックは code block ではなく「不明なブロック」表示。
+- `RawBlock` tokenizer を `:::...` 全般に拡張。
+  - 解析不能な `:::` ブロックは raw 文字列ごと保持。
+- `renderMarkdown` は raw 文字列をそのまま出力。
+- ラベル表記を `RAW` → `不明なブロック` に更新。
+
+## Enter補正の例外
+- `Selection.findFrom` の例外を捕捉し、
+  `notifyHostError(ENTER_SELECTION_FIX_FAILED)` でホスト通知。
+
+## 変更ファイル
+- `packages/webview/src/editor/inlineDragHandleExtension.ts`
+- `packages/webview/src/styles.css`
+- `packages/webview/src/editor/rawBlockExtension.ts`
+- `packages/webview/src/editor/htmlToCodeBlockExtension.ts`
+- `packages/webview/src/editor/enterSelectionFixExtension.ts`
+- `packages/webview/src/editor/createEditor.ts`
+</file>
+
+<file path="_docs/2026-01-13-ui-fixes.md">
+# 2026-01-13 UI/Protocol Fixes
+
+## 目的
+- ブロックハンドルのレイアウトを CSS だけで安定化（hover 時に消える/はみ出し問題の整理）。
+- コードブロックのラベルを `::before` ではなく `.block-label` DOM に統一。
+- テーブルコンテキストメニューの非表示/操作不全を解消。
+- Webview の `editorCommand` をプロトコル外として扱い、`PROTOCOL_VERSION_MISMATCH` を抑止。
+
+## 実装方針
+- `block-handle-host` を `display:flex` にし、ハンドルをフロー内に置く（絶対配置・負の left を廃止）。
+- リスト項目は `display:list-item` を維持し、ハンドルだけ inline-flex で差し込む。
+- コードブロック/プレーンテキスト/フロントマターのラベルは `.block-label` に統一（data-code-label 廃止）。
+- テーブルメニューは `block-menu` へ統合し、メニュー表示中は hover 判定で `hideControls` しない。
+- Webview SyncClient は `editorCommand` を無視し、プロトコル外メッセージでエラーを出さない。
+
+## 影響範囲
+- `packages/webview/src/styles.css`（ハンドルレイアウト / block-label / table-context-menu 旧CSS削除）
+- `packages/webview/src/editor/disableKeyboardShortcuts.ts`（コードブロック label DOM）
+- `packages/webview/src/editor/plainTextBlockExtension.ts`
+- `packages/webview/src/editor/frontmatterBlockExtension.ts`
+- `packages/webview/src/editor/rawBlockExtension.ts`
+- `packages/webview/src/editor/tableControlsExtension.ts`
+- `packages/webview/src/protocol/client.ts`
+- `packages/webview/src/main.ts`
+
+## 未解決
+- ネストページ作成の ack/response が届かない件は引き続き調査（Output ログ必須）。
+
+## 追加対応 (2026-01-13)
+- リスト drag 時に dropcursor が no-op 判定で消える問題に対し、list drag では **simulateDropNoop** を優先して判定。
+- list drag の manual drop も同ロジックで no-op を再判定（挿入線の誤非表示を抑制）。
+- 空ブロック (placeholder) クリック時に選択が飛ぶため、`.block-handle-host.is-empty` クリック時は
+  `posAtCoords` で selection を補正しログ化。
+- block-menu は同一ハンドルの2回目クリックで閉じるようにトグル化。
+
+## 追加対応 (2026-01-13 追補)
+- list drag の no-op 判定は **source listItem と target listItem** の一致で判定（挿入線の常時非表示を抑制）。
+- listItem の handle デコレーション後も子リストへ降りるようにして、ネスト listItem にもハンドルを表示。
+- placeholder フォーカスは `posAtCoords` ではなく **host DOM の pos** を優先。
+- list drag の manual drop は **simulateDropNoop が true の場合は確実に noop** 扱いに変更（空 li 生成の抑制）。
+- list dropcursor は **indent 変化が 0 でも text start に合わせて描画**。
+- ブロック drag の indent 調整を追加（±1 step / 最大 10）、dropcursor も同ロジックで移動。
+- drag end 時は dropcursor を強制的に隠すように調整。
+
+## 追加対応 (2026-01-13)
+- drop target 解決で **block-handle-host のみ** を対象にし、DOMルート等の誤ヒットで `pos=0` が返る経路を削除。
+- ブロック drag の dropcursor は **target インデントとの差分**で左位置を補正し、仮想インデントでも可視化されるように調整。
+</file>
+
+<file path="_docs/2026-01-15-block-content-style-handle-scope-nested-open.md">
+# 2026-01-15 block-content 適用 / ハンドル範囲整理 / ネストページ自動オープン
+
+## 目的
+- ハンドル重複を解消し、**listItem と table のみ**に block-handle を限定する。
+- 見出し/段落/引用などの**見た目を block-content に集約**し、ラッパーの変更で CSS が外れないようにする。
+- ネストページ作成後に**新規タブで自動オープン**する。
+
+## 対応内容
+### 1) ハンドル表示の判定ロジック追加
+- `shouldRenderBlockHandle()` を追加し、以下を禁止:
+  - table cell 内の全ハンドル
+  - listItem 内の**子要素**ハンドル（listItem 自体は許可）
+- NodeView 側で `block-handle-host` を**必要時のみ付与**し、
+  ハンドル生成/削除を toggle。
+
+### 2) block-content へのスタイル移行
+- h1-h6 / p / blockquote などの主要スタイルを `.block-content` に移動。
+- nested-page / raw-block / html-block の枠線・背景・余白も `.block-content` に集約。
+- `editor-container` の padding を 0 にし、`block-handle-host` に右側 gutter を追加。
+- html-block のラベルは `.block-label` に統合し、CSS の二重ラベルを削除。
+
+### 3) ネストページ自動オープン
+- `BlockHandles` に `openNestedPage` を追加。
+- ネストページ挿入後に `requestAnimationFrame` で `openNestedPage` を発火。
+- Extension 側 `openWith` に `preview:false` を付与し新規タブ化。
+
+## 変更ファイル
+- `packages/webview/src/editor/blockHandlesExtension.ts`
+- `packages/webview/src/editor/disableKeyboardShortcuts.ts`
+- `packages/webview/src/editor/rawBlockExtension.ts`
+- `packages/webview/src/editor/frontmatterBlockExtension.ts`
+- `packages/webview/src/editor/plainTextBlockExtension.ts`
+- `packages/webview/src/editor/htmlBlockExtension.ts`
+- `packages/webview/src/editor/nestedPageExtension.ts`
+- `packages/webview/src/editor/tableBlockWrapperExtension.ts`
+- `packages/webview/src/editor/createEditor.ts`
+- `packages/webview/src/styles.css`
+- `packages/extension/src/editors/inlineMarkProvider.ts`
+- `_docs/issue.md`
+
+## 要確認
+- listItem 内に子ブロックがある場合でもハンドルが 1 つだけになること。
+- table 内（セル含む）に block-handle が出ていないこと。
+- 見出し/段落/引用/ネストページ/RAW/HTML の枠線/余白が block-content に適用されていること。
+- ネストページ作成後にブロック表示 → 新規タブで自動オープンが行われること。
+</file>
+
+<file path="packages/webview/src/editor/inlineDragHandleExtension.ts">
+/**
+ * Inline Drag Handle Extension (block-embedded handles)
+ *
+ * 役割: ブロックごとにハンドルを埋め込み、ドラッグ開始と補助線制御を提供
+ * 方針: 絶対配置レイヤーを廃止し、各ブロック内にハンドルを配置する
+ * 不変条件: table はドラッグ対象外。失敗は隠さずログに残す。
+ */
+⋮----
+import { Extension, type Editor } from '@tiptap/core';
+import type { Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
+import { Plugin, PluginKey, NodeSelection, Selection } from '@tiptap/pm/state';
+import { dropPoint } from '@tiptap/pm/transform';
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+import { liftListItem, sinkListItem } from '@tiptap/pm/schema-list';
+import { isNodeRangeSelection } from '@tiptap/extension-node-range';
+import { DEBUG } from './debug.js';
+import { notifyHostWarn } from './hostNotifier.js';
+import { INDENT_LEVEL_MAX, INDENT_MAX_DEPTH_MESSAGE, normalizeIndentAttr } from './indentConfig.js';
+import { LIST_MAX_DEPTH } from './listIndentConfig.js';
+import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { createLogger } from '../logger.js';
+⋮----
+const logInfo = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logSuccess = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logWarning = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logError = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+export interface InlineDragHandleOptions {
+  render: () => HTMLElement;
+  locked?: boolean;
+  allowedNodeTypes?: Set<string>;
+  onNodeChange?: (options: { node: ProseMirrorNode | null; editor: Editor; pos: number }) => void;
+  onElementDragStart?: (e: DragEvent) => void;
+  onElementDragEnd?: (e: DragEvent) => void;
+}
+⋮----
+type PluginState = {
+  locked: boolean;
+  activePos: number | null;
+};
+⋮----
+const clampPointToRect = (rect: DOMRect, x: number, y: number, padding = 2):
+⋮----
+const getElementsFromPoint = (view: EditorView, x: number, y: number): Element[] =>
+⋮----
+const safePosAtDOM = (view: EditorView, element: HTMLElement): number | null =>
+⋮----
+const resolveListItem = (element: HTMLElement): HTMLElement | null =>
+⋮----
+const getListItemDepth = (doc: ProseMirrorNode, insidePos: number): number =>
+⋮----
+const findNearestListItemPos = (doc: ProseMirrorNode, fromPos: number): number | null =>
+⋮----
+const resolveListItemPosFromElement = (view: EditorView, element: Element): number | null =>
+⋮----
+const resolveListItemPosFromCoords = (
+  view: EditorView,
+  doc: ProseMirrorNode,
+  x: number,
+  y: number
+): number | null =>
+⋮----
+const resolveListItemTextStartX = (listItem: HTMLElement): number | null =>
+⋮----
+const resolveListItemTextPos = (doc: ProseMirrorNode, listItemPos: number): number | null =>
+⋮----
+const isIndentableNode = (node: ProseMirrorNode | null | undefined): boolean =>
+⋮----
+const resolveIndentableBlockFromSelection = (editor: Editor):
+⋮----
+const resolveBlockTextStartX = (element: HTMLElement): number | null =>
+⋮----
+const parseStartPadding = (target: HTMLElement): number =>
+⋮----
+const readStartX = (target: HTMLElement): number | null =>
+⋮----
+const createHandleDecorations = (
+  doc: ProseMirrorNode,
+  options: InlineDragHandleOptions,
+  activePos: number | null,
+  reportCount?: (
+    count: number,
+    stats?: {
+      blockTypes: string[];
+      childCount: number;
+      docSize: number;
+      allExcluded?: boolean;
+      eligibleCount?: number;
+      activePos?: number | null;
+      activeType?: string | null;
+      activeFound?: boolean;
+      handleTypes?: Record<string, number>;
+      excludedTypes?: Record<string, number>;
+      skippedReasons?: Record<string, number>;
+    }
+  ) => void
+): DecorationSet =>
+⋮----
+const bump = (target: Record<string, number>, key: string) =>
+⋮----
+addOptions()
+⋮----
+addCommands()
+⋮----
+addProseMirrorPlugins()
+⋮----
+const setHandleLockClass = () =>
+⋮----
+const getActivePos = (): number | null =>
+⋮----
+const dispatchActivePos = (nextPos: number | null): void =>
+⋮----
+const scheduleActivePos = (nextPos: number | null): void =>
+⋮----
+const resolveHoverPosFromTarget = (
+      target: EventTarget | null,
+      clientX: number,
+      clientY: number
+): number | null =>
+⋮----
+const resolveHandleTarget = (target: EventTarget | null):
+⋮----
+const resolveBlockPosFromContainer = (): number | null =>
+⋮----
+const resolveHandleContainer = (target: EventTarget | null): HTMLElement | null =>
+⋮----
+const resolveDropcursorElements = (): NodeListOf<HTMLElement> =>
+⋮----
+const isElementInDragSource = (el: Element): boolean =>
+⋮----
+const setDropcursorNoop = (isNoop: boolean): void =>
+⋮----
+const resolveDropTargetPos = (clientX: number, clientY: number): number | null =>
+⋮----
+const resolveBlockHostFromCoords = (clientX: number, clientY: number): HTMLElement | null =>
+⋮----
+const simulateDropNoop = (target: number, slice: Slice, move: boolean): boolean | null =>
+⋮----
+const updateDropcursorNoopState = (clientX: number, clientY: number): void =>
+⋮----
+const withinRange = (value: number)
+⋮----
+const isNoopDropTarget = (target: number):
+⋮----
+const applyManualDrop = (clientX: number, clientY: number): boolean =>
+⋮----
+const applyDropcursorIndent = (clientX: number, clientY: number): void =>
+⋮----
+const applyBlockDropcursorIndent = (clientX: number, clientY: number): void =>
+⋮----
+const scheduleDropcursorIndentUpdate = (clientX: number, clientY: number): void =>
+⋮----
+const clearDragIndentState = (reason?: string): void =>
+⋮----
+const restoreDropcursorAfterIndent = (): void =>
+⋮----
+const adjustListIndentAfterDrop = () =>
+⋮----
+const getCurrentDepth = ()
+⋮----
+const adjustBlockIndentAfterDrop = () =>
+⋮----
+const resolveDragCoords = (clientX: number, clientY: number):
+⋮----
+const dispatchDropcursorUpdate = (clientX: number, clientY: number): void =>
+⋮----
+const onDragOver = (e: DragEvent) =>
+⋮----
+const onDrop = (e: DragEvent) =>
+⋮----
+const onMouseDown = (e: MouseEvent) =>
+⋮----
+const onPointerMove = (e: PointerEvent) =>
+⋮----
+const onPointerLeave = () =>
+⋮----
+const onDocumentDragOver = (e: DragEvent) =>
+⋮----
+const onDocumentPointerMove = (e: PointerEvent) =>
+⋮----
+const onDocumentDrop = (e: DragEvent) =>
+⋮----
+const onDocumentDragEnd = (e: DragEvent) =>
+⋮----
+const onDragStart = (e: DragEvent) =>
+⋮----
+const createNodeSelection = (): Selection | null =>
+⋮----
+// Ensure ProseMirror drop handler treats this as an internal move.
+⋮----
+const onDragEnd = (e: DragEvent) =>
+⋮----
+const bindDomEvents = () =>
+⋮----
+const bindDocumentEvents = () =>
+⋮----
+const unbindDomEvents = () =>
+⋮----
+const unbindDocumentEvents = () =>
+⋮----
+init()
+apply(tr, value)
+⋮----
+update()
+destroy()
+⋮----
+decorations(state)
+</file>
+
+<file path="packages/webview/src/editor/disableKeyboardShortcuts.ts">
+/**
+ * Tiptapビルトインショートカットを無効化する拡張
+ *
+ * VSCodeのkeybindingsで全てのショートカットを管理するため、
+ * Tiptap側のビルトインショートカットを無効化する。
+ *
+ * 各拡張をextendしてaddKeyboardShortcutsを空にオーバーライド
+ */
+⋮----
+import { mergeAttributes } from '@tiptap/core';
+import type { MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
+import Bold from '@tiptap/extension-bold';
+import Italic from '@tiptap/extension-italic';
+import Strike from '@tiptap/extension-strike';
+import Code from '@tiptap/extension-code';
+import Underline from '@tiptap/extension-underline';
+import Paragraph from '@tiptap/extension-paragraph';
+import Heading from '@tiptap/extension-heading';
+import BulletList from '@tiptap/extension-bullet-list';
+import OrderedList from '@tiptap/extension-ordered-list';
+import ListItem from '@tiptap/extension-list-item';
+import Blockquote from '@tiptap/extension-blockquote';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import HorizontalRule from '@tiptap/extension-horizontal-rule';
+import History from '@tiptap/extension-history';
+import { applyIndentAttributesToDom, indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
+import { resolveBlockHandleEligibility, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { BlockPreviewController } from './blockPreview.js';
+import { createLogger } from '../logger.js';
+⋮----
+const logInfo = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logSuccess = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logWarning = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const createHandleDecisionLogger = (nodeType: string) =>
+⋮----
+const logDecision = (
+    phase: string,
+    decision: ReturnType<typeof resolveBlockHandleEligibility>,
+    handleExists: boolean
+) =>
+⋮----
+const logHandlePos = (pos: number | null, handleExists: boolean) =>
+⋮----
+const logHandleState = (action: 'created' | 'removed', pos: number | null, reason?: string) =>
+⋮----
+const parseCodeBlockInfo = (token: MarkdownToken):
+⋮----
+const buildCodeBlockInfo = (language: string | null, filename: string | null): string =>
+⋮----
+const buildCodeBlockLabelNodes = (language: string | null, filename: string | null): (string | unknown[])[] =>
+⋮----
+/**
+ * Bold拡張 (Mod-b 無効化)
+ */
+⋮----
+addKeyboardShortcuts()
+⋮----
+/**
+ * Italic拡張 (Mod-i 無効化)
+ */
+⋮----
+/**
+ * Strike拡張 (Mod-Shift-s 無効化)
+ */
+⋮----
+/**
+ * Code拡張 (Mod-e 無効化)
+ */
+⋮----
+/**
+ * Paragraph拡張 (Mod-Alt-0 無効化 + indent対応)
+ */
+⋮----
+addAttributes()
+⋮----
+// Image.inline=true 構成では、画像単独段落をアンラップすると
+// doc 直下に inline image が出て schema 不整合になる。
+⋮----
+addNodeView()
+⋮----
+const syncIndent = (updatedNode: typeof node) =>
+⋮----
+/**
+ * Underline拡張 (Mod-u 無効化)
+ */
+⋮----
+/**
+ * Heading拡張 (Mod-Alt-1~6 無効化)
+ */
+⋮----
+/**
+ * BulletList拡張 (Mod-Shift-8 無効化)
+ */
+⋮----
+/**
+ * OrderedList拡張 (Mod-Shift-7 無効化)
+ */
+⋮----
+/**
+ * ListItem拡張 (Tab/Shift-Tab 無効化)
+ */
+⋮----
+// Allow plainTextBlock as the first child for per-item plain text editing.
+⋮----
+const syncHandleState = () =>
+⋮----
+/**
+ * Blockquote拡張 (Mod-Shift-b 無効化)
+ */
+⋮----
+/**
+ * CodeBlock拡張 (Mod-Alt-c 無効化)
+ */
+⋮----
+renderHTML(
+⋮----
+const isMermaidLanguage = (candidate: typeof node): boolean =>
+⋮----
+const buildLabelText = (language: string | null, filename: string | null): string =>
+⋮----
+const parseLabelText = (value: string):
+⋮----
+const applyLabelChange = () =>
+⋮----
+const updateLabel = (language: string | null, filename: string | null) =>
+⋮----
+const syncAttrs = (updatedNode: typeof node) =>
+⋮----
+const onLabelFocus = () =>
+const onLabelBlur = () =>
+const onLabelKeyDown = (event: KeyboardEvent) =>
+⋮----
+/**
+ * HorizontalRule拡張 (Mod-Shift-- 無効化 + indent対応)
+ */
+⋮----
+/**
+ * History拡張 (Mod-z, Mod-Shift-z 無効化)
+ */
+</file>
+
+<file path="packages/extension/src/editors/inlineMarkProvider.ts">
+/**
+ * 役割: Markdown ファイル用の CustomTextEditorProvider 実装
+ * 責務: Webview ライフサイクル管理、メッセージパッシング、ドキュメント同期の調整
+ * 不変条件: TextDocument が唯一の真実 (source of truth)。全 Webview は同一状態に収束すること
+ * 
+ * 設計書参照: 6.2, 6.4 (InlineMarkProvider の責務)
+ * 
+ * 設計原則 (設計書 4.2):
+ * - 原則 A: 真実は常に TextDocument（Webview は入力と表示を担う）
+ * - 原則 B: Webview 更新通知は onDidChangeTextDocument 起点に統一
+ * - 原則 C: 整合性は baseVersion + txId で担保
+ * 
+ * ポリシー (設計書 4.3):
+ * - フォールバック禁止: 自動で標準テキストエディタへ切り替えない
+ * - サイレントリカバリ禁止: 失敗を隠さない（ログとエラー表示）
+ * - 不整合は完全リセット: 状態が壊れたらセッション破棄→再初期化
+ * - 完全ログ主義: 原因特定に必要な入出力を記録
+ * 
+ * 同期フロー (設計書 10):
+ * 1. Webview 起動 → ready 送信
+ * 2. Extension は init (全文 + version + sessionId/clientId) を返信
+ * 3. 編集: Webview → edit(baseVersion, txId, changes) → Extension
+ * 4. Extension: baseVersion 検証 → 一致なら applyEdit → ack/nack 返信
+ * 5. 外部変更: onDidChangeTextDocument → 全 Webview へ docChanged ブロードキャスト
+ * 
+ * 重要な運用ルール (設計書 9.5):
+ * - ルール 1: docChanged は onDidChangeTextDocument 起点に統一（二重通知防止）
+ * - ルール 2: baseVersion 不一致の edit は nack（破壊的適用を防ぐ）
+ * - ルール 3: Webview は docChanged 適用中に edit を送らない（ループ防止）
+ * - ルール 4: in-flight は client ごとに 1 件まで（coalesce）
+ * 
+ * セキュリティ (設計書 8, 12.3, 18):
+ * - CSP: default-src 'none' + nonce による script 制約
+ * - 危険スキーム禁止: javascript:/command:/vscode:/file: は常にブロック
+ * - リンクは openExternal 経由で開く
+ * - 画像: ワークスペース内は asWebviewUri、リモートはオプション
+ * - HTML: コードブロックとして表示
+ * 
+ * docUri の扱い (設計書 9.2 補足):
+ * - Webview から来た docUri は信頼しない（照合のみ）
+ * - Extension 側は resolveCustomTextEditor で panel と document の対応を把握済み
+ */
+⋮----
+import {
+  type WebviewToExtensionMessage,
+  type WebviewConfig,
+  createInitMessage,
+  createConfigChangedMessage,
+  createAckMessage,
+  createNackMessage,
+  createDocChangedMessage,
+  createErrorMessage,
+  createImageResolvedMessage,
+  createNestedPageCreatedMessage,
+  createNestedPageCreateAckMessage,
+  createNestedPageCreateFailedMessage,
+  isValidWebviewMessage,
+} from '../protocol/messages.js';
+import {
+  replacesToWorkspaceEdit,
+  contentChangeEventsToReplaces,
+} from '../util/textEdits.js';
+import { logger } from '../util/log.js';
+⋮----
+interface WebviewPanel {
+  panel: vscode.WebviewPanel;
+  clientId: string;
+  ready: boolean;
+  initAckReceived: boolean;
+  initAckRetryCount: number;
+  initAckTimer: ReturnType<typeof setTimeout> | null;
+}
+⋮----
+interface DocumentState {
+  uri: vscode.Uri;
+  sessionId: string;
+  panels: Map<string, WebviewPanel>;
+  /**
+   * Track which doc version was produced by which client.
+   * Key: TextDocument.version after the edit is applied
+   * Value: originating clientId
+   *
+   * Why:
+   * - We want to tag docChanged as `reason=self` for the originating Webview only,
+   *   so the active editor does NOT re-render itself on every keystroke (cursor jump fix).
+   * - For other Webviews, we still broadcast as `reason=external` and they apply it.
+   *
+   * See 詳細設計.md 9.4/9.5 + 追加方針(カーソル末尾ジャンプ)。
+   */
+  selfChangeVersions: Map<number, string>;
+}
+⋮----
+/**
+   * Track which doc version was produced by which client.
+   * Key: TextDocument.version after the edit is applied
+   * Value: originating clientId
+   *
+   * Why:
+   * - We want to tag docChanged as `reason=self` for the originating Webview only,
+   *   so the active editor does NOT re-render itself on every keystroke (cursor jump fix).
+   * - For other Webviews, we still broadcast as `reason=external` and they apply it.
+   *
+   * See 詳細設計.md 9.4/9.5 + 追加方針(カーソル末尾ジャンプ)。
+   */
+⋮----
+export class InlineMarkProvider implements vscode.CustomTextEditorProvider
+⋮----
+constructor(private readonly context: vscode.ExtensionContext)
+⋮----
+public static register(context: vscode.ExtensionContext): InlineMarkProvider
+⋮----
+// UX: Avoid visible "re-render" on tab switching.
+// Trade-off: higher memory usage while editors are hidden.
+// See 詳細設計.md 13 (Webview lifecycle) / 追加方針(タブ移動の再描画)。
+//
+// Note: this is read at activation time; changes require window reload.
+⋮----
+async resolveCustomTextEditor(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _token: vscode.CancellationToken
+): Promise<void>
+⋮----
+// デバッグモード時は JSONL ログを開始
+⋮----
+// ドキュメントのログを終了
+⋮----
+private getWebviewOptions(): vscode.WebviewOptions
+⋮----
+private async getHtmlForWebview(webview: vscode.Webview): Promise<string>
+⋮----
+type ViteManifestChunk = {
+      file: string;
+      src?: string;
+      isEntry?: boolean;
+      css?: string[];
+    };
+⋮----
+private buildCsp(webview: vscode.Webview, nonce: string): string
+⋮----
+private async onDidReceiveMessage(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    clientId: string,
+    msg: unknown
+): Promise<void>
+⋮----
+/**
+   * Handle menu state change from webview for context key management
+   */
+private handleMenuStateChange(msg:
+⋮----
+// Set context key for keybinding when clause
+⋮----
+/**
+   * Handle find widget state change from webview for context key management
+   */
+private handleFindWidgetStateChange(msg:
+⋮----
+private async handleReady(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel
+): Promise<void>
+⋮----
+const scheduleInitAckWait = (): void =>
+⋮----
+const sendInit = async (attempt: number, reason: string): Promise<void> =>
+⋮----
+private async handleEdit(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'edit' }
+): Promise<void>
+⋮----
+// ChangeGuard disabled for now (per request).
+⋮----
+// Mark the next document version as originating from this client.
+// onDidChangeTextDocument will use this to send `reason=self` to the originating Webview
+// (so it can avoid re-render and keep the caret position stable).
+⋮----
+private async handleRequestResync(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel
+): Promise<void>
+⋮----
+private handleLogClient(
+    clientId: string,
+    docUri: string,
+    msg: WebviewToExtensionMessage & { type: 'logClient' }
+): void
+⋮----
+private async handleOpenLink(
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'openLink' }
+): Promise<void>
+⋮----
+// Check for dangerous URL schemes (per spec 12.3.2: javascript/command/vscode/file are always blocked)
+⋮----
+// Check if confirmation is required for external links
+⋮----
+private async handleCopyToClipboard(
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'copyToClipboard' }
+): Promise<void>
+⋮----
+private async handleOverwriteSave(
+    document: vscode.TextDocument,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'overwriteSave' }
+): Promise<void>
+⋮----
+private async handleReopenWithTextEditor(clientId: string): Promise<void>
+⋮----
+private async handleExportLogs(clientId: string): Promise<void>
+⋮----
+private async handleRequestResyncWithConfirm(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string
+): Promise<void>
+⋮----
+private async handleOverwriteSaveWithConfirm(
+    document: vscode.TextDocument,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'overwriteSaveWithConfirm' }
+): Promise<void>
+⋮----
+private async handleResolveImage(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'resolveImage' }
+): Promise<void>
+⋮----
+const respondWithError = async (message: string): Promise<void> =>
+⋮----
+// Check if workspace images are allowed
+⋮----
+// Check if it's a relative path
+⋮----
+// セキュリティ: パストラバーサル攻撃を防止 (設計書 12.3.3)
+// ../ を含むパスはワークスペース外へのアクセスを試みる可能性がある
+// 正規化後のパスがワークスペース内にあることを確認する
+⋮----
+// Resolve relative path against document directory
+⋮----
+// ワークスペースフォルダを取得して、画像がワークスペース内にあることを確認
+// セキュリティ: path.relative を使用して、相対パスが '..' で始まらないことを確認
+// これにより、startsWith の境界条件問題（/ws と /ws2）や OS 差分を回避
+⋮----
+// path.relative で相対パスを計算し、'..' で始まらないことを確認
+⋮----
+// 相対パスが '..' で始まる場合、または絶対パス（Windows のドライブレター）の場合は外部
+⋮----
+// Convert to webview URI
+⋮----
+private async safeStat(uri: vscode.Uri): Promise<vscode.FileStat | null>
+⋮----
+private createAutoNestedPageBaseName(): string
+⋮----
+const pad = (value: number, length = 2)
+⋮----
+private async handleCreateNestedPage(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'createNestedPage' }
+): Promise<void>
+⋮----
+const withTimeout = async <T>(label: string, promise: PromiseLike<T>, timeoutMs: number): Promise<T> =>
+⋮----
+const postToPanel = (target: WebviewPanel, context: string, payload: unknown) =>
+⋮----
+const postToRequestingPanel = (context: string, payload: unknown): boolean =>
+⋮----
+const fail = (message: string, code: string, details?: Record<string, unknown>) =>
+⋮----
+private async handleOpenNestedPage(
+    document: vscode.TextDocument,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'openNestedPage' }
+): Promise<void>
+⋮----
+private async handleNotifyHost(
+    document: vscode.TextDocument,
+    state: DocumentState,
+    panel: WebviewPanel,
+    clientId: string,
+    msg: WebviewToExtensionMessage & { type: 'notifyHost' }
+): Promise<void>
+⋮----
+// Destructive action → confirm in extension UI.
+⋮----
+private onDidChangeTextDocument(e: vscode.TextDocumentChangeEvent): void
+⋮----
+private async handleConfigurationChange(e: vscode.ConfigurationChangeEvent): Promise<void>
+⋮----
+private getWebviewConfig(): WebviewConfig
+⋮----
+private async loadI18nBundle(locale: string): Promise<Record<string, string>>
+⋮----
+private async checkRequiredSettings(): Promise<boolean>
+⋮----
+private async showSettingsRequiredDialog(): Promise<boolean>
+⋮----
+// Get current values for comparison
+⋮----
+public async applyRequiredSettings(): Promise<boolean>
+⋮----
+private async showUntrustedWorkspaceError(webviewPanel: vscode.WebviewPanel, sessionId?: string): Promise<void>
+⋮----
+private async showSettingsNotConfiguredError(webviewPanel: vscode.WebviewPanel, sessionId?: string): Promise<void>
+⋮----
+private getErrorHtml(message: string): string
+⋮----
+private escapeHtml(text: string): string
+⋮----
+public async resetSession(document: vscode.TextDocument, skipConfirmation = false): Promise<boolean>
+⋮----
+// Show confirmation dialog for destructive operation (spec 12.1.1)
+⋮----
+/**
+   * エディタコマンドをアクティブなWebviewに送信
+   * VSCode keybindingsから呼び出される
+   */
+public sendEditorCommand(command: string): void
+⋮----
+// 現在アクティブなタブからWebviewパネルを取得
+⋮----
+// DocumentStateからパネルを探す
+⋮----
+// 全パネルにコマンドを送信（通常は1つ）
+⋮----
+dispose(): void
+</file>
+
+<file path="packages/webview/src/editor/blockHandlesExtension.ts">
+/**
+ * Block Handles Extension for Tiptap
+ * Provides Notion-like block menus:
+ * - + button for block-type menu
+ * - Context menu on handle click (delete/copy)
+ * - Slash command for block-type menu
+ *
+ * Note: Drag & drop is handled by InlineDragHandle (custom, listItem-aware).
+ */
+⋮----
+import { Extension } from '@tiptap/core';
+import { Plugin, PluginKey } from 'prosemirror-state';
+import type { Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model';
+import { DEBUG } from './debug.js';
+import { t } from './i18n.js';
+import { icons, createIconElement } from './icons.js';
+import { createBlockMenu, createBlockMenuItem, getBlockMenuItems, positionBlockMenu, updateBlockMenuSelection } from './blockMenu.js';
+import { closeMenu, isMenuActive, openMenu, registerMenu } from './menuManager.js';
+import { executeCommand } from './commands.js';
+import { normalizeIndentAttr } from './indentConfig.js';
+import { notifyHostError } from './hostNotifier.js';
+import { serializeMarkdown } from './markdownUtils.js';
+import { createLogger } from '../logger.js';
+⋮----
+const logInfo = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logSuccess = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+const logWarning = (msg: string, data?: Record<string, unknown>): void =>
+⋮----
+export const isDragHandleTarget = (node: ProseMirrorNode | null): boolean =>
+⋮----
+const hasAncestor = ($pos: ResolvedPos, predicate: (node: ProseMirrorNode) => boolean): boolean =>
+⋮----
+export type BlockHandleEligibility = {
+  allowed: boolean;
+  reason:
+    | 'ok'
+    | 'missing-getPos'
+    | 'getPos-error'
+    | 'pos-not-finite'
+    | 'resolve-failed'
+    | 'in-table'
+    | 'in-list'
+    | 'in-blockquote';
+  pos: number | null;
+  selfType?: string;
+  inTableCell?: boolean;
+  inListItem?: boolean;
+  inBlockquote?: boolean;
+  error?: string;
+};
+⋮----
+export const resolveBlockHandleEligibility = (
+  state: { doc: ProseMirrorNode },
+  getPos: (() => number) | false | undefined,
+  selfType?: string
+): BlockHandleEligibility =>
+⋮----
+export const shouldRenderBlockHandle = (
+  state: { doc: ProseMirrorNode },
+  getPos: (() => number) | false | undefined,
+  selfType?: string
+): boolean =>
+⋮----
+export const createDragHandleElement = (): HTMLElement =>
+⋮----
+// Prevent drag start from the add button
+⋮----
+interface BlockTypeDefinition {
+  icon?: string;
+  iconText?: string;
+  label: string;
+  blockType: string;
+  keywords: string[];
+}
+⋮----
+export interface BlockHandlesStorage {
+  blockTypeMenu: HTMLElement | null;
+  showBlockTypeMenu: ((x: number, y: number, filterText?: string) => void) | null;
+  hideBlockTypeMenu: (() => void) | null;
+  hideContextMenu: (() => void) | null;
+  slashCommandRange: { from: number; to: number } | null;
+  // Block type menu state
+  selectedMenuIndex: number;
+  menuItemCount: number;
+  // Context menu state
+  selectedContextIndex: number;
+  contextItemCount: number;
+  // Unified menu navigation
+  selectPrevMenuItem: (() => void) | null;
+  selectNextMenuItem: (() => void) | null;
+  selectCurrentMenuItem: (() => void) | null;
+  isMenuVisible: () => boolean;
+  getActiveMenuType: () => 'blockType' | 'blockContext' | null;
+  // Active node from InlineDragHandle
+  currentNode: ProseMirrorNode | null;
+  currentNodePos: number;
+  setActiveNode: (node: ProseMirrorNode | null, pos: number) => void;
+}
+⋮----
+// Block type menu state
+⋮----
+// Context menu state
+⋮----
+// Unified menu navigation
+⋮----
+// Active node from InlineDragHandle
+⋮----
+export interface BlockHandlesOptions {
+  createNestedPage?: (title: string) => Promise<{ path: string; title: string }>;
+  openNestedPage?: (path: string) => void;
+}
+⋮----
+addOptions()
+⋮----
+addStorage()
+⋮----
+setActiveNode(node, pos)
+⋮----
+addKeyboardShortcuts()
+⋮----
+addProseMirrorPlugins()
+⋮----
+const getActiveBlock = () =>
+⋮----
+const resolveBlockFromHandleTarget = (target: HTMLElement | null) =>
+⋮----
+const resolvePosFromContainer = (): number | null =>
+⋮----
+const setActiveBlockFromHandleTarget = (target: HTMLElement | null) =>
+⋮----
+const resolveIndentFromSelection = (): number =>
+⋮----
+const resolveIndentFromBlock = (block:
+⋮----
+const createNestedPageAt = async (pos: number, indent: number, reason: 'slash' | 'menu') =>
+⋮----
+const triggerOpen = () =>
+⋮----
+const syncDragHandleLock = () =>
+⋮----
+const hideContextMenu = () =>
+⋮----
+const hideBlockTypeMenu = () =>
+⋮----
+const updateBlockTypeMenuSelection = () =>
+⋮----
+const updateContextMenuSelection = () =>
+⋮----
+const getActiveMenuType = (): 'blockType' | 'blockContext' | null =>
+⋮----
+const isAnyMenuVisible = () =>
+⋮----
+const selectPrevMenuItem = () =>
+⋮----
+const selectNextMenuItem = () =>
+⋮----
+const selectCurrentMenuItem = () =>
+⋮----
+const getBlockTypes = (): BlockTypeDefinition[] =>
+⋮----
+const createBlockTypeItem = (item: BlockTypeDefinition): HTMLElement =>
+⋮----
+const showBlockTypeMenu = (x: number, y: number, filterText?: string) =>
+⋮----
+const createBlockContextMenu = (): HTMLElement =>
+⋮----
+const createMenuItem = (label: string, action: string, icon?: string, iconText?: string): HTMLElement =>
+⋮----
+const createBlockTypeMenu = (): HTMLElement =>
+⋮----
+const deleteBlock = (block:
+⋮----
+const collectContentJson = (node: ProseMirrorNode): unknown[] =>
+⋮----
+const serializeNodeToMarkdown = (node: ProseMirrorNode, context: Record<string, unknown>): string | null =>
+⋮----
+const serializeListItemContentToMarkdown = (node: ProseMirrorNode): string | null =>
+⋮----
+const serializeBlockForClipboard = (block:
+⋮----
+const convertListItemToPlainText = (block:
+⋮----
+const convertBlockToPlainText = (block:
+⋮----
+const handleContextMenuAction = async (action: string, block:
+⋮----
+const showContextMenu = (x: number, y: number, block:
+⋮----
+view()
+⋮----
+const onBlockTypeMenuClick = async (e: MouseEvent) =>
+⋮----
+const onContextMenuClick = (e: MouseEvent) =>
+⋮----
+const openBlockTypeMenuFromButton = (addBtn: HTMLElement) =>
+⋮----
+const openContextMenuFromHandle = (handleBtn: HTMLElement, event: PointerEvent) =>
+⋮----
+const resolvePointerAction = (target: HTMLElement) =>
+⋮----
+const clearPendingPointerAction = () =>
+⋮----
+const onHandlePointerDown = (e: PointerEvent) =>
+⋮----
+const onHandlePointerMove = (e: PointerEvent) =>
+⋮----
+const onHandlePointerUp = (e: PointerEvent) =>
+⋮----
+const onHandlePointerCancel = (e: PointerEvent) =>
+⋮----
+const onHandleDragStart = (e: DragEvent) =>
+⋮----
+const onDocumentClick = (e: MouseEvent) =>
+⋮----
+update(view)
+destroy()
+</file>
+
+<file path="package.json">
+{
+  "name": "inlinemark-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:webview && npm run build:extension",
+    "build:extension": "npm run build -w packages/extension",
+    "build:webview": "npm run build -w packages/webview",
+    "watch": "npm run watch:webview & npm run watch:extension",
+    "watch:extension": "npm run watch -w packages/extension",
+    "watch:webview": "npm run watch -w packages/webview",
+    "lint": "npm run lint -w packages/extension && npm run lint -w packages/webview",
+    "test": "env -u ELECTRON_RUN_AS_NODE npm run test -w packages/extension",
+    "package": "npm run build && NODE_OPTIONS=\"--require $PWD/scripts/patch-os-cpus.cjs\" sh -c 'cd packages/extension && vsce package --no-dependencies'"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "@esbuild/darwin-arm64": "^0.27.2",
+    "@rollup/rollup-darwin-arm64": "^4.55.1"
+  }
+}
+</file>
+
+<file path="packages/webview/package.json">
+{
+  "name": "inlinemark-webview",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && vite build -c vite.preview.config.ts",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@floating-ui/dom": "^1.7.4",
+    "@tiptap/core": "^3.15.3",
+    "@tiptap/extension-blockquote": "^3.15.3",
+    "@tiptap/extension-bold": "^3.15.3",
+    "@tiptap/extension-bubble-menu": "^3.15.3",
+    "@tiptap/extension-bullet-list": "^3.15.3",
+    "@tiptap/extension-code": "^3.15.3",
+    "@tiptap/extension-code-block": "^3.15.3",
+    "@tiptap/extension-code-block-lowlight": "^3.15.3",
+    "@tiptap/extension-dropcursor": "^3.15.3",
+    "@tiptap/extension-floating-menu": "^3.15.3",
+    "@tiptap/extension-heading": "^3.15.3",
+    "@tiptap/extension-history": "^3.15.3",
+    "@tiptap/extension-image": "^3.15.3",
+    "@tiptap/extension-italic": "^3.15.3",
+    "@tiptap/extension-link": "^3.15.3",
+    "@tiptap/extension-node-range": "^3.15.3",
+    "@tiptap/extension-ordered-list": "^3.15.3",
+    "@tiptap/extension-placeholder": "^3.15.3",
+    "@tiptap/extension-strike": "^3.15.3",
+    "@tiptap/extension-table": "^3.15.3",
+    "@tiptap/extension-underline": "^3.15.3",
+    "@tiptap/markdown": "^3.15.3",
+    "@tiptap/pm": "^3.15.3",
+    "@tiptap/starter-kit": "^3.15.3",
+    "@tiptap/suggestion": "^3.15.3",
+    "@vscode/codicons": "^0.0.44",
+    "diff-match-patch": "^1.0.5",
+    "lowlight": "^3.3.0",
+    "mermaid": "^11.12.2",
+    "prosemirror-search": "^1.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/diff-match-patch": "^1.0.36",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.0",
+    "vite": "^7.3.1"
+  }
+}
+</file>
+
+<file path="packages/webview/src/styles.css">
+/**
+ * Role: Webview styles with VS Code theme following
+ * Responsibility: Style the editor to match VS Code's theme using CSS variables
+ * Invariant: No fixed colors; all colors must use --vscode-* variables
+ */
+⋮----
+* {
+⋮----
+html,
+⋮----
+body {
+⋮----
+.codicon {
+⋮----
+#app {
+⋮----
+.app-loading {
+⋮----
+.app-loading.is-visible {
+⋮----
+.app-loading-spinner {
+⋮----
+.editor-container {
+⋮----
+/* Keep content centered with a readable max width (Japanese-first). */
+⋮----
+.editor-container.is-full-width {
+⋮----
+.editor-container.is-full-width .inline-markdown-editor-content {
+⋮----
+.editor-container.is-no-wrap .inline-markdown-editor-content {
+⋮----
+.inline-markdown-editor-content {
+⋮----
+.inline-markdown-editor-content:focus {
+⋮----
+.inline-markdown-editor-content::after,
+⋮----
+/* Headings */
+.inline-markdown-editor-content h1,
+⋮----
+.inline-markdown-editor-content h1 > .block-content,
+⋮----
+.inline-markdown-editor-content h1 > .block-content {
+⋮----
+.inline-markdown-editor-content h2 > .block-content {
+⋮----
+.inline-markdown-editor-content h3 > .block-content {
+⋮----
+.inline-markdown-editor-content h4 > .block-content {
+⋮----
+.inline-markdown-editor-content h5 > .block-content {
+⋮----
+.inline-markdown-editor-content h6 > .block-content {
+⋮----
+/* Paragraphs */
+.inline-markdown-editor-content p {
+⋮----
+.inline-markdown-editor-content p > .block-content {
+⋮----
+.inline-markdown-editor-content p:last-child > .block-content {
+⋮----
+/* Links */
+.inline-markdown-editor-content a {
+⋮----
+.inline-markdown-editor-content a:hover {
+⋮----
+body.inline-markdown-link-modifier .inline-markdown-editor-content a:hover {
+⋮----
+/* Code */
+.inline-markdown-editor-content code {
+⋮----
+/* Code-like block shell (code / frontmatter / unknown / blockquote / table) */
+.inline-markdown-editor-content .code-block-wrapper > .block-content,
+⋮----
+.inline-markdown-editor-content pre {
+⋮----
+.inline-markdown-editor-content pre.code-block,
+⋮----
+.inline-markdown-editor-content .code-block-wrapper pre.code-block {
+⋮----
+.inline-markdown-editor-content .code-block-wrapper > .block-content {
+⋮----
+.inline-markdown-editor-content pre.code-block {
+⋮----
+.inline-markdown-editor-content .block-content > pre.code-block {
+⋮----
+.inline-markdown-editor-content .block-content > pre.code-block > code {
+⋮----
+.inline-markdown-editor-content pre.code-block[data-has-label='true'],
+⋮----
+.inline-markdown-editor-content pre code {
+⋮----
+/* Code highlight (lowlight / highlight.js classes) */
+.inline-markdown-editor-content pre code .hljs-comment,
+⋮----
+.inline-markdown-editor-content pre code .hljs-keyword,
+⋮----
+.inline-markdown-editor-content pre code .hljs-string,
+⋮----
+.inline-markdown-editor-content pre code .hljs-number,
+⋮----
+/* Blockquotes */
+.inline-markdown-editor-content .blockquote-block {
+⋮----
+.inline-markdown-editor-content .blockquote-block > blockquote {
+⋮----
+.inline-markdown-editor-content .blockquote-block > blockquote > .block-content {
+⋮----
+.inline-markdown-editor-content .blockquote-block > blockquote p > .block-content {
+⋮----
+/* Lists */
+.inline-markdown-editor-content ul,
+⋮----
+.inline-markdown-editor-content ol {
+⋮----
+.inline-markdown-editor-content li {
+⋮----
+.inline-markdown-editor-content ol > li {
+⋮----
+.inline-markdown-editor-content ul > li::before,
+⋮----
+.inline-markdown-editor-content ul > li::before {
+⋮----
+.inline-markdown-editor-content ol > li::before {
+⋮----
+.inline-markdown-editor-content li p > .block-content {
+⋮----
+/* Horizontal Rule */
+.inline-markdown-editor-content hr {
+⋮----
+.inline-markdown-editor-content .horizontal-rule-block > .block-content {
+⋮----
+/* Images */
+.inline-markdown-editor-content img {
+⋮----
+.inline-markdown-editor-content .image {
+⋮----
+.inline-markdown-editor-content .image > img {
+⋮----
+/* Selection */
+.inline-markdown-editor-content ::selection {
+⋮----
+/* Bold and Italic */
+.inline-markdown-editor-content strong {
+⋮----
+.inline-markdown-editor-content em {
+⋮----
+/* Strikethrough */
+.inline-markdown-editor-content s {
+⋮----
+/* Tables (if supported) */
+.inline-markdown-editor-content table {
+⋮----
+.inline-markdown-editor-content th,
+⋮----
+.inline-markdown-editor-content tr > :last-child {
+⋮----
+.inline-markdown-editor-content tbody tr:last-child > td {
+⋮----
+.inline-markdown-editor-content th {
+⋮----
+.inline-markdown-editor-content .table-block > .block-content {
+⋮----
+/* Pseudo-virtualization for large documents */
+.inline-markdown-editor-content > * {
+⋮----
+.inline-markdown-editor-content > .block-handle-host {
+⋮----
+/* Handles need overflow outside block bounds, so disable containment on host blocks/lists */
+.inline-markdown-editor-content > .block-handle-host,
+⋮----
+/* Ensure ProseMirror widgets stay visible during scroll */
+.inline-markdown-editor-content > .ProseMirror-widget {
+⋮----
+/* ProseMirror specific styles */
+.ProseMirror {
+⋮----
+/* Do not force a fixed height (it breaks scrolling for long docs). */
+⋮----
+.ProseMirror-focused {
+⋮----
+/* Placeholder for empty editor */
+.ProseMirror p.is-editor-empty:first-child::before {
+⋮----
+/* Caret color */
+⋮----
+/* RAW blocks */
+.raw-block {
+⋮----
+.raw-block > .block-content {
+⋮----
+.raw-block[data-kind='html'] > .block-content {
+⋮----
+.raw-block:not([data-kind='html']) > .block-content {
+⋮----
+/* Block label (used for RAW, code language, filename) */
+.block-label {
+⋮----
+.raw-block .block-label {
+⋮----
+.code-block-label-language {
+⋮----
+.code-block-label {
+⋮----
+.code-block-label.is-empty::before {
+⋮----
+.code-block-label-separator {
+⋮----
+.code-block-label-filename {
+⋮----
+/* Action button for RAW blocks */
+.block-label-action {
+⋮----
+.block-label-action:hover {
+⋮----
+.block-label-action:focus-visible {
+⋮----
+/* Legacy info icon style (kept for backward-compatible DOM) */
+.block-label-info {
+⋮----
+.block-label-info svg {
+⋮----
+.block-label-info .codicon {
+⋮----
+.block-label-info:hover {
+⋮----
+/* Tooltip for info button */
+.block-label-info::after {
+⋮----
+.block-label-info:hover::after {
+⋮----
+.inline-markdown-editor-content pre.raw-block-content {
+⋮----
+.raw-block-content:focus,
+⋮----
+/* Frontmatter: share code-block text behavior (no forced wrap). */
+.frontmatter-block-content {
+⋮----
+/* PlainText: editable markdown buffer keeps wrapped behavior. */
+.plain-text-content {
+⋮----
+/* Plain text edit toolbar */
+.plain-text-toolbar {
+⋮----
+.plain-text-toolbar > * {
+⋮----
+.plain-text-done {
+⋮----
+.plain-text-done:hover {
+⋮----
+/* Block preview toolbar (HTML RAW / Mermaid) */
+.block-preview-toolbar {
+⋮----
+.block-preview-toolbar.is-hidden {
+⋮----
+.block-preview-toolbar > * {
+⋮----
+.block-preview-switch {
+⋮----
+.block-preview-switch-label {
+⋮----
+.block-preview-switch-input {
+⋮----
+.block-preview-switch-track {
+⋮----
+.block-preview-switch-thumb {
+⋮----
+.block-preview-switch-input:checked + .block-preview-switch-track {
+⋮----
+.block-preview-switch-input:checked + .block-preview-switch-track .block-preview-switch-thumb {
+⋮----
+.block-preview-switch:hover .block-preview-switch-track {
+⋮----
+.block-preview-switch-input:focus-visible + .block-preview-switch-track {
+⋮----
+.block-preview-switch-input:disabled + .block-preview-switch-track {
+⋮----
+.block-preview-switch.is-disabled .block-preview-switch-label {
+⋮----
+.block-preview-container {
+⋮----
+.block-preview-container.is-visible {
+⋮----
+.block-preview-container.is-padded {
+⋮----
+.block-preview-iframe {
+⋮----
+.inline-markdown-editor-content .block-preview-content-hidden,
+⋮----
+/* Nested Page block */
+.nested-page {
+⋮----
+.nested-page > .block-content {
+⋮----
+.nested-page-button {
+⋮----
+.nested-page-icon {
+⋮----
+.nested-page-icon svg {
+⋮----
+.nested-page-text {
+⋮----
+.nested-page-title {
+⋮----
+.nested-page-path {
+⋮----
+.nested-page:hover > .block-content {
+⋮----
+.nested-page.is-error > .block-content {
+⋮----
+/* ========================================
+   Notion/Slack風 UI コンポーネント
+   ======================================== */
+⋮----
+/* Placeholder - 空のノード用プレースホルダー */
+.ProseMirror .is-empty::before {
+⋮----
+.ProseMirror .is-editor-empty:first-child::before {
+⋮----
+/* NodeRange selection (multiple block selection) */
+.ProseMirror-selectednoderange {
+⋮----
+/* BubbleMenu - 選択時フォーマットツールバー */
+.bubble-menu {
+⋮----
+/* 初期状態: Floating UIが位置設定するまで非表示 */
+⋮----
+/* レイアウト */
+⋮----
+.bubble-menu.is-suspended {
+⋮----
+.bubble-menu-button {
+⋮----
+.bubble-menu-button:hover {
+⋮----
+.bubble-menu-button.is-active {
+⋮----
+.bubble-menu-button:active {
+⋮----
+/* Bubble Menu button style variations (CSP-safe) */
+.bubble-menu-bold {
+⋮----
+.bubble-menu-italic {
+⋮----
+.bubble-menu-strike {
+⋮----
+.bubble-menu-code {
+⋮----
+/* FloatingMenu - 空行メニュー（+ボタン） */
+.floating-menu {
+⋮----
+/* レイアウト - 縦方向（サブメニューは下に展開） */
+⋮----
+.floating-menu-trigger {
+⋮----
+.floating-menu-trigger:hover {
+⋮----
+/* FloatingMenu サブメニュー（下向きドロップダウン） */
+.floating-menu-submenu {
+⋮----
+.floating-menu-button {
+⋮----
+.floating-menu-button:hover {
+⋮----
+.floating-menu-button:active {
+⋮----
+.floating-menu-icon {
+⋮----
+.floating-menu-label {
+⋮----
+/* Tippy.js（BubbleMenu/FloatingMenuが使用）のスタイル調整 */
+.tippy-box {
+⋮----
+.tippy-content {
+⋮----
+.tippy-arrow {
+⋮----
+/* ========================================
+   スラッシュコマンドメニュー
+   ======================================== */
+⋮----
+.slash-command-popup {
+⋮----
+.slash-command-item {
+⋮----
+.slash-command-item:hover,
+⋮----
+.slash-command-icon {
+⋮----
+.slash-command-text {
+⋮----
+.slash-command-title {
+⋮----
+.slash-command-description {
+⋮----
+/* ========================================
+   テーブルコントロール UI (固定位置 - BlockHandles方式)
+   ======================================== */
+⋮----
+/* テーブル + ボタン（共通スタイル） */
+.table-add-btn {
+⋮----
+.table-add-btn svg {
+⋮----
+.table-add-btn .codicon {
+⋮----
+.table-add-btn.is-visible {
+⋮----
+.table-add-btn:hover {
+⋮----
+/* ========================================
+   ブロックハンドル UI
+   ======================================== */
+⋮----
+/* ブロックハンドルコンテナ（+ボタンと6点ハンドルの親） */
+.block-handle-container {
+⋮----
+.block-handle-container.is-active {
+⋮----
+/* ブロック側ホスト */
+.block-handle-host {
+⋮----
+.block-content {
+⋮----
+.inline-markdown-editor-content p > .block-content,
+⋮----
+.block-handle-host:hover .block-handle-container,
+⋮----
+.inline-markdown-editor-content li.block-handle-host {
+⋮----
+.ProseMirror.is-handle-locked .block-handle-container,
+⋮----
+/* +ボタン（ブロック追加） */
+.block-add-btn {
+⋮----
+.block-add-btn .codicon {
+⋮----
+.block-add-btn:hover {
+⋮----
+/* ブロックハンドル（6点ドラッグ） */
+.block-handle {
+⋮----
+.block-handle:hover {
+⋮----
+.block-handle:active {
+⋮----
+.block-handle svg {
+⋮----
+.block-handle .codicon {
+⋮----
+/* ブロックメニュー（block-type / block-context 共通） */
+.block-menu {
+⋮----
+.block-menu.is-visible {
+⋮----
+.block-menu-separator {
+⋮----
+.block-menu-item {
+⋮----
+.block-menu-item:hover,
+⋮----
+.block-menu-item.is-selected {
+⋮----
+.block-menu-item:active {
+⋮----
+.block-menu-item:disabled {
+⋮----
+.block-menu-icon {
+⋮----
+/* Tiptap公式dropcursorスタイル（カスタムインジケーター削除、公式プラグインを使用） */
+.ProseMirror-dropcursor,
+⋮----
+.inline-markdown-dropcursor.is-noop,
+⋮----
+/* ドラッグ中のブロック */
+.is-dragging {
+⋮----
+/* ブロックメニュー共通スタイルに統合 */
+⋮----
+/* ========================================
+   テーブル行/列ハンドル UI
+   ======================================== */
+⋮----
+/* 行ハンドルコンテナ */
+.table-row-handles {
+⋮----
+.table-row-handles.is-visible {
+⋮----
+/* 個別の行ハンドル */
+.table-row-handle {
+⋮----
+.table-row-handle:hover {
+⋮----
+.table-row-handle:active {
+⋮----
+.table-row-handle svg {
+⋮----
+.table-row-handle .codicon {
+⋮----
+/* 列ハンドルコンテナ */
+.table-col-handles {
+⋮----
+.table-col-handles.is-visible {
+⋮----
+/* 個別の列ハンドル */
+.table-col-handle {
+⋮----
+.table-col-handle:hover {
+⋮----
+.table-col-handle:active {
+⋮----
+.table-col-handle svg {
+⋮----
+.table-col-handle .codicon {
+⋮----
+/* テーブルドロップインジケーター */
+.table-drop-indicator {
+⋮----
+.table-drop-indicator.is-visible {
+⋮----
+/* 行ドロップインジケーター（水平線） */
+.table-drop-indicator-row {
+⋮----
+/* 列ドロップインジケーター（垂直線） */
+.table-drop-indicator-col {
+⋮----
+/* テーブルセルのドラッグ中ハイライト */
+.inline-markdown-editor-content table tr.is-dragging {
+⋮----
+.inline-markdown-editor-content table td.is-dragging,
+⋮----
+/* ========================================
+   Find / Replace Widget (VS Code-like)
+   ======================================== */
+⋮----
+.find-widget {
+⋮----
+.find-widget.is-visible {
+⋮----
+.find-widget.is-dragging {
+⋮----
+.find-widget.is-dragging * {
+⋮----
+.find-layout {
+⋮----
+.find-widget.is-invalid .find-input-group {
+⋮----
+.find-row {
+⋮----
+.find-group-stack {
+⋮----
+.find-meta-stack {
+⋮----
+.find-widget:not(.is-replace-visible) .find-group-stack .find-input-group.is-replace {
+⋮----
+.find-widget:not(.is-replace-visible) .find-meta-stack .replace-actions {
+⋮----
+.find-widget:not(.is-replace-visible) .find-meta-stack {
+⋮----
+.find-input-group {
+⋮----
+.find-input-group:focus-within {
+⋮----
+.find-input,
+⋮----
+.find-input:focus,
+⋮----
+.find-input::placeholder,
+⋮----
+.find-toggles {
+⋮----
+.find-replace-toggles {
+⋮----
+.find-action-button,
+⋮----
+.find-toggle .codicon {
+⋮----
+.find-toggle.is-active {
+⋮----
+.find-toggle.is-disabled {
+⋮----
+.find-toggle-area {
+⋮----
+.find-side-actions {
+⋮----
+.find-action-button {
+⋮----
+.find-action-button .codicon {
+⋮----
+.find-action-button:hover,
+⋮----
+.find-count {
+⋮----
+.find-status {
+⋮----
+.find-status[data-level='WARNING'] {
+⋮----
+.find-status[data-level='ERROR'] {
+⋮----
+.find-status.is-empty {
+⋮----
+.find-toggle-replace {
+⋮----
+.find-toggle-replace.is-open {
+⋮----
+.replace-actions {
+⋮----
+.replace-action-button {
+⋮----
+.replace-action-button:hover {
+⋮----
+/* Search match highlights */
+.ProseMirror-search-match {
+⋮----
+.ProseMirror-active-search-match {
+</file>
+
+<file path="packages/extension/package.json">
+{
+  "name": "inlinemark",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.1.3",
+  "publisher": "2001y",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/2001Y/vscode-inline-markdown-editor.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "assets/logo.png",
+  "main": "./out/extension.js",
+  "l10n": "./l10n",
+  "files": [
+    "out/**",
+    "media/webview/*.js",
+    "media/webview/*.css",
+    "media/webview/*.ttf",
+    "media/webview/.vite/manifest.json",
+    "assets/**",
+    "l10n/**",
+    "package.json",
+    "package.nls.json",
+    "package.nls.ja.json",
+    "package.nls.zh-cn.json",
+    "README.md",
+    "LICENSE.txt"
+  ],
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "inlineMark.editor",
+        "displayName": "%customEditor.displayName%",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "inlineMark.resetSession",
+        "title": "%command.resetSession.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.reopenWithTextEditor",
+        "title": "%command.reopenWithTextEditor.title%",
+        "category": "inlineMark",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "inlineMark.reopenWithInlineMark",
+        "title": "%command.reopenWithInlineMark.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.applyRequiredSettings",
+        "title": "%command.applyRequiredSettings.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.exportLogs",
+        "title": "%command.exportLogs.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.find",
+        "title": "%command.find.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.replace",
+        "title": "%command.replace.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.findNext",
+        "title": "%command.findNext.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.findPrevious",
+        "title": "%command.findPrevious.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.closeFind",
+        "title": "%command.closeFind.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleMatchCase",
+        "title": "%command.toggleMatchCase.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleWholeWord",
+        "title": "%command.toggleWholeWord.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleRegex",
+        "title": "%command.toggleRegex.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleFindInSelection",
+        "title": "%command.toggleFindInSelection.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.togglePreserveCase",
+        "title": "%command.togglePreserveCase.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleBold",
+        "title": "%command.toggleBold.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleItalic",
+        "title": "%command.toggleItalic.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleStrike",
+        "title": "%command.toggleStrike.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleCode",
+        "title": "%command.toggleCode.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleUnderline",
+        "title": "%command.toggleUnderline.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading1",
+        "title": "%command.toggleHeading1.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading2",
+        "title": "%command.toggleHeading2.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading3",
+        "title": "%command.toggleHeading3.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading4",
+        "title": "%command.toggleHeading4.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading5",
+        "title": "%command.toggleHeading5.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleHeading6",
+        "title": "%command.toggleHeading6.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleBulletList",
+        "title": "%command.toggleBulletList.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleOrderedList",
+        "title": "%command.toggleOrderedList.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleBlockquote",
+        "title": "%command.toggleBlockquote.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleCodeBlock",
+        "title": "%command.toggleCodeBlock.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.indentListItem",
+        "title": "%command.indentListItem.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.outdentListItem",
+        "title": "%command.outdentListItem.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.undo",
+        "title": "%command.undo.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.redo",
+        "title": "%command.redo.title%",
+        "category": "inlineMark"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "inlineMark.toggleBold",
+        "key": "ctrl+b",
+        "mac": "cmd+b",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleItalic",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleStrike",
+        "key": "ctrl+alt+shift+s",
+        "mac": "cmd+alt+shift+s",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleCode",
+        "key": "ctrl+e",
+        "mac": "cmd+e",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleUnderline",
+        "key": "ctrl+u",
+        "mac": "cmd+u",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading1",
+        "key": "ctrl+alt+1",
+        "mac": "cmd+alt+1",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading2",
+        "key": "ctrl+alt+2",
+        "mac": "cmd+alt+2",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading3",
+        "key": "ctrl+alt+3",
+        "mac": "cmd+alt+3",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading4",
+        "key": "ctrl+alt+4",
+        "mac": "cmd+alt+4",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading5",
+        "key": "ctrl+alt+5",
+        "mac": "cmd+alt+5",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleHeading6",
+        "key": "ctrl+alt+6",
+        "mac": "cmd+alt+6",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleBulletList",
+        "key": "ctrl+shift+8",
+        "mac": "cmd+shift+8",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleOrderedList",
+        "key": "ctrl+shift+7",
+        "mac": "cmd+shift+7",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleBlockquote",
+        "key": "ctrl+alt+shift+b",
+        "mac": "cmd+alt+shift+b",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleCodeBlock",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == 'inlineMark.editor' && !inlineMark.menuVisible"
+      },
+      {
+        "command": "inlineMark.replace",
+        "key": "ctrl+h",
+        "mac": "cmd+alt+f",
+        "when": "activeCustomEditorId == 'inlineMark.editor' && !inlineMark.menuVisible"
+      },
+      {
+        "command": "inlineMark.findNext",
+        "key": "f3",
+        "mac": "cmd+g",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.findPrevious",
+        "key": "shift+f3",
+        "mac": "shift+cmd+g",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.closeFind",
+        "key": "escape",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleMatchCase",
+        "key": "alt+c",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleWholeWord",
+        "key": "alt+w",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleRegex",
+        "key": "alt+r",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleFindInSelection",
+        "key": "alt+l",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.togglePreserveCase",
+        "key": "alt+p",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "inlineMark.reopenWithTextEditor",
+          "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
+          "group": "navigation@0"
+        },
+        {
+          "command": "inlineMark.reopenWithInlineMark",
+          "when": "resourceLangId == 'markdown' && activeCustomEditorId != 'inlineMark.editor'",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "inlineMark.reopenWithTextEditor",
+          "when": "activeCustomEditorId == 'inlineMark.editor' || activeWebviewPanelId == 'inlineMark.editor'",
+          "group": "1_open"
+        },
+        {
+          "command": "inlineMark.reopenWithInlineMark",
+          "when": "resourceLangId == 'markdown' && activeCustomEditorId != 'inlineMark.editor'",
+          "group": "1_open"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "inlineMark.view.fullWidth": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.view.fullWidth.description%"
+        },
+        "inlineMark.view.noWrap": {
+          "type": ["boolean", "null"],
+          "enum": [null, true, false],
+          "enumDescriptions": [
+            "%configuration.view.noWrap.enum.auto%",
+            "%configuration.view.noWrap.enum.on%",
+            "%configuration.view.noWrap.enum.off%"
+          ],
+          "default": null,
+          "description": "%configuration.view.noWrap.description%"
+        },
+        "inlineMark.preview.html.allowScripts": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowScripts.description%"
+        },
+        "inlineMark.preview.html.allowSameOrigin": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowSameOrigin.description%"
+        },
+        "inlineMark.preview.html.allowPopups": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowPopups.description%"
+        },
+        "inlineMark.preview.html.allowForms": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowForms.description%"
+        },
+        "inlineMark.preview.mermaid.fontScale": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0.1,
+          "maximum": 4,
+          "description": "%configuration.preview.mermaid.fontScale.description%"
+        },
+        "inlineMark.security.allowWorkspaceImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.security.allowWorkspaceImages.description%"
+        },
+        "inlineMark.security.allowRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.allowRemoteImages.description%"
+        },
+        "inlineMark.security.allowInsecureRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.allowInsecureRemoteImages.description%"
+        },
+        "inlineMark.security.confirmExternalLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.security.confirmExternalLinks.description%"
+        },
+        "inlineMark.webview.retainContextWhenHidden": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.webview.retainContextWhenHidden.description%"
+        },
+        "inlineMark.sync.debounceMs": {
+          "type": "number",
+          "default": 250,
+          "description": "%configuration.sync.debounceMs.description%"
+        },
+        "inlineMark.sync.timeoutMs": {
+          "type": "number",
+          "default": 3000,
+          "description": "%configuration.sync.timeoutMs.description%"
+        },
+        "inlineMark.sync.changeGuard.maxChangedRatio": {
+          "type": "number",
+          "default": 0.5,
+          "description": "%configuration.sync.changeGuard.maxChangedRatio.description%"
+        },
+        "inlineMark.sync.changeGuard.maxChangedChars": {
+          "type": "number",
+          "default": 50000,
+          "description": "%configuration.sync.changeGuard.maxChangedChars.description%"
+        },
+        "inlineMark.sync.changeGuard.maxHunks": {
+          "type": "number",
+          "default": 200,
+          "description": "%configuration.sync.changeGuard.maxHunks.description%"
+        },
+        "inlineMark.debug.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.debug.enabled.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run copy-readme && npm run build",
+    "copy-readme": "node -e \"const fs=require('fs');const path=require('path');const src=path.resolve(__dirname,'../../README/README.md');let text=fs.readFileSync(src,'utf8');text=text.replace(/\\\\.\\\\/packages\\\\/extension\\\\/assets\\\\//g,'assets/');text=text.replace(/packages\\\\/extension\\\\/assets\\\\//g,'assets/');fs.writeFileSync(path.resolve(__dirname,'README.md'),text);\"",
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src",
+    "test": "node ./out/test/runTest.js",
+    "pretest": "npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^25.0.8",
+    "@types/vscode": "^1.105.1",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.0"
+  },
+  "dependencies": {}
+}
+</file>
+
+</files>

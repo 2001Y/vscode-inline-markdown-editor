@@ -9,8 +9,8 @@ dist/
 **/dist/
 packages/extension/media/webview/
 
-# VS Code Extension packaging
-# *.vsix  # Removed: include VSIX in repo for distribution
+# VS Code 拡張の配布物
+packages/extension/*.vsix
 
 # VS Code Test
 .vscode-test/
