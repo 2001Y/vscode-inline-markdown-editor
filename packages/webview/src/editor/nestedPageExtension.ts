@@ -9,10 +9,12 @@
 
 import { Node, mergeAttributes, createAtomBlockMarkdownSpec } from '@tiptap/core';
 import { applyIndentAttributesToDom, indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
-import { icons } from './icons.js';
+import { applyNodeViewHandleState, createNodeViewHandleContainer, resolveBlockHandleEligibility } from './blockHandlesExtension.js';
+import { createIconElement } from './icons.js';
+import { createLogger } from '../logger.js';
 
 const NESTED_PAGE_FALLBACK = 'Nested Page';
-import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+const log = createLogger('NestedPage');
 
 export interface NestedPageOptions {
   HTMLAttributes: Record<string, unknown>;
@@ -111,8 +113,8 @@ export const NestedPage = Node.create<NestedPageOptions>({
       dom.setAttribute('data-type', 'nested-page');
       dom.contentEditable = 'false';
       applyIndentAttributesToDom(dom, node.attrs?.indent);
-
-      let handle: HTMLElement | null = null;
+      const handleContainer = createNodeViewHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'block-content';
@@ -125,7 +127,7 @@ export const NestedPage = Node.create<NestedPageOptions>({
 
       const icon = document.createElement('span');
       icon.className = 'nested-page-icon';
-      icon.innerHTML = icons.fileText;
+      icon.replaceChildren(createIconElement('fileText'));
       button.appendChild(icon);
 
       const text = document.createElement('span');
@@ -142,37 +144,9 @@ export const NestedPage = Node.create<NestedPageOptions>({
       button.appendChild(text);
       contentWrapper.appendChild(button);
 
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'nestedPage';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-      };
-
       const syncHandleState = (updatedNode: typeof node) => {
-        const shouldShowHandle = shouldRenderBlockHandle(this.editor.state, getPos, 'nestedPage');
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.insertBefore(handle, contentWrapper);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-        }
-
+        const eligibility = resolveBlockHandleEligibility(this.editor.state, getPos, 'nestedPage');
+        const shouldShowHandle = applyNodeViewHandleState(dom, handleContainer, eligibility, 'nestedPage');
         applyIndentAttributesToDom(dom, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
@@ -188,14 +162,13 @@ export const NestedPage = Node.create<NestedPageOptions>({
 
       updateView(node);
       syncHandleState(node);
-      syncHandlePos();
 
       const handleClick = (event: MouseEvent) => {
         event.preventDefault();
         event.stopPropagation();
         const nextPath = String(currentNode.attrs?.path || '');
         if (!nextPath) {
-          console.error('[NestedPage] Open blocked: missing path');
+          log.error('Open blocked: missing path');
           dom.classList.add('is-error');
           return;
         }
@@ -216,7 +189,6 @@ export const NestedPage = Node.create<NestedPageOptions>({
           currentNode = updatedNode;
           updateView(updatedNode);
           syncHandleState(updatedNode);
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
@@ -224,9 +196,6 @@ export const NestedPage = Node.create<NestedPageOptions>({
             return false;
           }
           if (button.contains(event.target)) {
-            return true;
-          }
-          if (handle && handle.contains(event.target)) {
             return true;
           }
           return false;

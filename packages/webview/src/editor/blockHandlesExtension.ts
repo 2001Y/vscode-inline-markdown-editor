@@ -13,42 +13,29 @@ import { Plugin, PluginKey } from 'prosemirror-state';
 import type { Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model';
 import { DEBUG } from './debug.js';
 import { t } from './i18n.js';
-import { icons } from './icons.js';
+import { icons, createIconElement } from './icons.js';
 import { createBlockMenu, createBlockMenuItem, getBlockMenuItems, positionBlockMenu, updateBlockMenuSelection } from './blockMenu.js';
 import { closeMenu, isMenuActive, openMenu, registerMenu } from './menuManager.js';
 import { executeCommand } from './commands.js';
 import { normalizeIndentAttr } from './indentConfig.js';
 import { notifyHostError } from './hostNotifier.js';
 import { serializeMarkdown } from './markdownUtils.js';
+import { createLogger } from '../logger.js';
 
 const MODULE = 'BlockHandles';
 const HANDLE_CLICK_THRESHOLD_PX = 4;
+const log = createLogger(MODULE);
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.info(msg, data);
 };
 
 const logSuccess = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.success(msg, data);
 };
 
 const logWarning = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.warn(msg, data);
 };
 
 export const BlockHandlesPluginKey = new PluginKey('blockHandles');
@@ -68,8 +55,8 @@ export const DRAG_HANDLE_ALLOWED_NODE_TYPES = new Set([
 ]);
 
 export const isDragHandleTarget = (node: ProseMirrorNode | null): boolean => {
-  if (!node) return false;
-  if (node.type.spec.tableRole) return false;
+  if (!node) {return false;}
+  if (node.type.spec.tableRole) {return false;}
   return DRAG_HANDLE_ALLOWED_NODE_TYPES.has(node.type.name);
 };
 
@@ -179,7 +166,7 @@ export const createDragHandleElement = (): HTMLElement => {
   const addBtn = document.createElement('button');
   addBtn.type = 'button';
   addBtn.className = 'block-add-btn';
-  addBtn.textContent = '+';
+  addBtn.replaceChildren(createIconElement('plus'));
   addBtn.title = labels.addBlockBelow || 'Add block below';
   addBtn.draggable = false;
   addBtn.addEventListener('dragstart', (e) => {
@@ -194,7 +181,7 @@ export const createDragHandleElement = (): HTMLElement => {
 
   const handle = document.createElement('span');
   handle.className = 'block-handle';
-  handle.innerHTML = icons.gripVertical;
+  handle.replaceChildren(createIconElement('gripVertical'));
   handle.title = labels.dragHandle || 'Drag to move / click for menu';
   handle.draggable = true;
   container.appendChild(handle);
@@ -202,8 +189,40 @@ export const createDragHandleElement = (): HTMLElement => {
   return container;
 };
 
+export const createNodeViewHandleContainer = (): HTMLElement => {
+  const container = createDragHandleElement();
+  container.dataset.blockSource = 'nodeview';
+  container.setAttribute('contenteditable', 'false');
+  container.setAttribute('aria-hidden', 'true');
+  container.draggable = false;
+  return container;
+};
+
+export const applyNodeViewHandleState = (
+  host: HTMLElement,
+  handleContainer: HTMLElement,
+  decision: BlockHandleEligibility,
+  blockType: string
+): boolean => {
+  const nextPos = decision.allowed && decision.pos !== null ? decision.pos : null;
+  if (nextPos === null) {
+    host.classList.remove('block-handle-host');
+    handleContainer.setAttribute('aria-hidden', 'true');
+    delete handleContainer.dataset.blockPos;
+    delete handleContainer.dataset.blockType;
+    return false;
+  }
+
+  host.classList.add('block-handle-host');
+  handleContainer.dataset.blockPos = String(nextPos);
+  handleContainer.dataset.blockType = blockType;
+  handleContainer.setAttribute('aria-hidden', 'false');
+  return true;
+};
+
 interface BlockTypeDefinition {
-  icon: string;
+  icon?: string;
+  iconText?: string;
   label: string;
   blockType: string;
   keywords: string[];
@@ -336,17 +355,20 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     let suppressNextDocumentClick = false;
 
     const getActiveBlock = () => {
-      if (!storage.currentNode || storage.currentNodePos < 0) return null;
+      if (!storage.currentNode || storage.currentNodePos < 0) {return null;}
       return { node: storage.currentNode, pos: storage.currentNodePos };
     };
 
     const resolveBlockFromHandleTarget = (target: HTMLElement | null) => {
-      if (!target) return null;
+      if (!target) {return null;}
       const container = target.closest('.block-handle-container') as HTMLElement | null;
-      if (!container) return null;
+      if (!container) {return null;}
       const resolvePosFromContainer = (): number | null => {
         const rawPos = Number(container.dataset.blockPos);
         let resolvedPos = Number.isFinite(rawPos) ? rawPos : null;
+        if (resolvedPos !== null && container.dataset.blockSource === 'nodeview') {
+          return resolvedPos;
+        }
         try {
           const domPos = editor.view.posAtDOM(container, 0);
           const $pos = editor.state.doc.resolve(domPos);
@@ -537,8 +559,8 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     };
 
     const getActiveMenuType = (): 'blockType' | 'blockContext' | null => {
-      if (isMenuActive('blockType')) return 'blockType';
-      if (isMenuActive('blockContext')) return 'blockContext';
+      if (isMenuActive('blockType')) {return 'blockType';}
+      if (isMenuActive('blockContext')) {return 'blockContext';}
       return null;
     };
 
@@ -549,13 +571,13 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     const selectPrevMenuItem = () => {
       const activeMenu = getActiveMenuType();
       if (activeMenu === 'blockType') {
-        if (storage.menuItemCount === 0) return;
+        if (storage.menuItemCount === 0) {return;}
         storage.selectedMenuIndex =
           storage.selectedMenuIndex <= 0 ? storage.menuItemCount - 1 : storage.selectedMenuIndex - 1;
         updateBlockTypeMenuSelection();
         DEBUG.log(MODULE, 'Block type menu selection prev', { index: storage.selectedMenuIndex });
       } else if (activeMenu === 'blockContext') {
-        if (storage.contextItemCount === 0) return;
+        if (storage.contextItemCount === 0) {return;}
         storage.selectedContextIndex =
           storage.selectedContextIndex <= 0 ? storage.contextItemCount - 1 : storage.selectedContextIndex - 1;
         updateContextMenuSelection();
@@ -566,13 +588,13 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     const selectNextMenuItem = () => {
       const activeMenu = getActiveMenuType();
       if (activeMenu === 'blockType') {
-        if (storage.menuItemCount === 0) return;
+        if (storage.menuItemCount === 0) {return;}
         storage.selectedMenuIndex =
           storage.selectedMenuIndex >= storage.menuItemCount - 1 ? 0 : storage.selectedMenuIndex + 1;
         updateBlockTypeMenuSelection();
         DEBUG.log(MODULE, 'Block type menu selection next', { index: storage.selectedMenuIndex });
       } else if (activeMenu === 'blockContext') {
-        if (storage.contextItemCount === 0) return;
+        if (storage.contextItemCount === 0) {return;}
         storage.selectedContextIndex =
           storage.selectedContextIndex >= storage.contextItemCount - 1 ? 0 : storage.selectedContextIndex + 1;
         updateContextMenuSelection();
@@ -583,13 +605,13 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     const selectCurrentMenuItem = () => {
       const activeMenu = getActiveMenuType();
       if (activeMenu === 'blockType') {
-        if (!blockTypeMenu || storage.selectedMenuIndex < 0) return;
+        if (!blockTypeMenu || storage.selectedMenuIndex < 0) {return;}
         const items = getBlockMenuItems(blockTypeMenu);
         const selectedItem = items[storage.selectedMenuIndex] as HTMLElement;
         selectedItem?.click();
         DEBUG.log(MODULE, 'Block type menu item selected via keyboard', { index: storage.selectedMenuIndex });
       } else if (activeMenu === 'blockContext') {
-        if (!contextMenu || storage.selectedContextIndex < 0) return;
+        if (!contextMenu || storage.selectedContextIndex < 0) {return;}
         const items = getBlockMenuItems(contextMenu);
         const selectedItem = items[storage.selectedContextIndex] as HTMLElement;
         selectedItem?.click();
@@ -600,28 +622,29 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     const getBlockTypes = (): BlockTypeDefinition[] => {
       const fm = t().floatingMenu;
       return [
-        { icon: 'H1', label: fm.heading1, blockType: 'heading1', keywords: ['heading', 'h1', '見出し', 'midashi'] },
-        { icon: 'H2', label: fm.heading2, blockType: 'heading2', keywords: ['heading', 'h2', '見出し', 'midashi'] },
-        { icon: 'H3', label: fm.heading3, blockType: 'heading3', keywords: ['heading', 'h3', '見出し', 'midashi'] },
-        { icon: '•', label: fm.bulletList, blockType: 'bulletList', keywords: ['bullet', 'list', 'ul', '箇条書き', 'リスト'] },
-        { icon: '1.', label: fm.orderedList, blockType: 'orderedList', keywords: ['ordered', 'number', 'ol', '番号', 'リスト'] },
-        { icon: '{ }', label: fm.codeBlock, blockType: 'codeBlock', keywords: ['code', 'コード', 'pre'] },
-        { icon: '>', label: fm.blockquote, blockType: 'blockquote', keywords: ['quote', '引用', 'blockquote'] },
-        { icon: '⊞', label: fm.table, blockType: 'table', keywords: ['table', 'テーブル', '表'] },
-        { icon: 'Pg', label: fm.nestedPage, blockType: 'nestedPage', keywords: ['page', 'nested', 'subpage', 'md', 'ページ', 'ネスト'] },
+        { iconText: 'H1', label: fm.heading1, blockType: 'heading1', keywords: ['heading', 'h1', '見出し', 'midashi'] },
+        { iconText: 'H2', label: fm.heading2, blockType: 'heading2', keywords: ['heading', 'h2', '見出し', 'midashi'] },
+        { iconText: 'H3', label: fm.heading3, blockType: 'heading3', keywords: ['heading', 'h3', '見出し', 'midashi'] },
+        { icon: icons.listUnordered, label: fm.bulletList, blockType: 'bulletList', keywords: ['bullet', 'list', 'ul', '箇条書き', 'リスト'] },
+        { icon: icons.listOrdered, label: fm.orderedList, blockType: 'orderedList', keywords: ['ordered', 'number', 'ol', '番号', 'リスト'] },
+        { icon: icons.code, label: fm.codeBlock, blockType: 'codeBlock', keywords: ['code', 'コード', 'pre'] },
+        { icon: icons.quote, label: fm.blockquote, blockType: 'blockquote', keywords: ['quote', '引用', 'blockquote'] },
+        { icon: icons.table, label: fm.table, blockType: 'table', keywords: ['table', 'テーブル', '表'] },
+        { icon: icons.fileSubmodule, label: fm.nestedPage, blockType: 'nestedPage', keywords: ['page', 'nested', 'subpage', 'md', 'ページ', 'ネスト'] },
       ];
     };
 
-    const createBlockTypeItem = (icon: string, label: string, blockType: string): HTMLElement => {
+    const createBlockTypeItem = (item: BlockTypeDefinition): HTMLElement => {
       return createBlockMenuItem({
-        label,
-        iconText: icon,
-        blockType,
+        label: item.label,
+        icon: item.icon,
+        iconText: item.iconText,
+        blockType: item.blockType,
       });
     };
 
     const showBlockTypeMenu = (x: number, y: number, filterText?: string) => {
-      if (!blockTypeMenu) return;
+      if (!blockTypeMenu) {return;}
 
       blockTypeMenu.innerHTML = '';
 
@@ -644,8 +667,8 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
         return;
       }
 
-      blockTypes.forEach(bt => {
-        blockTypeMenu.appendChild(createBlockTypeItem(bt.icon, bt.label, bt.blockType));
+      blockTypes.forEach((bt) => {
+        blockTypeMenu.appendChild(createBlockTypeItem(bt));
       });
 
       storage.menuItemCount = blockTypes.length;
@@ -825,7 +848,7 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
     };
 
     const showContextMenu = (x: number, y: number, block: { node: ProseMirrorNode; pos: number }) => {
-      if (!contextMenu) return;
+      if (!contextMenu) {return;}
 
       DEBUG.log(MODULE, 'Showing context menu', { type: block.node.type.name, pos: block.pos });
       contextMenu.innerHTML = '';
@@ -903,13 +926,13 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
           const onBlockTypeMenuClick = async (e: MouseEvent) => {
             const target = e.target as HTMLElement;
             const item = target.closest('.block-menu-item') as HTMLElement;
-            if (!item) return;
+            if (!item) {return;}
 
             e.preventDefault();
             e.stopPropagation();
 
             const blockType = item.dataset.blockType;
-            if (!blockType) return;
+            if (!blockType) {return;}
 
             const slashRange = storage.slashCommandRange;
 
@@ -1057,12 +1080,12 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
           };
 
           const onHandlePointerDown = (e: PointerEvent) => {
-            if (!e.isPrimary) return;
-            if (typeof e.button === 'number' && e.button !== 0) return;
+            if (!e.isPrimary) {return;}
+            if (typeof e.button === 'number' && e.button !== 0) {return;}
             const target = e.target as HTMLElement | null;
-            if (!target) return;
+            if (!target) {return;}
             const action = resolvePointerAction(target);
-            if (!action) return;
+            if (!action) {return;}
             pendingPointerAction = {
               kind: action.kind,
               pointerId: e.pointerId,

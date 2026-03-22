@@ -13,6 +13,7 @@
  * 
  * Webview → Extension:
  * - ready: 初期化完了通知
+ * - initAck: init 受信確認通知
  * - edit: 編集内容送信 (txId, baseVersion, changes)
  * - requestResync: 再同期要求
  * - logClient: クライアントログ送信
@@ -71,6 +72,17 @@ export interface WebviewConfig {
     fullWidth: boolean;
     noWrap: boolean;
   };
+  preview: {
+    html: {
+      allowScripts: boolean;
+      allowSameOrigin: boolean;
+      allowPopups: boolean;
+      allowForms: boolean;
+    };
+    mermaid: {
+      fontScale: number;
+    };
+  };
   security: {
     allowWorkspaceImages: boolean;
     allowRemoteImages: boolean;
@@ -91,6 +103,13 @@ export interface InitMessage {
   clientId: string;
   locale: string;
   i18n: Record<string, string>;
+  config: WebviewConfig;
+}
+
+export interface ConfigChangedMessage {
+  v: number;
+  type: 'configChanged';
+  sessionId?: string;
   config: WebviewConfig;
 }
 
@@ -185,6 +204,7 @@ export interface NestedPageCreateFailedMessage {
 
 export type ExtensionToWebviewMessage =
   | InitMessage
+  | ConfigChangedMessage
   | AckMessage
   | NackMessage
   | DocChangedMessage
@@ -197,6 +217,15 @@ export type ExtensionToWebviewMessage =
 export interface ReadyMessage {
   v: number;
   type: 'ready';
+}
+
+export interface InitAckMessage {
+  v: number;
+  type: 'initAck';
+  sessionId: string;
+  clientId: string;
+  elapsedMs: number | null;
+  contentLength: number;
 }
 
 export interface EditMessage {
@@ -295,8 +324,15 @@ export interface MenuStateChangeMessage {
   visible: boolean;
 }
 
+export interface FindWidgetStateChangeMessage {
+  v: number;
+  type: 'findWidgetStateChange';
+  visible: boolean;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
+  | InitAckMessage
   | EditMessage
   | RequestResyncMessage
   | LogClientMessage
@@ -311,12 +347,29 @@ export type WebviewToExtensionMessage =
   | RequestResyncWithConfirmMessage
   | OverwriteSaveWithConfirmMessage
   | NotifyHostMessage
-  | MenuStateChangeMessage;
+  | MenuStateChangeMessage
+  | FindWidgetStateChangeMessage;
 
 export function createReadyMessage(): ReadyMessage {
   return {
     v: PROTOCOL_VERSION,
     type: 'ready',
+  };
+}
+
+export function createInitAckMessage(
+  sessionId: string,
+  clientId: string,
+  elapsedMs: number | null,
+  contentLength: number
+): InitAckMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'initAck',
+    sessionId,
+    clientId,
+    elapsedMs,
+    contentLength,
   };
 }
 
@@ -456,6 +509,14 @@ export function createMenuStateChangeMessage(visible: boolean): MenuStateChangeM
   return {
     v: PROTOCOL_VERSION,
     type: 'menuStateChange',
+    visible,
+  };
+}
+
+export function createFindWidgetStateChangeMessage(visible: boolean): FindWidgetStateChangeMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'findWidgetStateChange',
     visible,
   };
 }

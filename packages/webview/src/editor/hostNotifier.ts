@@ -6,6 +6,7 @@
  */
 
 import type { Remediation } from '../protocol/types.js';
+import { createLogger } from '../logger.js';
 
 export type HostNotifyLevel = 'INFO' | 'WARN' | 'ERROR';
 
@@ -18,27 +19,23 @@ export type HostNotify = (
 ) => void;
 
 let hostNotify: HostNotify | null = null;
+const log = createLogger('HostNotify');
 
 export const setHostNotifier = (notify: HostNotify | null): void => {
   hostNotify = notify;
 };
 
 const fallbackLog = (level: HostNotifyLevel, code: string, message: string, details?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  const prefix = `[${level}][HostNotify] ${timestamp} ${code}`;
-  const logFn =
-    level === 'ERROR'
-      ? console.error
-      : level === 'WARN'
-        ? console.warn
-        : console.info;
-  if (details) {
-    // eslint-disable-next-line no-console
-    logFn(prefix, message, details);
+  const prefix = `${code}`;
+  if (level === 'ERROR') {
+    log.error(prefix, details ? { message, ...details } : { message });
     return;
   }
-  // eslint-disable-next-line no-console
-  logFn(prefix, message);
+  if (level === 'WARN') {
+    log.warn(prefix, details ? { message, ...details } : { message });
+    return;
+  }
+  log.info(prefix, details ? { message, ...details } : { message });
 };
 
 export const notifyHostWarn = (

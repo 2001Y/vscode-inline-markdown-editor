@@ -58,6 +58,14 @@ export interface ReadyMessage extends BaseMessage {
   type: 'ready';
 }
 
+export interface InitAckMessage extends BaseMessage {
+  type: 'initAck';
+  sessionId: string;
+  clientId: string;
+  elapsedMs: number | null;
+  contentLength: number;
+}
+
 export interface EditMessage extends BaseMessage {
   type: 'edit';
   txId: number;
@@ -147,8 +155,18 @@ export interface MenuStateChangeMessage extends BaseMessage {
   visible: boolean;
 }
 
+/**
+ * Webview → Extension
+ * Used to notify find widget visibility state change for context key management.
+ */
+export interface FindWidgetStateChangeMessage extends BaseMessage {
+  type: 'findWidgetStateChange';
+  visible: boolean;
+}
+
 export type WebviewToExtensionMessage =
   | ReadyMessage
+  | InitAckMessage
   | EditMessage
   | RequestResyncMessage
   | LogClientMessage
@@ -163,7 +181,8 @@ export type WebviewToExtensionMessage =
   | RequestResyncWithConfirmMessage
   | OverwriteSaveWithConfirmMessage
   | NotifyHostMessage
-  | MenuStateChangeMessage;
+  | MenuStateChangeMessage
+  | FindWidgetStateChangeMessage;
 
 export interface InitMessage extends BaseMessage {
   type: 'init';
@@ -173,6 +192,11 @@ export interface InitMessage extends BaseMessage {
   clientId: string;
   locale: string;
   i18n: Record<string, string>;
+  config: WebviewConfig;
+}
+
+export interface ConfigChangedMessage extends BaseMessage {
+  type: 'configChanged';
   config: WebviewConfig;
 }
 
@@ -187,6 +211,17 @@ export interface WebviewConfig {
   view: {
     fullWidth: boolean;
     noWrap: boolean;
+  };
+  preview: {
+    html: {
+      allowScripts: boolean;
+      allowSameOrigin: boolean;
+      allowPopups: boolean;
+      allowForms: boolean;
+    };
+    mermaid: {
+      fontScale: number;
+    };
   };
   security: {
     allowWorkspaceImages: boolean;
@@ -260,6 +295,7 @@ export type ErrorCode =
   | 'APPLY_EDIT_FAILED'
   | 'DIFF_ENGINE_FAILED'
   | 'CHANGE_GUARD_EXCEEDED'
+  | 'IMAGE_RESOLVE_FAILED'
   | 'WORKSPACE_UNTRUSTED'
   | 'SETTINGS_NOT_CONFIGURED'
   | 'UNKNOWN';
@@ -280,6 +316,7 @@ export interface ErrorMessage extends BaseMessage {
 
 export type ExtensionToWebviewMessage =
   | InitMessage
+  | ConfigChangedMessage
   | AckMessage
   | NackMessage
   | DocChangedMessage
@@ -291,6 +328,7 @@ export type ExtensionToWebviewMessage =
 
 const VALID_WEBVIEW_MESSAGE_TYPES = [
   'ready',
+  'initAck',
   'edit',
   'requestResync',
   'logClient',
@@ -306,6 +344,7 @@ const VALID_WEBVIEW_MESSAGE_TYPES = [
   'overwriteSaveWithConfirm',
   'notifyHost',
   'menuStateChange',
+  'findWidgetStateChange',
 ] as const;
 
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
@@ -339,6 +378,13 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
     }
   }
 
+  if (m.type === 'initAck') {
+    if (typeof m.sessionId !== 'string') {return false;}
+    if (typeof m.clientId !== 'string') {return false;}
+    if (!(typeof m.elapsedMs === 'number' || m.elapsedMs === null)) {return false;}
+    if (typeof m.contentLength !== 'number') {return false;}
+  }
+
   if (m.type === 'logClient') {
     if (typeof m.level !== 'string') {return false;}
     if (typeof m.message !== 'string') {return false;}
@@ -355,6 +401,10 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
   }
 
   if (m.type === 'menuStateChange') {
+    if (typeof m.visible !== 'boolean') {return false;}
+  }
+
+  if (m.type === 'findWidgetStateChange') {
     if (typeof m.visible !== 'boolean') {return false;}
   }
 
@@ -390,6 +440,20 @@ export function createInitMessage(
     clientId,
     locale,
     i18n,
+    config,
+  };
+}
+
+export function createConfigChangedMessage(
+  config: WebviewConfig,
+  sessionId?: string
+): ConfigChangedMessage {
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'configChanged',
+    ts: Date.now(),
+    origin: 'extension',
+    sessionId,
     config,
   };
 }

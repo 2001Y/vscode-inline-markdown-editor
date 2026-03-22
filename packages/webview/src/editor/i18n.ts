@@ -15,6 +15,29 @@ export interface Translations {
     paragraph: string;
     heading: string;
   };
+  findWidget: {
+    findPlaceholder: string;
+    replacePlaceholder: string;
+    toggleReplace: string;
+    matchCase: string;
+    wholeWord: string;
+    regex: string;
+    selection: string;
+    preserveCase: string;
+    findPrevious: string;
+    findNext: string;
+    close: string;
+    replace: string;
+    replaceAll: string;
+    status: {
+      invalidRegex: string;
+      noSelection: string;
+      enterSearchTerm: string;
+      noMatches: string;
+      noMatchesToReplace: string;
+      preserveCaseDisabled: string;
+    };
+  };
   floatingMenu: {
     trigger: string;
     heading1: string;
@@ -81,6 +104,10 @@ export interface Translations {
   nestedPage: {
     defaultTitle: string;
   };
+  preview: {
+    show: string;
+    edit: string;
+  };
 }
 
 // English translations (default)
@@ -88,6 +115,29 @@ const en: Translations = {
   placeholder: {
     paragraph: "Type '/' to select block type",
     heading: 'Heading...',
+  },
+  findWidget: {
+    findPlaceholder: 'Find',
+    replacePlaceholder: 'Replace',
+    toggleReplace: 'Toggle Replace',
+    matchCase: 'Match Case',
+    wholeWord: 'Match Whole Word',
+    regex: 'Use Regular Expression',
+    selection: 'Find in Selection',
+    preserveCase: 'Preserve Case',
+    findPrevious: 'Find Previous',
+    findNext: 'Find Next',
+    close: 'Close',
+    replace: 'Replace',
+    replaceAll: 'Replace All',
+    status: {
+      invalidRegex: 'Invalid regular expression',
+      noSelection: 'No selection to search within',
+      enterSearchTerm: 'Enter a search term',
+      noMatches: 'No matches',
+      noMatchesToReplace: 'No matches to replace',
+      preserveCaseDisabled: 'Preserve case is disabled for regex',
+    },
   },
   floatingMenu: {
     trigger: "Insert block (Type '/' to select block type)",
@@ -155,6 +205,10 @@ const en: Translations = {
   nestedPage: {
     defaultTitle: 'New Page',
   },
+  preview: {
+    show: 'Preview',
+    edit: 'Edit',
+  },
 };
 
 // Japanese translations
@@ -162,6 +216,29 @@ const ja: Translations = {
   placeholder: {
     paragraph: "'/' でブロックタイプを選択",
     heading: '見出しを入力...',
+  },
+  findWidget: {
+    findPlaceholder: '検索',
+    replacePlaceholder: '置換',
+    toggleReplace: '置換の切り替え',
+    matchCase: '大文字と小文字を区別',
+    wholeWord: '単語単位で検索',
+    regex: '正規表現を使用',
+    selection: '選択範囲内を検索',
+    preserveCase: '大文字小文字を保持',
+    findPrevious: '前を検索',
+    findNext: '次を検索',
+    close: '閉じる',
+    replace: '置換',
+    replaceAll: 'すべて置換',
+    status: {
+      invalidRegex: '無効な正規表現です',
+      noSelection: '選択範囲がありません',
+      enterSearchTerm: '検索語を入力してください',
+      noMatches: '一致がありません',
+      noMatchesToReplace: '置換する一致がありません',
+      preserveCaseDisabled: '正規表現では大文字小文字の保持は無効です',
+    },
   },
   floatingMenu: {
     trigger: "ブロックを挿入 ('/' でブロックタイプを選択)",
@@ -229,6 +306,10 @@ const ja: Translations = {
   nestedPage: {
     defaultTitle: '新規ページ',
   },
+  preview: {
+    show: 'プレビュー',
+    edit: '編集',
+  },
 };
 
 // Chinese translations
@@ -236,6 +317,29 @@ const zh: Translations = {
   placeholder: {
     paragraph: "输入 '/' 选择块类型",
     heading: '输入标题...',
+  },
+  findWidget: {
+    findPlaceholder: '查找',
+    replacePlaceholder: '替换',
+    toggleReplace: '切换替换',
+    matchCase: '区分大小写',
+    wholeWord: '匹配整个单词',
+    regex: '使用正则表达式',
+    selection: '在选区中查找',
+    preserveCase: '保持大小写',
+    findPrevious: '查找上一个',
+    findNext: '查找下一个',
+    close: '关闭',
+    replace: '替换',
+    replaceAll: '全部替换',
+    status: {
+      invalidRegex: '正则表达式无效',
+      noSelection: '没有可搜索的选区',
+      enterSearchTerm: '请输入搜索词',
+      noMatches: '没有匹配项',
+      noMatchesToReplace: '没有可替换的匹配项',
+      preserveCaseDisabled: '正则表达式下无法保持大小写',
+    },
   },
   floatingMenu: {
     trigger: "插入块 (输入 '/' 选择块类型)",
@@ -303,6 +407,10 @@ const zh: Translations = {
   nestedPage: {
     defaultTitle: '新建页面',
   },
+  preview: {
+    show: '预览',
+    edit: '编辑',
+  },
 };
 
 const translations: Record<string, Translations> = { en, ja, zh };
@@ -313,16 +421,16 @@ function detectLocale(): Locale {
   const htmlLang = document.documentElement.lang;
   if (htmlLang) {
     const lang = htmlLang.split('-')[0].toLowerCase();
-    if (lang === 'ja') return 'ja';
-    if (lang === 'zh') return 'zh';
+    if (lang === 'ja') {return 'ja';}
+    if (lang === 'zh') {return 'zh';}
   }
 
   // Try navigator.language
   const navLang = navigator.language;
   if (navLang) {
     const lang = navLang.split('-')[0].toLowerCase();
-    if (lang === 'ja') return 'ja';
-    if (lang === 'zh') return 'zh';
+    if (lang === 'ja') {return 'ja';}
+    if (lang === 'zh') {return 'zh';}
   }
 
   return 'en';

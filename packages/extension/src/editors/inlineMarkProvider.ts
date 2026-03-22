@@ -48,6 +48,7 @@ import {
   type WebviewToExtensionMessage,
   type WebviewConfig,
   createInitMessage,
+  createConfigChangedMessage,
   createAckMessage,
   createNackMessage,
   createDocChangedMessage,
@@ -61,8 +62,6 @@ import {
 import {
   replacesToWorkspaceEdit,
   contentChangeEventsToReplaces,
-  calculateChangeMetrics,
-  isChangeGuardExceeded,
 } from '../util/textEdits.js';
 import { logger } from '../util/log.js';
 
@@ -70,6 +69,9 @@ interface WebviewPanel {
   panel: vscode.WebviewPanel;
   clientId: string;
   ready: boolean;
+  initAckReceived: boolean;
+  initAckRetryCount: number;
+  initAckTimer: ReturnType<typeof setTimeout> | null;
 }
 
 interface DocumentState {
@@ -106,12 +108,21 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
   private documentStates = new Map<string, DocumentState>();
   private extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
+  private currentConfig: WebviewConfig;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.extensionUri = context.extensionUri;
+    this.currentConfig = this.getWebviewConfig();
+    logger.setDebugEnabled(this.currentConfig.debug.enabled);
 
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => this.onDidChangeTextDocument(e))
+    );
+
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        void this.handleConfigurationChange(e);
+      })
     );
   }
 
@@ -196,6 +207,9 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       panel: webviewPanel,
       clientId,
       ready: false,
+      initAckReceived: false,
+      initAckRetryCount: 0,
+      initAckTimer: null,
     };
     state.panels.set(clientId, panelState);
 
@@ -208,6 +222,10 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
 
     webviewPanel.onDidDispose(() => {
       messageDisposable.dispose();
+      if (panelState.initAckTimer) {
+        clearTimeout(panelState.initAckTimer);
+        panelState.initAckTimer = null;
+      }
       state?.panels.delete(clientId);
       if (state?.panels.size === 0) {
         this.documentStates.delete(docKey);
@@ -226,8 +244,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
   }
 
   private getWebviewOptions(): vscode.WebviewOptions {
-    const config = vscode.workspace.getConfiguration('inlineMark.security');
-    const allowWorkspaceImages = config.get<boolean>('allowWorkspaceImages', true);
+    const allowWorkspaceImages = this.currentConfig.security.allowWorkspaceImages;
 
     const localResourceRoots: vscode.Uri[] = [
       vscode.Uri.joinPath(this.extensionUri, 'media', 'webview'),
@@ -271,40 +288,92 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       });
     }
 
-    const entryChunk =
-      manifestData ? Object.values(manifestData).find((chunk) => chunk?.isEntry) : undefined;
+    const mainEntryChunk =
+      manifestData?.['src/main.ts'] ??
+      (manifestData ? Object.values(manifestData).find((chunk) => chunk?.isEntry) : undefined);
 
-    const scriptFile = entryChunk?.file ?? 'index.js';
+    const scriptFile = mainEntryChunk?.file ?? 'index.js';
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, scriptFile));
 
-    const cssFiles = entryChunk?.css ?? [];
+    const cssFiles = mainEntryChunk?.css ?? [];
     const styleLinks = cssFiles
       .map((file) => webview.asWebviewUri(vscode.Uri.joinPath(mediaPath, file)))
       .map((uri) => `<link rel="stylesheet" href="${uri}">`)
       .join('\n  ');
 
+    const mermaidPreviewBaseUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(mediaPath, 'mermaidPreviewStandalone.js')
+    );
+    const mermaidPreviewUri = mermaidPreviewBaseUri.with({
+      query: `v=${encodeURIComponent(nonce)}`,
+    });
+
     const csp = this.buildCsp(webview, nonce);
 
+    const language = vscode.env.language || 'en';
+    const inlineStyle = `<style nonce="${nonce}">
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+  }
+  #app {
+    min-height: 100vh;
+    position: relative;
+  }
+  .app-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .app-loading.is-visible {
+    opacity: 1;
+    pointer-events: none;
+  }
+  .app-loading-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--vscode-editorWidget-border, var(--vscode-editor-foreground));
+    border-top-color: transparent;
+    animation: app-loading-spin 0.8s linear infinite;
+  }
+  @keyframes app-loading-spin {
+    to { transform: rotate(360deg); }
+  }
+  </style>`;
+
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${language}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta name="inlineMark-mermaid-preview" content="${mermaidPreviewUri}">
+  ${inlineStyle}
   ${styleLinks}
   <title>inlineMark</title>
 </head>
 <body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
+  <div id="app">
+    <div class="app-loading is-visible" role="status" aria-label="Loading">
+      <div class="app-loading-spinner" aria-hidden="true"></div>
+    </div>
+  </div>
+  <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
   }
 
   private buildCsp(webview: vscode.Webview, nonce: string): string {
-    const config = vscode.workspace.getConfiguration('inlineMark.security');
-    const allowRemoteImages = config.get<boolean>('allowRemoteImages', false);
-    const allowInsecureRemoteImages = config.get<boolean>('allowInsecureRemoteImages', false);
+    const allowRemoteImages = this.currentConfig.security.allowRemoteImages;
+    const allowInsecureRemoteImages = this.currentConfig.security.allowInsecureRemoteImages;
 
     let imgSrc = `${webview.cspSource} data:`;
     if (allowRemoteImages) {
@@ -318,10 +387,12 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       `default-src 'none'`,
       `base-uri 'none'`,
       `form-action 'none'`,
-      `frame-ancestors 'none'`,
+      `connect-src ${webview.cspSource} https://*.vscode-cdn.net`,
+      `frame-src blob:`,
+      `child-src blob:`,
       `img-src ${imgSrc}`,
       `font-src ${webview.cspSource}`,
-      `style-src ${webview.cspSource}`,
+      `style-src 'unsafe-inline' ${webview.cspSource}`,
       `script-src 'nonce-${nonce}' ${webview.cspSource}`,
     ].join('; ');
   }
@@ -365,6 +436,22 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       case 'ready':
         await this.handleReady(document, state, panel);
         break;
+      case 'initAck':
+        panel.initAckReceived = true;
+        if (panel.initAckTimer) {
+          clearTimeout(panel.initAckTimer);
+          panel.initAckTimer = null;
+        }
+        logger.info('Init ack received', {
+          clientId,
+          docUri: document.uri.toString(),
+          details: {
+            sessionId: msg.sessionId,
+            elapsedMs: msg.elapsedMs,
+            contentLength: msg.contentLength,
+          },
+        });
+        break;
       case 'edit':
         await this.handleEdit(document, state, clientId, msg);
         break;
@@ -372,7 +459,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         await this.handleRequestResync(document, state, panel);
         break;
       case 'logClient':
-        this.handleLogClient(clientId, msg);
+        this.handleLogClient(clientId, document.uri.toString(), msg);
         break;
       case 'openLink':
         await this.handleOpenLink(clientId, msg);
@@ -410,6 +497,9 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       case 'menuStateChange':
         this.handleMenuStateChange(msg);
         break;
+      case 'findWidgetStateChange':
+        this.handleFindWidgetStateChange(msg);
+        break;
     }
   }
 
@@ -423,14 +513,25 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     logger.debug('Menu state changed', { details: { visible } });
   }
 
+  /**
+   * Handle find widget state change from webview for context key management
+   */
+  private handleFindWidgetStateChange(msg: { visible?: boolean }): void {
+    const visible = msg.visible ?? false;
+    vscode.commands.executeCommand('setContext', 'inlineMark.findWidgetVisible', visible);
+    logger.debug('Find widget state changed', { details: { visible } });
+  }
+
   private async handleReady(
     document: vscode.TextDocument,
     state: DocumentState,
     panel: WebviewPanel
   ): Promise<void> {
     panel.ready = true;
+    panel.initAckReceived = false;
+    panel.initAckRetryCount = 0;
 
-    const config = this.getWebviewConfig();
+    const config = this.currentConfig;
     const locale = vscode.env.language;
     const i18n = await this.loadI18nBundle(locale);
 
@@ -444,14 +545,93 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       config
     );
 
-    await panel.panel.webview.postMessage(initMessage);
+    const MAX_INIT_RETRIES = 3;
+    const RETRY_DELAY_MS = 150;
+    const INIT_ACK_TIMEOUT_MS = 1000;
+    const MAX_INIT_ACK_RETRIES = 3;
 
-    logger.info('Init sent', {
-      sessionId: state.sessionId,
-      clientId: panel.clientId,
-      docUri: document.uri.toString(),
-      docVersion: document.version,
-    });
+    const scheduleInitAckWait = (): void => {
+      if (panel.initAckTimer) {
+        clearTimeout(panel.initAckTimer);
+      }
+      panel.initAckTimer = setTimeout(async () => {
+        if (panel.initAckReceived) {
+          return;
+        }
+        if (panel.initAckRetryCount >= MAX_INIT_ACK_RETRIES) {
+          logger.error('Init ack timeout', {
+            sessionId: state.sessionId,
+            clientId: panel.clientId,
+            docUri: document.uri.toString(),
+            docVersion: document.version,
+            details: { timeoutMs: INIT_ACK_TIMEOUT_MS, retryCount: panel.initAckRetryCount },
+          });
+          void vscode.window.showErrorMessage(
+            vscode.l10n.t('inlineMark init did not complete. Please reopen the editor.')
+          );
+          return;
+        }
+        panel.initAckRetryCount += 1;
+        logger.warn('Init ack not received, retrying init', {
+          sessionId: state.sessionId,
+          clientId: panel.clientId,
+          docUri: document.uri.toString(),
+          docVersion: document.version,
+          details: { timeoutMs: INIT_ACK_TIMEOUT_MS, retryCount: panel.initAckRetryCount },
+        });
+        await sendInit(1, 'ack-timeout-retry');
+      }, INIT_ACK_TIMEOUT_MS);
+    };
+
+    const sendInit = async (attempt: number, reason: string): Promise<void> => {
+      try {
+        const ok = await panel.panel.webview.postMessage(initMessage);
+        logger.info('Init sent', {
+          sessionId: state.sessionId,
+          clientId: panel.clientId,
+          docUri: document.uri.toString(),
+          docVersion: document.version,
+          details: { delivered: ok, attempt, reason },
+        });
+
+        if (ok) {
+          scheduleInitAckWait();
+          return;
+        }
+
+        if (attempt >= MAX_INIT_RETRIES) {
+          logger.error('Init delivery failed after retries', {
+            sessionId: state.sessionId,
+            clientId: panel.clientId,
+            docUri: document.uri.toString(),
+            docVersion: document.version,
+          });
+          return;
+        }
+
+        logger.warn('Init delivery failed, retrying', {
+          sessionId: state.sessionId,
+          clientId: panel.clientId,
+          docUri: document.uri.toString(),
+          docVersion: document.version,
+          details: { attempt, nextDelayMs: RETRY_DELAY_MS },
+        });
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        await sendInit(attempt + 1, 'delivery-retry');
+      } catch (error) {
+        logger.error('Init send failed', {
+          sessionId: state.sessionId,
+          clientId: panel.clientId,
+          docUri: document.uri.toString(),
+          docVersion: document.version,
+          errorStack: String(error),
+        });
+      }
+    };
+
+    await sendInit(1, 'initial');
+
+    return;
   }
 
   private async handleEdit(
@@ -497,16 +677,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       return;
     }
 
-    const metrics = calculateChangeMetrics(changes, document.getText().length);
-    const changeGuardConfig = this.getChangeGuardConfig();
-
-    if (isChangeGuardExceeded(metrics, changeGuardConfig)) {
-      logger.warn('Change guard exceeded', {
-        clientId,
-        txId,
-        details: { metrics, config: changeGuardConfig },
-      });
-    }
+    // ChangeGuard disabled for now (per request).
 
     // Mark the next document version as originating from this client.
     // onDidChangeTextDocument will use this to send `reason=self` to the originating Webview
@@ -589,13 +760,12 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
 
   private handleLogClient(
     clientId: string,
+    docUri: string,
     msg: WebviewToExtensionMessage & { type: 'logClient' }
   ): void {
-    const config = vscode.workspace.getConfiguration('inlineMark.debug');
-    if (!config.get<boolean>('enabled', false)) {return;}
-
     logger.log(msg.level, `[Webview] ${msg.message}`, {
       clientId,
+      docUri,
       details: msg.details,
     });
   }
@@ -622,8 +792,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     }
 
     // Check if confirmation is required for external links
-    const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
-    const confirmExternalLinks = securityConfig.get<boolean>('confirmExternalLinks', true);
+    const confirmExternalLinks = this.currentConfig.security.confirmExternalLinks;
 
     try {
       const uri = vscode.Uri.parse(url);
@@ -826,17 +995,28 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       details: { requestId, src },
     });
 
-    // Check if workspace images are allowed
-    const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
-    const allowWorkspaceImages = securityConfig.get<boolean>('allowWorkspaceImages', true);
-
-    if (!allowWorkspaceImages) {
-      logger.info('Workspace images not allowed - returning original src', {
+    const respondWithError = async (message: string): Promise<void> => {
+      logger.error('Image resolve failed', {
         clientId,
-        details: { requestId, src },
+        errorCode: 'IMAGE_RESOLVE_FAILED',
+        details: { requestId, src, message },
       });
       await panel.panel.webview.postMessage(
-        createImageResolvedMessage(requestId, src, state.sessionId)
+        createErrorMessage('IMAGE_RESOLVE_FAILED', message, [], state.sessionId)
+      );
+      await panel.panel.webview.postMessage(
+        createImageResolvedMessage(requestId, '', state.sessionId)
+      );
+    };
+
+    // Check if workspace images are allowed
+    const allowWorkspaceImages = this.currentConfig.security.allowWorkspaceImages;
+
+    if (!allowWorkspaceImages) {
+      await respondWithError(
+        vscode.l10n.t(
+          'Workspace images are disabled. Enable inlineMark.webview.security.allowWorkspaceImages to view images.'
+        )
       );
       return;
     }
@@ -878,15 +1058,22 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         });
         
         if (!isWithinWorkspace) {
-          logger.warn('Image path traversal blocked - path outside workspace', {
-            clientId,
-            details: { requestId, src, resolvedPath: imageUri.fsPath },
-          });
-          await panel.panel.webview.postMessage(
-            createImageResolvedMessage(requestId, src, state.sessionId)
+          await respondWithError(
+            vscode.l10n.t(
+              'Image path is outside the workspace and was blocked: {0}',
+              normalizedSrc
+            )
           );
           return;
         }
+      }
+
+      const exists = await this.safeStat(imageUri);
+      if (!exists || exists.type !== vscode.FileType.File) {
+        await respondWithError(
+          vscode.l10n.t('Image not found: {0}', normalizedSrc)
+        );
+        return;
       }
 
       logger.debug('Resolving workspace image', {
@@ -905,17 +1092,9 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       await panel.panel.webview.postMessage(
         createImageResolvedMessage(requestId, webviewUri.toString(), state.sessionId)
       );
-    } catch (error) {
-      logger.error('Failed to resolve image', {
-        clientId,
-        errorCode: 'IMAGE_RESOLVE_FAILED',
-        errorStack: String(error),
-        details: { requestId, src },
-      });
-
-      // Return original src on error
-      await panel.panel.webview.postMessage(
-        createImageResolvedMessage(requestId, src, state.sessionId)
+    } catch (_error) {
+      await respondWithError(
+        vscode.l10n.t('Failed to resolve image: {0}', src)
       );
     }
   }
@@ -1477,11 +1656,126 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     });
   }
 
+  private async handleConfigurationChange(e: vscode.ConfigurationChangeEvent): Promise<void> {
+    const affectsSync = e.affectsConfiguration('inlineMark.sync');
+    const affectsView = e.affectsConfiguration('inlineMark.view');
+    const affectsSecurity = e.affectsConfiguration('inlineMark.security');
+    const affectsDebug = e.affectsConfiguration('inlineMark.debug');
+    const affectsEditorWrap = e.affectsConfiguration('editor.wordWrap', { languageId: 'markdown' });
+    const affectsWebviewOption = e.affectsConfiguration('inlineMark.webview.retainContextWhenHidden');
+
+    const affectsAny =
+      affectsSync ||
+      affectsView ||
+      affectsSecurity ||
+      affectsDebug ||
+      affectsEditorWrap ||
+      affectsWebviewOption;
+
+    if (!affectsAny) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    logger.info('Configuration change detected', {
+      details: {
+        sync: affectsSync,
+        view: affectsView,
+        security: affectsSecurity,
+        debug: affectsDebug,
+        editorWordWrap: affectsEditorWrap,
+        retainContextWhenHidden: affectsWebviewOption,
+      },
+    });
+
+    if (affectsWebviewOption) {
+      const message = vscode.l10n.t(
+        'Changing inlineMark.webview.retainContextWhenHidden requires a window reload to take effect.'
+      );
+      const action = vscode.l10n.t('Reload Window');
+      const picked = await vscode.window.showWarningMessage(message, action);
+      if (picked === action) {
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      }
+    }
+
+    const config = this.getWebviewConfig();
+    this.currentConfig = config;
+    logger.setDebugEnabled(this.currentConfig.debug.enabled);
+    const requiresWebviewReload =
+      e.affectsConfiguration('inlineMark.security.allowRemoteImages') ||
+      e.affectsConfiguration('inlineMark.security.allowInsecureRemoteImages');
+    const requiresResourceRootUpdate = e.affectsConfiguration('inlineMark.security.allowWorkspaceImages');
+
+    let notifiedPanels = 0;
+    let reloadedPanels = 0;
+    let skippedPanels = 0;
+
+    for (const state of this.documentStates.values()) {
+      for (const [, panel] of state.panels) {
+        if (requiresResourceRootUpdate) {
+          panel.panel.webview.options = this.getWebviewOptions();
+        }
+
+        if (requiresWebviewReload) {
+          try {
+            panel.ready = false;
+            panel.panel.webview.html = await this.getHtmlForWebview(panel.panel.webview);
+            reloadedPanels++;
+          } catch (error) {
+            logger.error('Failed to reload webview for CSP update', {
+              clientId: panel.clientId,
+              errorCode: 'WEBVIEW_RELOAD_FAILED',
+              errorStack: String(error),
+            });
+            vscode.window.showErrorMessage(
+              vscode.l10n.t('Failed to reload inlineMark webview: {0}', String(error))
+            );
+          }
+          continue;
+        }
+
+        if (!panel.ready) {
+          skippedPanels++;
+          continue;
+        }
+
+        try {
+          const delivered = await panel.panel.webview.postMessage(
+            createConfigChangedMessage(config, state.sessionId)
+          );
+          if (delivered) {
+            notifiedPanels++;
+          } else {
+            skippedPanels++;
+          }
+        } catch (error) {
+          logger.error('Failed to send configChanged to webview', {
+            clientId: panel.clientId,
+            errorCode: 'CONFIG_CHANGED_FAILED',
+            errorStack: String(error),
+          });
+        }
+      }
+    }
+
+    logger.info('Configuration change applied', {
+      details: {
+        notifiedPanels,
+        reloadedPanels,
+        skippedPanels,
+        durationMs: Date.now() - startedAt,
+      },
+    });
+  }
+
   private getWebviewConfig(): WebviewConfig {
     const syncConfig = vscode.workspace.getConfiguration('inlineMark.sync');
     const securityConfig = vscode.workspace.getConfiguration('inlineMark.security');
     const debugConfig = vscode.workspace.getConfiguration('inlineMark.debug');
     const viewConfig = vscode.workspace.getConfiguration('inlineMark.view');
+    const previewHtmlConfig = vscode.workspace.getConfiguration('inlineMark.preview.html');
+    const previewMermaidConfig = vscode.workspace.getConfiguration('inlineMark.preview.mermaid');
     const editorConfig = vscode.workspace.getConfiguration('editor', { languageId: 'markdown' });
     const wordWrap = editorConfig.get<string>('wordWrap', 'off');
     const noWrapInspect = viewConfig.inspect<boolean | null>('noWrap');
@@ -1490,6 +1784,10 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       noWrapInspect?.workspaceFolderValue ??
       noWrapInspect?.globalValue;
     const resolvedNoWrap = typeof explicitNoWrap === 'boolean' ? explicitNoWrap : wordWrap === 'off';
+    const configuredMermaidFontScale = previewMermaidConfig.get<number>('fontScale', 0.8);
+    const mermaidFontScale = Number.isFinite(configuredMermaidFontScale)
+      ? Math.min(4, Math.max(0.1, configuredMermaidFontScale))
+      : 0.8;
 
     return {
       debounceMs: syncConfig.get<number>('debounceMs', 250),
@@ -1503,6 +1801,17 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         fullWidth: viewConfig.get<boolean>('fullWidth', true),
         noWrap: resolvedNoWrap,
       },
+      preview: {
+        html: {
+          allowScripts: previewHtmlConfig.get<boolean>('allowScripts', false),
+          allowSameOrigin: previewHtmlConfig.get<boolean>('allowSameOrigin', false),
+          allowPopups: previewHtmlConfig.get<boolean>('allowPopups', false),
+          allowForms: previewHtmlConfig.get<boolean>('allowForms', false),
+        },
+        mermaid: {
+          fontScale: mermaidFontScale,
+        },
+      },
       security: {
         allowWorkspaceImages: securityConfig.get<boolean>('allowWorkspaceImages', true),
         allowRemoteImages: securityConfig.get<boolean>('allowRemoteImages', false),
@@ -1512,19 +1821,6 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       debug: {
         enabled: debugConfig.get<boolean>('enabled', false),
       },
-    };
-  }
-
-  private getChangeGuardConfig(): {
-    maxChangedRatio: number;
-    maxChangedChars: number;
-    maxHunks: number;
-  } {
-    const config = vscode.workspace.getConfiguration('inlineMark.sync.changeGuard');
-    return {
-      maxChangedRatio: config.get<number>('maxChangedRatio', 0.5),
-      maxChangedChars: config.get<number>('maxChangedChars', 50000),
-      maxHunks: config.get<number>('maxHunks', 200),
     };
   }
 
@@ -1651,8 +1947,9 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
   }
 
   private getErrorHtml(message: string): string {
+    const language = vscode.env.language || 'en';
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${language}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

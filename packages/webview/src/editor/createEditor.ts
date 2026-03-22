@@ -17,7 +17,7 @@
  * - Image: 画像（inline: true, allowBase64: true）
  * - RawBlock: :::raw 記法の保持
  * - FrontmatterBlock: frontmatter の保持
- * - HtmlToCodeBlock: HTML ブロックは code block として表示
+ * - HtmlToCodeBlock: HTML ブロックは不明ブロックとして表示
  * 
  * onUpdate コールバック (設計書 10.1):
  * - applyingRemote 中は何もしない（ループ防止）
@@ -34,12 +34,13 @@
  * - G5-lite: 整形を最小限に抑える
  */
 
-import { Editor } from '@tiptap/core';
+import { Editor, Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import { Markdown } from '@tiptap/markdown';
 import type { Slice } from '@tiptap/pm/model';
+import { Plugin } from '@tiptap/pm/state';
 import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import Placeholder from '@tiptap/extension-placeholder';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
@@ -56,6 +57,8 @@ import { InlineDragHandle } from './inlineDragHandleExtension.js';
 import { ListIndentShortcuts } from './listIndentShortcuts.js';
 import { IndentMarker } from './indentMarkerExtension.js';
 import { EnterSelectionFix } from './enterSelectionFixExtension.js';
+import { SearchHighlight } from './searchExtension.js';
+import { CurrentLineHighlight } from './currentLineHighlightExtension.js';
 import { serializeMarkdown } from './markdownUtils.js';
 import NodeRange from '@tiptap/extension-node-range';
 import { createLowlight, common } from 'lowlight';
@@ -80,6 +83,7 @@ import { t } from './i18n.js';
 import { computeDiff, type DiffResult } from './diffEngine.js';
 import type { SyncClient } from '../protocol/client.js';
 import type { Replace } from '../protocol/types.js';
+import { createLogger } from '../logger.js';
 
 export interface EditorInstance {
   editor: Editor;
@@ -93,39 +97,78 @@ export interface CreateEditorOptions {
   container: HTMLElement;
   syncClient: SyncClient;
   onChangeGuardExceeded?: (metrics: DiffResult['metrics']) => void;
+  initialContent: string;
 }
 
 export function createEditor(options: CreateEditorOptions): EditorInstance {
-  const { container, syncClient, onChangeGuardExceeded } = options;
+  const { container, syncClient, onChangeGuardExceeded, initialContent } = options;
   const lowlightInstance = createLowlight(common);
   const CLIPBOARD_MODULE = 'Clipboard';
+  const logClipboard = createLogger(CLIPBOARD_MODULE);
+  const logEditor = createLogger('Editor');
 
   const logClipboardInfo = (msg: string, data?: Record<string, unknown>): void => {
-    const timestamp = new Date().toISOString();
-    if (data) {
-      console.log(`[INFO][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`, data);
-    } else {
-      console.log(`[INFO][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`);
-    }
+    logClipboard.info(msg, data);
   };
 
   const logClipboardSuccess = (msg: string, data?: Record<string, unknown>): void => {
-    const timestamp = new Date().toISOString();
-    if (data) {
-      console.log(`[SUCCESS][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`, data);
-    } else {
-      console.log(`[SUCCESS][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`);
-    }
+    logClipboard.success(msg, data);
   };
 
   const logClipboardError = (msg: string, data?: Record<string, unknown>): void => {
-    const timestamp = new Date().toISOString();
-    if (data) {
-      console.error(`[ERROR][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`, data);
-    } else {
-      console.error(`[ERROR][${CLIPBOARD_MODULE}] ${timestamp} ${msg}`);
-    }
+    logClipboard.error(msg, data);
   };
+
+  const INVALID_TRANSACTION_NOTIFY_COOLDOWN_MS = 1500;
+  let lastInvalidTransactionNotifyAt = 0;
+
+  const InvalidTransactionGuard = Extension.create({
+    name: 'invalidTransactionGuard',
+    priority: -1000,
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          filterTransaction: (transaction) => {
+            if (!transaction.docChanged) {
+              return true;
+            }
+
+            try {
+              transaction.doc.check();
+              return true;
+            } catch (error) {
+              const stepTypes = transaction.steps.map(
+                (step) => step.constructor?.name ?? 'UnknownStep'
+              );
+              const details = {
+                error: String(error),
+                stepCount: transaction.steps.length,
+                stepTypes,
+                selectionFrom: transaction.selection.from,
+                selectionTo: transaction.selection.to,
+              };
+
+              logEditor.error('Blocked invalid transaction', details);
+
+              const now = Date.now();
+              if (now - lastInvalidTransactionNotifyAt >= INVALID_TRANSACTION_NOTIFY_COOLDOWN_MS) {
+                lastInvalidTransactionNotifyAt = now;
+                syncClient.notifyHost(
+                  'ERROR',
+                  'WEBVIEW_INVALID_TRANSACTION_BLOCKED',
+                  'Blocked an invalid editor transaction to prevent runtime corruption.',
+                  ['resync', 'resetSession', 'reopenWithTextEditor'],
+                  details
+                );
+              }
+
+              return false;
+            }
+          },
+        }),
+      ];
+    },
+  });
 
   // UI要素の作成: BubbleMenu（選択時ツールバー）
   const bubbleMenuElement = createBubbleMenuElement();
@@ -141,11 +184,11 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   // - Markdown 拡張で GFM (GitHub Flavored Markdown) を有効化
   // - FrontmatterBlock で frontmatter を保持
   // - RawBlock で :::raw を保持
-  // - HtmlToCodeBlock で HTML ブロックを code block に変換
+  // - HtmlToCodeBlock で HTML ブロックを不明ブロックに変換
   // - Table 拡張で GFM テーブルをサポート
   // VSCodeキーバインドで全ショートカットを管理するため、
   // StarterKitの拡張を無効化し、ショートカット無しバージョンを使用
-  let editor: Editor;
+  let editor: Editor | null = null;
 
   const serializeSelectionMarkdown = (slice: Slice): string => {
     const startedAt = Date.now();
@@ -232,6 +275,10 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
 
   editor = new Editor({
     element: container,
+    content: initialContent,
+    contentType: 'markdown',
+    // VS Code Webview CSP での inline style 注入を回避
+    injectCSS: false,
     extensions: [
       StarterKit.configure({
         // ショートカット無しバージョンを使用するため、デフォルトを無効化
@@ -254,6 +301,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
         // Tiptap 3.x: StarterKit に Link/Underline が含まれるため無効化
         link: false,
         underline: false,
+        // appendTransaction(insert) 由来の invalid content 例外を避ける
+        trailingNode: false,
       }),
       // ショートカット無効化した拡張を追加
       BoldNoShortcut,
@@ -297,6 +346,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       // テーブルUI（Notion風 + ボタン、ハンドル、コンテキストメニュー）
       TableControls,
       NodeRange,
+      SearchHighlight,
+      CurrentLineHighlight,
       NestedPage.configure({
         onOpen: (path) => {
           syncClient.openNestedPage(path);
@@ -353,6 +404,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
           return !isEmptySelection && !isCodeBlock && !isTable;
         },
       }),
+      InvalidTransactionGuard,
       // Note: FloatingMenu removed - block type selection is handled by BlockHandles + button
     ],
     editorProps: {
@@ -387,16 +439,16 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     syncClient.notifyHost(level, code, message, remediation, details);
   });
 
-  const isDebugEnabled = Boolean(syncClient.getConfig()?.debug.enabled);
+  const debugEnabled = Boolean(syncClient.getConfig()?.debug.enabled);
 
   // Input/selection diagnostics (only when debug enabled)
-  if (isDebugEnabled) {
+  if (debugEnabled) {
     let lastSelection = editor.state.selection;
     editor.on('transaction', ({ editor: txEditor, transaction }) => {
       const inputType = transaction.getMeta('inputType');
       const uiEvent = transaction.getMeta('uiEvent');
       if (inputType === 'insertParagraph' || inputType === 'insertLineBreak' || uiEvent === 'input') {
-        console.log('[Input] transaction', {
+        logEditor.debug('Input transaction', {
           inputType,
           uiEvent,
           docChanged: transaction.docChanged,
@@ -422,11 +474,9 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
 
   const onSelectionUpdate = ({ editor: selectionEditor }: { editor: Editor }) => {
     const selection = selectionEditor.state.selection;
-    const timestamp = new Date().toISOString();
     const $from = selection.$from;
     const $to = selection.$to;
-    console.log('[Selection] update', {
-      timestamp,
+    logEditor.debug('Selection update', {
       type: selection.constructor.name,
       empty: selection.empty,
       from: selection.from,
@@ -594,13 +644,13 @@ function setupBubbleMenuHandlers(menu: HTMLElement, editor: Editor): void {
   menu.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     const btn = target.closest('.bubble-menu-button') as HTMLElement | null;
-    if (!btn) return;
+    if (!btn) {return;}
 
     e.preventDefault();
     e.stopPropagation();
 
     const command = btn.dataset.command;
-    if (!command) return;
+    if (!command) {return;}
 
     // コマンドを実行
     switch (command) {

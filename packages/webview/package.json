@@ -5,12 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build",
+    "build": "vite build && vite build -c vite.preview.config.ts",
     "lint": "eslint src"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.4",
-    "@tabler/icons": "^3.36.1",
     "@tiptap/core": "^3.15.3",
     "@tiptap/extension-blockquote": "^3.15.3",
     "@tiptap/extension-bold": "^3.15.3",
@@ -36,9 +35,11 @@
     "@tiptap/pm": "^3.15.3",
     "@tiptap/starter-kit": "^3.15.3",
     "@tiptap/suggestion": "^3.15.3",
+    "@vscode/codicons": "^0.0.44",
     "diff-match-patch": "^1.0.5",
-    "dompurify": "^3.3.1",
-    "lowlight": "^3.3.0"
+    "lowlight": "^3.3.0",
+    "mermaid": "^11.12.2",
+    "prosemirror-search": "^1.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

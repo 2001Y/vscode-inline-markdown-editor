@@ -9,15 +9,22 @@ import { notifyHostError } from './hostNotifier.js';
 
 let markdownManagerUnavailableNotified = false;
 
+export type MarkdownParseResult = { type: string; content?: unknown };
+
 export type MarkdownManager = {
-  parse: (markdown: string) => { type: string; content?: unknown };
+  parse: (markdown: string) => MarkdownParseResult;
   serialize: (json: unknown) => string;
+};
+
+type MarkdownManagerLike = {
+  parse?: (markdown: string) => MarkdownParseResult;
+  serialize?: (json: unknown) => string;
 };
 
 const getManager = (editor: Editor): MarkdownManager | null => {
   const anyEditor = editor as unknown as {
-    markdown?: { parse?: (markdown: string) => any; serialize?: (json: unknown) => string };
-    storage?: { markdown?: { manager?: { parse?: (markdown: string) => any; serialize?: (json: unknown) => string } } };
+    markdown?: MarkdownManagerLike;
+    storage?: { markdown?: { manager?: MarkdownManagerLike } };
   };
 
   const manager = anyEditor.markdown ?? anyEditor.storage?.markdown?.manager ?? null;

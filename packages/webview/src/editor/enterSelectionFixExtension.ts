@@ -6,25 +6,18 @@
 
 import { Extension } from '@tiptap/core';
 import { Plugin, Selection } from '@tiptap/pm/state';
+import { createLogger } from '../logger.js';
+import { notifyHostError } from './hostNotifier.js';
 
 const MODULE = 'EnterSelectionFix';
+const log = createLogger(MODULE);
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.info(msg, data);
 };
 
 const logWarning = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.warn(msg, data);
 };
 
 export const EnterSelectionFix = Extension.create({
@@ -63,7 +56,17 @@ export const EnterSelectionFix = Extension.create({
             return;
           }
 
-          const next = Selection.findFrom(newState.selection.$from, 1, true);
+          let next: Selection | null = null;
+          try {
+            next = Selection.findFrom(newState.selection.$from, 1, true);
+          } catch (error) {
+            notifyHostError('ENTER_SELECTION_FIX_FAILED', 'Enter後の選択補正に失敗しました。', {
+              error: String(error),
+              from: newState.selection.from,
+              parentType: newState.selection.$from.parent.type.name,
+            });
+            return;
+          }
 
           if (!next || next.from === newState.selection.from) {
             logWarning('Selection fix skipped: next selection not found', {

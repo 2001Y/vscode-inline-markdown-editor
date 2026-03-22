@@ -71,19 +71,16 @@ export class Logger {
 
   initialize(context: vscode.ExtensionContext): void {
     this.updateConfig();
-
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('inlineMark.debug')) {
-          this.updateConfig();
-        }
-      })
-    );
+    context.subscriptions.push(this);
   }
 
   private updateConfig(): void {
     const config = vscode.workspace.getConfiguration('inlineMark.debug');
     this.debugEnabled = config.get<boolean>('enabled', false);
+  }
+
+  setDebugEnabled(enabled: boolean): void {
+    this.debugEnabled = enabled;
   }
 
   /**

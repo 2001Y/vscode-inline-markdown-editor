@@ -8,12 +8,14 @@
 
 import { Node, mergeAttributes } from '@tiptap/core';
 import type { Editor } from '@tiptap/core';
-import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
 import { notifyHostError } from './hostNotifier.js';
 import { parseMarkdown } from './markdownUtils.js';
 import { t } from './i18n.js';
+import { applyNodeViewHandleState, createNodeViewHandleContainer, resolveBlockHandleEligibility } from './blockHandlesExtension.js';
+import { createLogger } from '../logger.js';
 
 const MODULE = 'PlainTextBlock';
+const log = createLogger(MODULE);
 
 export interface PlainTextBlockOptions {
   HTMLAttributes: Record<string, unknown>;
@@ -108,8 +110,8 @@ export const PlainTextBlock = Node.create<PlainTextBlockOptions>({
       const dom = document.createElement('div');
       dom.className = 'plain-text-block-wrapper';
       dom.setAttribute('data-type', 'plain-text-block');
-
-      let handle: HTMLElement | null = null;
+      const handleContainer = createNodeViewHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'block-content';
@@ -153,31 +155,9 @@ export const PlainTextBlock = Node.create<PlainTextBlockOptions>({
         return typeof pos === 'number' ? pos : null;
       };
 
-      const syncHandlePos = () => {
-        if (!handle) {
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'plainTextBlock';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-      };
-
-      const syncHandleState = () => {
-        const shouldShowHandle = shouldRenderBlockHandle(editor.state, getPos, 'plainTextBlock');
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.insertBefore(handle, contentWrapper);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-        }
+      const syncHandleState = (_updatedNode: typeof node) => {
+        const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'plainTextBlock');
+        applyNodeViewHandleState(dom, handleContainer, eligibility, 'plainTextBlock');
       };
 
       const applyParsedContent = (markdown: string) => {
@@ -216,12 +196,11 @@ export const PlainTextBlock = Node.create<PlainTextBlockOptions>({
         applyParsedContent(markdown);
       });
 
-      syncHandleState();
-      syncHandlePos();
 
-      console.log('[PlainTextBlock] NodeView created', {
+      log.info('NodeView created', {
         contentLength: node.textContent.length,
       });
+      syncHandleState(node);
 
       return {
         dom,
@@ -231,16 +210,12 @@ export const PlainTextBlock = Node.create<PlainTextBlockOptions>({
             return false;
           }
           currentNode = updatedNode;
-          syncHandleState();
-          syncHandlePos();
+          syncHandleState(updatedNode);
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
-          }
-          if (handle && handle.contains(event.target)) {
-            return true;
           }
           if (toolbar.contains(event.target)) {
             return true;

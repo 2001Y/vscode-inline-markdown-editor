@@ -88,6 +88,7 @@ plain text block
 :::note
 これは非対応の admonition 形式（RAW 表示確認用）
 :::
+:::
 
 <details>
   <summary>details / summary</summary>
@@ -95,10 +96,39 @@ plain text block
 </details>
 
 ```mermaid
-flowchart LR
-  A --> B
-```
+flowchart TD
+  %% ノード定義
+  Start(["スタート"])
+  Decision1{"条件A?"}
+  Step1A["処理A1"]
+  Step1B["処理A2"]
+  Decision2{"条件B?"}
+  Step2A["処理B1"]
+  Step2B["処理B2"]
+  End(["エンド"])
 
-:::
+  %% ノード間の接続
+  Start --> Decision1
+  Decision1 -- Yes --> Step1A
+  Decision1 -- No  --> Step1B
+  Step1A --> Decision2
+  Step1B --> Decision2
+  Decision2 -- はい --> Step2A
+  Decision2 -- いいえ --> Step2B
+  Step2A --> End
+  Step2B --> End
+
+  %% サブグラフ（グルーピング）
+  subgraph サブプロセス
+    Step1A
+    Step1B
+    Step2A
+    Step2B
+  end
+
+  %% 注釈やクラス利用
+  classDef green fill:#b5f5b5,stroke:#2ecc40;
+  class Step2A green;
+```
 
 ## ドキュメント終了

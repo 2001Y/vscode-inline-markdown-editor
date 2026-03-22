@@ -7,17 +7,18 @@
  */
 
 import { Extension, type Editor } from '@tiptap/core';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import type { Node as ProseMirrorNode, Slice } from '@tiptap/pm/model';
 import { Plugin, PluginKey, NodeSelection, Selection } from '@tiptap/pm/state';
 import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { liftListItem, sinkListItem } from '@tiptap/pm/schema-list';
-import { isNodeRangeSelection, NodeRangeSelection } from '@tiptap/extension-node-range';
+import { isNodeRangeSelection } from '@tiptap/extension-node-range';
 import { DEBUG } from './debug.js';
 import { notifyHostWarn } from './hostNotifier.js';
 import { INDENT_LEVEL_MAX, INDENT_MAX_DEPTH_MESSAGE, normalizeIndentAttr } from './indentConfig.js';
 import { LIST_MAX_DEPTH } from './listIndentConfig.js';
-import { createDragHandleElement } from './blockHandlesExtension.js';
+import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { createLogger } from '../logger.js';
 
 const MODULE = 'InlineDragHandle';
 const TABLE_CELL_SELECTOR = 'td, th';
@@ -25,55 +26,36 @@ const LIST_INDENT_STEP_PX = 24;
 const DROPCURSOR_SELECTOR = '.inline-markdown-dropcursor, .ProseMirror-dropcursor';
 const HANDLE_CONTAINER_SELECTOR = '.block-handle-container';
 const HANDLE_SELECTOR = '.block-handle';
-const HANDLE_NODEVIEW_EXCLUSIONS = new Set([
+const HANDLE_NODEVIEW_EXCLUSIONS = new Set<string>([
   'paragraph',
   'heading',
   'blockquote',
-  'listItem',
   'codeBlock',
-  'table',
-  'rawBlock',
+  'listItem',
+  'horizontalRule',
   'frontmatterBlock',
+  'rawBlock',
   'plainTextBlock',
   'nestedPage',
-  'horizontalRule',
+  'table',
 ]);
 const NOOP_TOLERANCE_POS = 1;
+const log = createLogger(MODULE);
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.info(msg, data);
 };
 
 const logSuccess = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.success(msg, data);
 };
 
 const logWarning = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.warn(msg, data);
 };
 
 const logError = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.error(msg, data);
 };
 
 export const InlineDragHandlePluginKey = new PluginKey('inlineDragHandle');
@@ -89,6 +71,7 @@ export interface InlineDragHandleOptions {
 
 type PluginState = {
   locked: boolean;
+  activePos: number | null;
 };
 
 const clampPointToRect = (rect: DOMRect, x: number, y: number, padding = 2): { x: number; y: number } => {
@@ -264,19 +247,57 @@ const resolveIndentableBlockFromSelection = (editor: Editor): { pos: number; nod
 };
 
 const resolveBlockTextStartX = (element: HTMLElement): number | null => {
-  const rect = element.getBoundingClientRect();
-  const style = window.getComputedStyle(element);
-  const paddingValue = style.paddingInlineStart || style.paddingLeft || '0';
-  const padding = Number.parseFloat(paddingValue);
-  if (!Number.isFinite(rect.left)) {
+  const parseStartPadding = (target: HTMLElement): number => {
+    const style = window.getComputedStyle(target);
+    const paddingValue = style.paddingInlineStart || style.paddingLeft || '0';
+    const parsed = Number.parseFloat(paddingValue);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  };
+
+  const readStartX = (target: HTMLElement): number | null => {
+    const rect = target.getBoundingClientRect();
+    if (!Number.isFinite(rect.left)) {
+      return null;
+    }
+    return rect.left + parseStartPadding(target);
+  };
+
+  const scope = element.matches('.block-content')
+    ? element
+    : ((element.querySelector(':scope > .block-content') as HTMLElement | null) ?? element);
+
+  const firstTextLike = scope.querySelector(
+    ':scope > pre, :scope > p, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6, :scope > blockquote, :scope > table'
+  ) as HTMLElement | null;
+
+  if (firstTextLike) {
+    const textStart = readStartX(firstTextLike);
+    if (textStart !== null) {
+      return textStart;
+    }
+  }
+
+  const scopeStart = readStartX(scope);
+  if (scopeStart !== null) {
+    return scopeStart;
+  }
+
+  const hostStart = readStartX(element);
+  if (hostStart !== null) {
+    return hostStart;
+  }
+
+  const fallbackRect = element.getBoundingClientRect();
+  if (!Number.isFinite(fallbackRect.left)) {
     return null;
   }
-  return rect.left + (Number.isFinite(padding) ? Math.max(0, padding) : 0);
+  return fallbackRect.left;
 };
 
 const createHandleDecorations = (
   doc: ProseMirrorNode,
   options: InlineDragHandleOptions,
+  activePos: number | null,
   reportCount?: (
     count: number,
     stats?: {
@@ -284,6 +305,10 @@ const createHandleDecorations = (
       childCount: number;
       docSize: number;
       allExcluded?: boolean;
+      eligibleCount?: number;
+      activePos?: number | null;
+      activeType?: string | null;
+      activeFound?: boolean;
       handleTypes?: Record<string, number>;
       excludedTypes?: Record<string, number>;
       skippedReasons?: Record<string, number>;
@@ -294,6 +319,9 @@ const createHandleDecorations = (
   const allowed = options.allowedNodeTypes;
   const blockTypes = new Set<string>();
   let handleCount = 0;
+  let eligibleCount = 0;
+  let activeType: string | null = null;
+  let activeFound = false;
   const handleTypes: Record<string, number> = {};
   const excludedTypes: Record<string, number> = {};
   const skippedReasons: Record<string, number> = {};
@@ -309,29 +337,13 @@ const createHandleDecorations = (
     if (node.isBlock) {
       blockTypes.add(node.type.name);
     }
-    if (node.type.spec.tableRole || node.type.name === 'table') {
-      bump(skippedReasons, 'table');
+    if (node.type.spec.tableRole && node.type.name !== 'table') {
+      bump(skippedReasons, 'tableRole');
       return false;
     }
     if (parent?.type.spec.tableRole) {
       bump(skippedReasons, 'tableChild');
       return false;
-    }
-    if (node.type.name === 'bulletList' || node.type.name === 'orderedList') {
-      bump(skippedReasons, 'listContainer');
-      return true;
-    }
-    if (parent?.type.name === 'listItem' && node.type.name !== 'listItem') {
-      bump(skippedReasons, 'listItemChild');
-      return false;
-    }
-    if (node.type.name === 'listItem') {
-      for (let i = 0; i < node.childCount; i += 1) {
-        if (node.child(i).type.name === 'plainTextBlock') {
-          bump(skippedReasons, 'listItemPlainText');
-          return false;
-        }
-      }
     }
     if (HANDLE_NODEVIEW_EXCLUSIONS.has(node.type.name)) {
       bump(skippedReasons, 'nodeViewExcluded');
@@ -346,53 +358,69 @@ const createHandleDecorations = (
       return true;
     }
 
+    const isEligible = shouldRenderBlockHandle({ doc }, () => pos, node.type.name);
+    if (!isEligible) {
+      bump(skippedReasons, 'ineligible');
+      return true;
+    }
+
     const hostAttrs = {
       class: 'block-handle-host',
     };
     decorations.push(Decoration.node(pos, pos + node.nodeSize, hostAttrs));
+    eligibleCount += 1;
 
-    const widgetPos = Math.min(pos + 1, pos + Math.max(1, node.nodeSize - 1));
-    decorations.push(
-      Decoration.widget(
-        widgetPos,
-        () => {
-          const handle = options.render ? options.render() : createDragHandleElement();
-          handle.classList.add('block-handle-container');
-          handle.setAttribute('contenteditable', 'false');
-          handle.setAttribute('data-block-pos', String(pos));
-          handle.setAttribute('data-block-type', node.type.name);
-          handle.draggable = false;
-          return handle;
-        },
-        {
-          key: `block-handle-${pos}`,
-          ignoreSelection: true,
-          stopEvent: (event) => {
-            const target = event.target as HTMLElement | null;
-            if (!target) {
-              return false;
-            }
-            const isHandleEvent = Boolean(target.closest(HANDLE_CONTAINER_SELECTOR));
-            if (!isHandleEvent) {
-              return false;
-            }
-            if (
-              event.type === 'dragover' ||
-              event.type === 'dragenter' ||
-              event.type === 'drop' ||
-              event.type === 'dragstart'
-            ) {
-              return false;
-            }
-            return true;
+    if (activePos !== null && pos === activePos) {
+      const widgetPos = Math.min(pos + 1, pos + Math.max(1, node.nodeSize - 1));
+      decorations.push(
+        Decoration.widget(
+          widgetPos,
+          () => {
+            const handle = options.render ? options.render() : createDragHandleElement();
+            handle.classList.add('block-handle-container');
+            handle.classList.add('is-active');
+            handle.setAttribute('contenteditable', 'false');
+            handle.dataset.blockSource = 'widget';
+            handle.setAttribute('data-block-pos', String(pos));
+            handle.setAttribute('data-block-type', node.type.name);
+            handle.draggable = false;
+            return handle;
           },
-        }
-      )
-    );
-    handleCount += 1;
-    bump(handleTypes, node.type.name);
+          {
+            key: `block-handle-${pos}`,
+            ignoreSelection: true,
+            stopEvent: (event) => {
+              const target = event.target as HTMLElement | null;
+              if (!target) {
+                return false;
+              }
+              const isHandleEvent = Boolean(target.closest(HANDLE_CONTAINER_SELECTOR));
+              if (!isHandleEvent) {
+                return false;
+              }
+              if (
+                event.type === 'dragover' ||
+                event.type === 'dragenter' ||
+                event.type === 'drop' ||
+                event.type === 'dragstart'
+              ) {
+                return false;
+              }
+              return true;
+            },
+          }
+        )
+      );
+      handleCount += 1;
+      bump(handleTypes, node.type.name);
+      activeType = node.type.name;
+      activeFound = true;
+    }
 
-    return node.type.name === 'listItem';
+    if (node.type.name === 'table') {
+      return false;
+    }
+    return true;
   });
 
   if (reportCount) {
@@ -401,6 +429,10 @@ const createHandleDecorations = (
       childCount: doc.childCount,
       docSize: doc.content.size,
       allExcluded,
+      eligibleCount,
+      activePos,
+      activeType,
+      activeFound,
       handleTypes,
       excludedTypes,
       skippedReasons,
@@ -457,7 +489,6 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
     let pendingDropX: number | null = null;
     let pendingDropCoords: { x: number; y: number } | null = null;
     let pendingBlockDropX: number | null = null;
-    let pendingBlockDropCoords: { x: number; y: number } | null = null;
     let indentRafId: number | null = null;
     let dropcursorRafId: number | null = null;
     let dropFinalizePending = false;
@@ -474,9 +505,114 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
     let lastDragOverLogAt = 0;
     let lastDragOverCoords: { x: number; y: number } | null = null;
     let lastDragOverTarget: number | null = null;
+    let hoverRafId: number | null = null;
+    let pendingHoverPos: number | null = null;
+    let lastActivePos: number | null = null;
 
     const setHandleLockClass = () => {
       editor.view.dom.classList.toggle('is-handle-locked', locked);
+    };
+
+    const getActivePos = (): number | null => {
+      const pluginState = InlineDragHandlePluginKey.getState(editor.state) as PluginState | undefined;
+      return pluginState?.activePos ?? null;
+    };
+
+    const dispatchActivePos = (nextPos: number | null): void => {
+      const currentPos = getActivePos();
+      if (currentPos === nextPos) {
+        return;
+      }
+      editor.view.dispatch(
+        editor.state.tr.setMeta(InlineDragHandlePluginKey, {
+          activePos: nextPos,
+        })
+      );
+    };
+
+    const scheduleActivePos = (nextPos: number | null): void => {
+      pendingHoverPos = nextPos;
+      if (hoverRafId !== null) {
+        return;
+      }
+      hoverRafId = requestAnimationFrame(() => {
+        hoverRafId = null;
+        const pending = pendingHoverPos;
+        pendingHoverPos = null;
+        dispatchActivePos(pending ?? null);
+      });
+    };
+
+    const resolveHoverPosFromTarget = (
+      target: EventTarget | null,
+      clientX: number,
+      clientY: number
+    ): number | null => {
+      if (!(target instanceof HTMLElement)) {
+        return null;
+      }
+      if (!editor.view.dom.contains(target)) {
+        return null;
+      }
+
+      const handleContainer = target.closest(HANDLE_CONTAINER_SELECTOR) as HTMLElement | null;
+      if (handleContainer) {
+        const rawPos = Number(handleContainer.dataset.blockPos);
+        if (Number.isFinite(rawPos)) {
+          return rawPos;
+        }
+      }
+
+      const tableHost = target.closest('.table-block') as HTMLElement | null;
+      if (tableHost) {
+        const tablePos = safePosAtDOM(editor.view, tableHost);
+        if (tablePos !== null) {
+          const tableNode = editor.state.doc.nodeAt(tablePos);
+          if (
+            tableNode &&
+            (!options.allowedNodeTypes || options.allowedNodeTypes.has(tableNode.type.name)) &&
+            shouldRenderBlockHandle(editor.state, () => tablePos, tableNode.type.name)
+          ) {
+            return tablePos;
+          }
+        }
+      }
+
+      const listItemPos = resolveListItemPosFromCoords(editor.view, editor.state.doc, clientX, clientY);
+      if (listItemPos !== null) {
+        const listNode = editor.state.doc.nodeAt(listItemPos);
+        if (
+          listNode &&
+          (!options.allowedNodeTypes || options.allowedNodeTypes.has(listNode.type.name)) &&
+          shouldRenderBlockHandle(editor.state, () => listItemPos, listNode.type.name)
+        ) {
+          return listItemPos;
+        }
+      }
+
+      const coords = editor.view.posAtCoords({ left: clientX, top: clientY });
+      if (!coords) {
+        return null;
+      }
+      const $pos = editor.state.doc.resolve(coords.pos);
+      for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+        const node = $pos.node(depth);
+        if (!node.isBlock) {
+          continue;
+        }
+        if (options.allowedNodeTypes && !options.allowedNodeTypes.has(node.type.name)) {
+          continue;
+        }
+        if (HANDLE_NODEVIEW_EXCLUSIONS.has(node.type.name)) {
+          continue;
+        }
+        const pos = depth === 0 ? 0 : $pos.before(depth);
+        if (!shouldRenderBlockHandle(editor.state, () => pos, node.type.name)) {
+          continue;
+        }
+        return pos;
+      }
+      return null;
     };
 
     const resolveHandleTarget = (target: EventTarget | null): {
@@ -500,6 +636,9 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         const rawPos = Number(container.dataset.blockPos);
         const rawPosValid = Number.isFinite(rawPos);
         let resolvedPos = rawPosValid ? rawPos : null;
+        if (rawPosValid && container.dataset.blockSource === 'nodeview') {
+          return rawPos;
+        }
         const domPos = safePosAtDOM(editor.view, container);
         if (domPos !== null) {
           const $pos = editor.state.doc.resolve(domPos);
@@ -670,7 +809,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       return null;
     };
 
-    const simulateDropNoop = (target: number, slice: any, move: boolean): boolean | null => {
+    const simulateDropNoop = (target: number, slice: Slice, move: boolean): boolean | null => {
       try {
         let insertPos = target;
         let tr = editor.state.tr;
@@ -814,7 +953,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       if (!dragSelectionRange) {
         return false;
       }
-      const viewAny = editor.view as EditorView & { dragging?: { slice: any; move: boolean } | null };
+      const viewAny = editor.view as EditorView & { dragging?: { slice: Slice; move: boolean } | null };
       const dragging = viewAny.dragging;
       const payload = dragging?.slice ? dragging : dragPayload;
       if (!payload || !payload.slice) {
@@ -966,8 +1105,6 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       const deltaPx = clientX - blockIndentState.startX;
       const rawDelta = Math.round(deltaPx / LIST_INDENT_STEP_PX);
       const deltaDepth = Math.max(-1, Math.min(1, rawDelta));
-      const indentPx = deltaDepth * LIST_INDENT_STEP_PX;
-
       const baseRight = baseLeft + baseWidth;
       const desiredIndent = Math.max(0, Math.min(INDENT_LEVEL_MAX, blockIndentState.sourceIndent + deltaDepth));
       let targetIndent = blockIndentState.sourceIndent;
@@ -1010,7 +1147,6 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       pendingDropX = null;
       pendingDropCoords = null;
       pendingBlockDropX = null;
-      pendingBlockDropCoords = null;
       dropFinalizePending = false;
       if (reason) {
         DEBUG.log(MODULE, 'Drag indent state cleared', { reason });
@@ -1390,7 +1526,6 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         logInfo('Drag drop captured', { dropX: pendingDropX });
       } else if (blockIndentState) {
         pendingBlockDropX = e.clientX;
-        pendingBlockDropCoords = { x: e.clientX, y: e.clientY };
         logInfo('Block drag drop captured', { dropX: pendingBlockDropX });
       }
 
@@ -1436,6 +1571,23 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         return;
       }
       logError('Placeholder focus resolve failed', { clientX: e.clientX, clientY: e.clientY });
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!editor.isEditable || locked) {
+        scheduleActivePos(null);
+        return;
+      }
+      const hasActiveDrag = Boolean(dragSelectionRange || dragPayload || editor.view.dragging);
+      if (hasActiveDrag) {
+        scheduleActivePos(null);
+        return;
+      }
+      scheduleActivePos(resolveHoverPosFromTarget(e.target, e.clientX, e.clientY));
+    };
+
+    const onPointerLeave = () => {
+      scheduleActivePos(null);
     };
 
     const onDocumentDragOver = (e: DragEvent) => {
@@ -1522,15 +1674,6 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       dragStartedAt = Date.now();
       const activeSelection = editor.state.selection;
       let selection: Selection;
-
-      const createRangeSelection = (): Selection | null => {
-        try {
-          return NodeRangeSelection.create(editor.state.doc, pos, pos + node.nodeSize);
-        } catch (error) {
-          logWarning('NodeRangeSelection create failed', { pos, error: String(error) });
-          return null;
-        }
-      };
 
       const createNodeSelection = (): Selection | null => {
         try {
@@ -1737,6 +1880,8 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       eventTarget.addEventListener('dragover', onDragOver, { capture: true });
       eventTarget.addEventListener('drop', onDrop, { capture: true });
       eventTarget.addEventListener('mousedown', onMouseDown, { capture: true });
+      eventTarget.addEventListener('pointermove', onPointerMove, { passive: true });
+      eventTarget.addEventListener('pointerleave', onPointerLeave, { passive: true });
       domListenersBound = true;
       logSuccess('Handle DOM listeners bound', { targetTag: eventTarget.tagName });
     };
@@ -1762,6 +1907,8 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       eventTarget.removeEventListener('dragover', onDragOver, { capture: true } as EventListenerOptions);
       eventTarget.removeEventListener('drop', onDrop, { capture: true } as EventListenerOptions);
       eventTarget.removeEventListener('mousedown', onMouseDown, { capture: true } as EventListenerOptions);
+      eventTarget.removeEventListener('pointermove', onPointerMove, { passive: true } as EventListenerOptions);
+      eventTarget.removeEventListener('pointerleave', onPointerLeave, { passive: true } as EventListenerOptions);
       domListenersBound = false;
       logSuccess('Handle DOM listeners unbound', { targetTag: eventTarget.tagName });
       eventTarget = null;
@@ -1785,22 +1932,51 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         state: {
           init() {
             locked = options.locked ?? false;
-            return { locked } as PluginState;
+            return { locked, activePos: null } as PluginState;
           },
           apply(tr, value) {
             const isLocked = tr.getMeta('lockDragHandle');
             const hideDragHandle = tr.getMeta('hideDragHandle');
+            const meta = tr.getMeta(InlineDragHandlePluginKey) as { activePos?: number | null } | undefined;
+            let next = value;
 
             if (isLocked !== undefined) {
               locked = isLocked as boolean;
               setHandleLockClass();
+              if (next.locked !== locked) {
+                next = { ...next, locked };
+              }
+              if (locked && next.activePos !== null) {
+                next = { ...next, activePos: null };
+              }
             }
 
             if (hideDragHandle) {
               locked = false;
               setHandleLockClass();
+              if (next.locked !== locked) {
+                next = { ...next, locked };
+              }
+              if (next.activePos !== null) {
+                next = { ...next, activePos: null };
+              }
               options.onNodeChange?.({ editor, node: null, pos: -1 });
-              return value;
+              return next;
+            }
+
+            if (meta && Object.prototype.hasOwnProperty.call(meta, 'activePos')) {
+              const nextPos = Number.isFinite(meta.activePos) ? (meta.activePos as number) : null;
+              if (nextPos !== next.activePos) {
+                next = { ...next, activePos: nextPos };
+              }
+            }
+
+            if (tr.docChanged && next.activePos !== null) {
+              const mapped = tr.mapping.mapResult(next.activePos);
+              const mappedPos = mapped.deleted ? null : mapped.pos;
+              if (mappedPos !== next.activePos) {
+                next = { ...next, activePos: mappedPos };
+              }
             }
 
             if (tr.docChanged && dragSelectionRange) {
@@ -1813,7 +1989,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
               };
             }
 
-            return value;
+            return next;
           },
         },
         view: () => {
@@ -1829,6 +2005,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
             update() {
               if (!editor.isEditable) {
                 editor.view.dom.classList.add('is-handle-disabled');
+                scheduleActivePos(null);
               } else {
                 editor.view.dom.classList.remove('is-handle-disabled');
               }
@@ -1851,6 +2028,10 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
                 cancelAnimationFrame(dropcursorRafId);
                 dropcursorRafId = null;
               }
+              if (hoverRafId) {
+                cancelAnimationFrame(hoverRafId);
+                hoverRafId = null;
+              }
               unbindDomEvents();
               unbindDocumentEvents();
             },
@@ -1858,10 +2039,16 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
         },
         props: {
           decorations(state) {
-            return createHandleDecorations(state.doc, options, (count, stats) => {
-              if (count !== lastHandleCount) {
+            const pluginState = InlineDragHandlePluginKey.getState(state) as PluginState | undefined;
+            const activePos = pluginState?.activePos ?? null;
+            return createHandleDecorations(state.doc, options, activePos, (count, stats) => {
+              if (count !== lastHandleCount || activePos !== lastActivePos) {
                 logInfo('Handle decorations updated', {
                   count,
+                  eligibleCount: stats?.eligibleCount ?? 0,
+                  activePos: stats?.activePos ?? null,
+                  activeType: stats?.activeType ?? null,
+                  activeFound: stats?.activeFound ?? false,
                   blockTypes: stats?.blockTypes ?? [],
                   docChildCount: stats?.childCount ?? 0,
                   docSize: stats?.docSize ?? 0,
@@ -1869,17 +2056,8 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
                   excludedTypes: stats?.excludedTypes ?? {},
                   skippedReasons: stats?.skippedReasons ?? {},
                 });
-                if (count === 0 && !stats?.allExcluded) {
-                  logWarning('Handle decorations empty', {
-                    blockTypes: stats?.blockTypes ?? [],
-                    docChildCount: stats?.childCount ?? 0,
-                    docSize: stats?.docSize ?? 0,
-                    handleTypes: stats?.handleTypes ?? {},
-                    excludedTypes: stats?.excludedTypes ?? {},
-                    skippedReasons: stats?.skippedReasons ?? {},
-                  });
-                }
                 lastHandleCount = count;
+                lastActivePos = activePos;
               } else if (DEBUG.enabled) {
                 DEBUG.log(MODULE, 'Handle decorations unchanged', { count });
               }

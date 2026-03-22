@@ -24,38 +24,69 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import History from '@tiptap/extension-history';
 import { applyIndentAttributesToDom, indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
-import { createDragHandleElement, resolveBlockHandleEligibility, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { createDragHandleElement, resolveBlockHandleEligibility } from './blockHandlesExtension.js';
+import { BlockPreviewController } from './blockPreview.js';
+import { createLogger } from '../logger.js';
 
 const CODE_BLOCK_FENCE_RE = /^(```|~~~)([^\n]*)\n/;
 const CODE_BLOCK_FILENAME_RE = /filename\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i;
 
 const MODULE = 'BlockNodeView';
+const log = createLogger(MODULE);
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.info(msg, data);
 };
 
 const logSuccess = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.success(msg, data);
 };
 
 const logWarning = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
+  log.warn(msg, data);
+};
+
+const createStaticHandleContainer = (): HTMLElement => {
+  const container = createDragHandleElement();
+  container.dataset.blockSource = 'nodeview';
+  container.setAttribute('contenteditable', 'false');
+  container.setAttribute('aria-hidden', 'true');
+  container.draggable = false;
+  return container;
+};
+
+const syncStaticHandleContainer = (
+  host: HTMLElement,
+  handleContainer: HTMLElement,
+  decision: ReturnType<typeof resolveBlockHandleEligibility>,
+  nodeType: string,
+  handleLogger: ReturnType<typeof createHandleDecisionLogger>
+): boolean => {
+  const nextPos = decision.allowed && decision.pos !== null ? decision.pos : null;
+  const hadHostClass = host.classList.contains('block-handle-host');
+
+  handleLogger.logDecision('sync', decision, nextPos !== null);
+  handleLogger.logHandlePos(nextPos, nextPos !== null);
+
+  if (nextPos === null) {
+    host.classList.remove('block-handle-host');
+    handleContainer.setAttribute('aria-hidden', 'true');
+    delete handleContainer.dataset.blockPos;
+    delete handleContainer.dataset.blockType;
+    if (hadHostClass) {
+      handleLogger.logHandleState('removed', null, decision.reason);
+    }
+    return false;
   }
+
+  host.classList.add('block-handle-host');
+  handleContainer.dataset.blockPos = String(nextPos);
+  handleContainer.dataset.blockType = nodeType;
+  handleContainer.setAttribute('aria-hidden', 'false');
+  if (!hadHostClass) {
+    handleLogger.logHandleState('created', nextPos);
+  }
+  return true;
 };
 
 const createHandleDecisionLogger = (nodeType: string) => {
@@ -88,7 +119,15 @@ const createHandleDecisionLogger = (nodeType: string) => {
     if (decision.allowed) {
       logInfo('Handle eligible', payload);
     } else {
-      logWarning('Handle ineligible', payload);
+      const expectedIneligible =
+        decision.reason === 'in-list' ||
+        decision.reason === 'in-table' ||
+        decision.reason === 'in-blockquote';
+      if (expectedIneligible) {
+        logInfo('Handle ineligible', payload);
+      } else {
+        logWarning('Handle ineligible', payload);
+      }
     }
   };
 
@@ -218,58 +257,30 @@ export const ParagraphNoShortcut = Paragraph.extend({
       indent: indentAttribute,
     };
   },
+  parseMarkdown: (token, helpers) => {
+    const tokens = token.tokens || [];
+    // Image.inline=true 構成では、画像単独段落をアンラップすると
+    // doc 直下に inline image が出て schema 不整合になる。
+    return helpers.createNode('paragraph', undefined, helpers.parseInline(tokens));
+  },
   addNodeView() {
     return ({ node, getPos, editor }) => {
       const dom = document.createElement('p');
+      const handleContainer = createStaticHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentDom = document.createElement('span');
       contentDom.className = 'block-content';
       dom.appendChild(contentDom);
-      let handle: HTMLElement | null = null;
       const handleLogger = createHandleDecisionLogger('paragraph');
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          handleLogger.logHandlePos(null, false);
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'paragraph';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-        handleLogger.logHandlePos(pos, true);
-      };
 
       const syncIndent = (updatedNode: typeof node) => {
         const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'paragraph');
-        const shouldShowHandle = eligibility.allowed;
-        handleLogger.logDecision('sync', eligibility, Boolean(handle));
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.insertBefore(handle, contentDom);
-          handleLogger.logHandleState('created', eligibility.pos);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-          handleLogger.logHandleState('removed', eligibility.pos, eligibility.reason);
-        }
-
+        const shouldShowHandle = syncStaticHandleContainer(dom, handleContainer, eligibility, 'paragraph', handleLogger);
         applyIndentAttributesToDom(dom, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
       syncIndent(node);
-      syncHandlePos();
 
       return {
         dom,
@@ -279,14 +290,13 @@ export const ParagraphNoShortcut = Paragraph.extend({
             return false;
           }
           syncIndent(updatedNode);
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          return handle ? handle.contains(event.target) : false;
+          return false;
         },
       };
     };
@@ -330,55 +340,21 @@ export const HeadingNoShortcut = Heading.extend({
       const level = node.attrs?.level ? Number.parseInt(String(node.attrs.level), 10) : 1;
       const tagName = `h${Math.min(6, Math.max(1, level))}`;
       const dom = document.createElement(tagName);
+      const handleContainer = createStaticHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentDom = document.createElement('span');
       contentDom.className = 'block-content';
       dom.appendChild(contentDom);
-      let handle: HTMLElement | null = null;
       const handleLogger = createHandleDecisionLogger('heading');
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          handleLogger.logHandlePos(null, false);
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'heading';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-        handleLogger.logHandlePos(pos, true);
-      };
 
       const syncIndent = (updatedNode: typeof node) => {
         const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'heading');
-        const shouldShowHandle = eligibility.allowed;
-        handleLogger.logDecision('sync', eligibility, Boolean(handle));
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.insertBefore(handle, contentDom);
-          handleLogger.logHandleState('created', eligibility.pos);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-          handleLogger.logHandleState('removed', eligibility.pos, eligibility.reason);
-        }
-
+        const shouldShowHandle = syncStaticHandleContainer(dom, handleContainer, eligibility, 'heading', handleLogger);
         applyIndentAttributesToDom(dom, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
       syncIndent(node);
-      syncHandlePos();
 
       return {
         dom,
@@ -392,14 +368,13 @@ export const HeadingNoShortcut = Heading.extend({
             return false;
           }
           syncIndent(updatedNode);
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          return handle ? handle.contains(event.target) : false;
+          return false;
         },
       };
     };
@@ -482,53 +457,20 @@ export const ListItemNoShortcut = ListItem.extend({
   addNodeView() {
     return ({ getPos, editor }) => {
       const dom = document.createElement('li');
+      const handleContainer = createStaticHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentDom = document.createElement('div');
       contentDom.className = 'block-content';
       dom.appendChild(contentDom);
-      let handle: HTMLElement | null = null;
       const handleLogger = createHandleDecisionLogger('listItem');
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          handleLogger.logHandlePos(null, false);
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'listItem';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-        handleLogger.logHandlePos(pos, true);
-      };
 
       const syncHandleState = () => {
         const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'listItem');
-        const shouldShowHandle = eligibility.allowed;
-        handleLogger.logDecision('sync', eligibility, Boolean(handle));
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.insertBefore(handle, contentDom);
-          handleLogger.logHandleState('created', eligibility.pos);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-          handleLogger.logHandleState('removed', eligibility.pos, eligibility.reason);
-        }
+        syncStaticHandleContainer(dom, handleContainer, eligibility, 'listItem', handleLogger);
       };
 
       syncHandleState();
-      syncHandlePos();
 
       return {
         dom,
@@ -538,14 +480,13 @@ export const ListItemNoShortcut = ListItem.extend({
             return false;
           }
           syncHandleState();
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          return handle ? handle.contains(event.target) : false;
+          return false;
         },
       };
     };
@@ -569,6 +510,8 @@ export const BlockquoteNoShortcut = Blockquote.extend({
     return ({ node, getPos, editor }) => {
       const wrapper = document.createElement('div');
       wrapper.className = 'blockquote-block';
+      const handleContainer = createStaticHandleContainer();
+      wrapper.appendChild(handleContainer);
 
       const dom = document.createElement('blockquote');
 
@@ -576,51 +519,15 @@ export const BlockquoteNoShortcut = Blockquote.extend({
       contentDom.className = 'block-content';
       dom.appendChild(contentDom);
       wrapper.appendChild(dom);
-      let handle: HTMLElement | null = null;
       const handleLogger = createHandleDecisionLogger('blockquote');
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          handleLogger.logHandlePos(null, false);
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'blockquote';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-        handleLogger.logHandlePos(pos, true);
-      };
 
       const syncIndent = (updatedNode: typeof node) => {
         const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'blockquote');
-        const shouldShowHandle = eligibility.allowed;
-        handleLogger.logDecision('sync', eligibility, Boolean(handle));
-        wrapper.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          wrapper.insertBefore(handle, dom);
-          handleLogger.logHandleState('created', eligibility.pos);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-          handleLogger.logHandleState('removed', eligibility.pos, eligibility.reason);
-        }
-
+        const shouldShowHandle = syncStaticHandleContainer(wrapper, handleContainer, eligibility, 'blockquote', handleLogger);
         applyIndentAttributesToDom(wrapper, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
       syncIndent(node);
-      syncHandlePos();
 
       return {
         dom: wrapper,
@@ -630,14 +537,13 @@ export const BlockquoteNoShortcut = Blockquote.extend({
             return false;
           }
           syncIndent(updatedNode);
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          return handle ? handle.contains(event.target) : false;
+          return false;
         },
       };
     };
@@ -736,8 +642,8 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
       const dom = document.createElement('div');
       dom.className = 'code-block-wrapper';
       dom.setAttribute('data-type', 'code-block');
-
-      let handle: HTMLElement | null = null;
+      const handleContainer = createStaticHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'block-content';
@@ -756,43 +662,30 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
 
       const code = document.createElement('code');
       pre.appendChild(code);
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'codeBlock';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-      };
+      const handleLogger = createHandleDecisionLogger('codeBlock');
 
       const syncIndent = (updatedNode: typeof node) => {
-        const shouldShowHandle = shouldRenderBlockHandle(editor.state, getPos, 'codeBlock');
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.insertBefore(handle, contentWrapper);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-        }
-
+        const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'codeBlock');
+        const shouldShowHandle = syncStaticHandleContainer(dom, handleContainer, eligibility, 'codeBlock', handleLogger);
         applyIndentAttributesToDom(dom, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
       let currentNode = node;
       let isEditingLabel = false;
+      let languageClass: string | null = null;
+      const isMermaidLanguage = (candidate: typeof node): boolean => {
+        const languageAttr = candidate.attrs?.language ? String(candidate.attrs.language) : '';
+        return languageAttr.trim().toLowerCase() === 'mermaid';
+      };
+
+      const preview = new BlockPreviewController({
+        renderer: 'mermaid',
+        host: pre,
+        contentDom: code,
+        getSource: () => currentNode.textContent,
+        padded: false,
+        initialAvailable: isMermaidLanguage(node),
+      });
 
       const buildLabelText = (language: string | null, filename: string | null): string => {
         if (language && filename) {
@@ -863,7 +756,14 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
           pre.removeAttribute('data-has-label');
         }
         const prefix = this.options.languageClassPrefix ?? 'language-';
-        code.className = language ? `${prefix}${language}` : '';
+        if (languageClass) {
+          code.classList.remove(languageClass);
+          languageClass = null;
+        }
+        if (language) {
+          languageClass = `${prefix}${language}`;
+          code.classList.add(languageClass);
+        }
       };
 
       const onLabelFocus = () => {
@@ -902,7 +802,6 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
 
       syncIndent(node);
       syncAttrs(node);
-      syncHandlePos();
 
       return {
         dom,
@@ -914,20 +813,28 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
           currentNode = updatedNode;
           syncIndent(updatedNode);
           syncAttrs(updatedNode);
-          syncHandlePos();
+          preview.setAvailable(isMermaidLanguage(updatedNode));
+          preview.notifySourceChanged();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          const handleHit = handle ? handle.contains(event.target) : false;
-          return handleHit || label.contains(event.target);
+          return label.contains(event.target) || preview.getToolbarElement().contains(event.target);
         },
         ignoreMutation: (mutation) => {
-          return label.contains(mutation.target as Node);
+          if (mutation.type === 'selection') {
+            return false;
+          }
+          const target = mutation.target as Node;
+          if (target === code && mutation.type === 'attributes') {
+            return true;
+          }
+          return !code.contains(target);
         },
         destroy: () => {
+          preview.destroy();
           label.removeEventListener('focus', onLabelFocus);
           label.removeEventListener('blur', onLabelBlur);
           label.removeEventListener('keydown', onLabelKeyDown);
@@ -990,45 +897,17 @@ export const HorizontalRuleNoShortcut = HorizontalRule.extend({
       wrapper.className = 'horizontal-rule-block';
       wrapper.setAttribute('data-type', 'horizontal-rule');
       wrapper.contentEditable = 'false';
-
-      let handle: HTMLElement | null = null;
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'horizontalRule';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-      };
+      const handleContainer = createStaticHandleContainer();
+      wrapper.appendChild(handleContainer);
+      const handleLogger = createHandleDecisionLogger('horizontalRule');
 
       const syncIndent = (updatedNode: typeof node) => {
-        const shouldShowHandle = shouldRenderBlockHandle(editor.state, getPos, 'horizontalRule');
-        wrapper.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          wrapper.appendChild(handle);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-        }
-
+        const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'horizontalRule');
+        const shouldShowHandle = syncStaticHandleContainer(wrapper, handleContainer, eligibility, 'horizontalRule', handleLogger);
         applyIndentAttributesToDom(wrapper, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
       syncIndent(node);
-      syncHandlePos();
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'block-content';
@@ -1047,14 +926,13 @@ export const HorizontalRuleNoShortcut = HorizontalRule.extend({
             return false;
           }
           syncIndent(updatedNode);
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          return handle ? handle.contains(event.target) : false;
+          return false;
         },
       };
     };

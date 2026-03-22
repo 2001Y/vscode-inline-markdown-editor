@@ -51,6 +51,7 @@ import {
   type Replace,
   type Remediation,
   createReadyMessage,
+  createInitAckMessage,
   createEditMessage,
   createRequestResyncMessage,
   createLogClientMessage,
@@ -65,8 +66,27 @@ import {
   createOverwriteSaveWithConfirmMessage,
   createResolveImageMessage,
   createNotifyHostMessage,
+  createFindWidgetStateChangeMessage,
   PROTOCOL_VERSION,
 } from './types.js';
+import { createLogger } from '../logger.js';
+import { setVsCodePostMessage } from './vscodeApi.js';
+
+const clientLog = createLogger('SyncClient');
+const INIT_MESSAGE_TIMEOUT_MS = 5000;
+const EXTENSION_MESSAGE_TYPES = new Set<string>([
+  'init',
+  'configChanged',
+  'ack',
+  'nack',
+  'docChanged',
+  'error',
+  'imageResolved',
+  'nestedPageCreateAck',
+  'nestedPageCreated',
+  'nestedPageCreateFailed',
+  'editorCommand',
+]);
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
@@ -82,6 +102,7 @@ export interface SyncClientCallbacks {
   onInit: (content: string, version: number, config: WebviewConfig, i18n: Record<string, string>) => void;
   onDocChanged: (version: number, changes: Replace[], fullContent?: string) => void;
   onError: (code: string, message: string, remediation: string[]) => void;
+  onConfigChanged?: (config: WebviewConfig) => void;
   onSyncStateChange?: (state: SyncState) => void;
   onImageResolved?: (requestId: string, resolvedSrc: string) => void;
 }
@@ -136,6 +157,11 @@ export class SyncClient {
 
   private baseVersionMismatchRetryCount = 0;
   private readonly MAX_BASE_VERSION_MISMATCH_RETRY = 1;
+  private initTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readySentAt: number | null = null;
+  private initReceivedAt: number | null = null;
+  private rawMessageLogCount = 0;
+  private readonly MAX_RAW_MESSAGE_LOGS = 12;
 
   constructor(callbacks: SyncClientCallbacks) {
     this.vscode = acquireVsCodeApi();
@@ -144,27 +170,86 @@ export class SyncClient {
       onSyncStateChange: callbacks.onSyncStateChange ?? (() => {}),
     };
 
-    const win = window as unknown as { vscode?: VsCodeApi };
-    if (!win.vscode) {
-      win.vscode = this.vscode;
-    }
+    // Expose only postMessage via a narrow bridge (avoid global VS Code API).
+    setVsCodePostMessage((message) => this.vscode.postMessage(message));
 
-    window.addEventListener('message', (event) => this.handleMessage(event.data));
+    window.addEventListener('message', (event) => this.handleMessage(event));
+  }
+
+  setFindWidgetVisible(visible: boolean): void {
+    this.vscode.postMessage(createFindWidgetStateChangeMessage(visible));
   }
 
   start(): void {
     this.vscode.postMessage(createReadyMessage());
     this.log('DEBUG', 'Ready message sent');
+    this.scheduleInitTimeout('start');
   }
 
-  private handleMessage(raw: unknown): void {
+  private scheduleInitTimeout(reason: string): void {
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+    }
+    this.readySentAt = Date.now();
+    this.initReceivedAt = null;
+    this.initTimeoutId = setTimeout(() => {
+      if (this.initReceivedAt) {
+        return;
+      }
+      const elapsedMs = this.readySentAt ? Date.now() - this.readySentAt : null;
+      this.notifyHost(
+        'ERROR',
+        'WEBVIEW_INIT_NOT_RECEIVED',
+        'Webview did not receive init message in time.',
+        ['resetSession', 'reopenWithTextEditor'],
+        {
+          elapsedMs,
+          timeoutMs: INIT_MESSAGE_TIMEOUT_MS,
+          reason,
+          locationHref: window.location.href,
+          serviceWorkerController: navigator.serviceWorker?.controller?.scriptURL ?? null,
+        }
+      );
+    }, INIT_MESSAGE_TIMEOUT_MS);
+  }
+
+  sendInitAck(elapsedMs: number | null, contentLength: number): void {
+    if (!this.sessionId || !this.clientId) {
+      return;
+    }
+    this.vscode.postMessage(
+      createInitAckMessage(this.sessionId, this.clientId, elapsedMs, contentLength)
+    );
+  }
+
+  private handleMessage(event: MessageEvent): void {
+    this.logRawMessage(event);
+
+    // Do not gate protocol handling by source/origin metadata.
+    // VS Code webview message metadata can vary with service worker/controller state.
+
+    const raw = event.data;
+
     if (!raw || typeof raw !== 'object') {
+      this.logPreInit('DEBUG', 'Dropped non-object message', {
+        dataType: typeof raw,
+      });
       return;
     }
 
     const msg = raw as ExtensionToWebviewMessage & { type?: string; v?: number };
+    if (!msg.type || !EXTENSION_MESSAGE_TYPES.has(msg.type)) {
+      if (msg.type === 'inlineMarkPreviewHeight') {
+        return;
+      }
+      this.logPreInit('DEBUG', 'Ignored non-protocol window message', {
+        messageType: msg.type ?? null,
+      });
+      return;
+    }
+
     if (typeof msg.type === 'string' && msg.type.startsWith('nestedPage')) {
-      console.log('[NestedPage] Raw message received', {
+      clientLog.debug('NestedPage raw message received', {
         type: msg.type,
         v: msg.v,
         requestId: (msg as { requestId?: string }).requestId,
@@ -176,9 +261,16 @@ export class SyncClient {
       return;
     }
 
+    if (typeof msg.v !== 'number') {
+      this.logPreInit('DEBUG', 'Ignored non-protocol message with missing version', {
+        messageType: msg.type,
+      });
+      return;
+    }
+
     if (msg.v !== PROTOCOL_VERSION) {
       if (typeof msg.type === 'string' && msg.type.startsWith('nestedPage')) {
-        console.warn('[NestedPage] Protocol mismatch', { type: msg.type, v: msg.v });
+        clientLog.warn('NestedPage protocol mismatch', { type: msg.type, v: msg.v });
       }
       this.callbacks.onError(
         'PROTOCOL_VERSION_MISMATCH',
@@ -209,7 +301,7 @@ export class SyncClient {
           return;
         }
 
-        console.warn('[WARN] Accepting nested page response despite sessionId mismatch', {
+        clientLog.warn('Accepting nested page response despite sessionId mismatch', {
           expectedSessionId: this.sessionId,
           receivedSessionId: msgSessionId,
           messageType: msg.type,
@@ -221,6 +313,9 @@ export class SyncClient {
     switch (msg.type) {
       case 'init':
         this.handleInit(msg);
+        break;
+      case 'configChanged':
+        this.handleConfigChanged(msg);
         break;
       case 'ack':
         this.handleAck(msg);
@@ -251,7 +346,72 @@ export class SyncClient {
     }
   }
 
+  private logRawMessage(event: MessageEvent): void {
+    if (this.rawMessageLogCount >= this.MAX_RAW_MESSAGE_LOGS) {
+      return;
+    }
+    this.rawMessageLogCount += 1;
+
+    const raw = event.data;
+    const details: Record<string, unknown> = {
+      origin: event.origin,
+      sourceType: this.describeMessageSource(event.source),
+      dataType: typeof raw,
+    };
+
+    if (raw && typeof raw === 'object') {
+      const msg = raw as { type?: unknown; v?: unknown; sessionId?: unknown; content?: unknown };
+      if (typeof msg.type === 'string') {
+        details.messageType = msg.type;
+      }
+      if (typeof msg.v === 'number') {
+        details.messageVersion = msg.v;
+      }
+      if (typeof msg.sessionId === 'string') {
+        details.messageSessionId = msg.sessionId;
+      }
+      if (typeof msg.content === 'string') {
+        details.contentLength = msg.content.length;
+      }
+    }
+
+    this.logPreInit('DEBUG', 'Raw message received', details);
+  }
+
+  private logPreInit(
+    level: 'INFO' | 'DEBUG' | 'WARN' | 'ERROR',
+    message: string,
+    details?: Record<string, unknown>
+  ): void {
+    try {
+      this.vscode.postMessage(createLogClientMessage(level, message, details));
+    } catch {
+      // ignore logging failures
+    }
+  }
+
+  private describeMessageSource(source: MessageEventSource | null): string {
+    if (!source) {
+      return 'null';
+    }
+    if (source === window) {
+      return 'window';
+    }
+    if (typeof MessagePort !== 'undefined' && source instanceof MessagePort) {
+      return 'messagePort';
+    }
+    if (typeof ServiceWorker !== 'undefined' && source instanceof ServiceWorker) {
+      return 'serviceWorker';
+    }
+    return 'other';
+  }
+
   private handleInit(msg: ExtensionToWebviewMessage & { type: 'init' }): void {
+    this.initReceivedAt = Date.now();
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+      this.initTimeoutId = null;
+    }
     this.sessionId = msg.sessionId;
     this.clientId = msg.clientId;
     this.baseVersion = msg.version;
@@ -268,13 +428,83 @@ export class SyncClient {
     this.baseVersionMismatchRetryCount = 0;
     this.clearInFlightTimeout();
 
-    this.callbacks.onInit(msg.content, msg.version, msg.config, msg.i18n);
-    this.callbacks.onSyncStateChange('idle');
+    try {
+      const elapsedMs = this.readySentAt ? this.initReceivedAt - this.readySentAt : null;
+      this.sendInitAck(elapsedMs, msg.content.length);
+      this.callbacks.onInit(msg.content, msg.version, msg.config, msg.i18n);
+      this.callbacks.onSyncStateChange('idle');
 
-    this.log('INFO', 'Initialized', {
-      sessionId: this.sessionId,
-      clientId: this.clientId,
-      version: msg.version,
+      try {
+        this.vscode.postMessage(
+          createLogClientMessage('INFO', 'Init received (webview)', {
+            version: msg.version,
+            contentLength: msg.content.length,
+          })
+        );
+      } catch {
+        // ignore logging failures
+      }
+
+      this.log('INFO', 'Initialized', {
+        sessionId: this.sessionId,
+        clientId: this.clientId,
+        version: msg.version,
+      });
+    } catch (error) {
+      this.log('ERROR', 'Init handler failed', {
+        sessionId: this.sessionId,
+        clientId: this.clientId,
+        version: msg.version,
+        error: String(error),
+      });
+      this.notifyHost(
+        'ERROR',
+        'WEBVIEW_INIT_FAILED',
+        'Webview init failed',
+        ['resetSession', 'reopenWithTextEditor'],
+        { error: String(error) }
+      );
+    }
+  }
+
+  private handleConfigChanged(msg: ExtensionToWebviewMessage & { type: 'configChanged' }): void {
+    if (!this.config) {
+      this.callbacks.onError(
+        'UNKNOWN',
+        'ConfigChanged received before init',
+        ['resetSession']
+      );
+      return;
+    }
+
+    const previous = this.config;
+    this.config = msg.config;
+
+    const remoteImageChanged =
+      previous.security.allowRemoteImages !== msg.config.security.allowRemoteImages ||
+      previous.security.allowInsecureRemoteImages !== msg.config.security.allowInsecureRemoteImages;
+
+    if (remoteImageChanged) {
+      this.callbacks.onError(
+        'UNKNOWN',
+        'CSP-related config changed without webview reload',
+        ['resetSession']
+      );
+      return;
+    }
+
+    if (this.callbacks.onConfigChanged) {
+      this.callbacks.onConfigChanged(msg.config);
+    }
+
+    this.log('INFO', 'Config changed', {
+      view: msg.config.view,
+      security: {
+        allowWorkspaceImages: msg.config.security.allowWorkspaceImages,
+        allowRemoteImages: msg.config.security.allowRemoteImages,
+        allowInsecureRemoteImages: msg.config.security.allowInsecureRemoteImages,
+      },
+      debug: msg.config.debug,
     });
   }
 
@@ -675,7 +905,7 @@ export class SyncClient {
   }
 
   private handleNestedPageCreated(msg: ExtensionToWebviewMessage & { type: 'nestedPageCreated' }): void {
-    console.log('[NestedPage] Message received', {
+    clientLog.debug('NestedPage message received', {
       type: msg.type,
       requestId: msg.requestId,
       sessionId: (msg as { sessionId?: string }).sessionId,
@@ -704,7 +934,7 @@ export class SyncClient {
   private handleNestedPageCreateFailed(
     msg: ExtensionToWebviewMessage & { type: 'nestedPageCreateFailed' }
   ): void {
-    console.log('[NestedPage] Message received', {
+    clientLog.debug('NestedPage message received', {
       type: msg.type,
       requestId: msg.requestId,
       sessionId: (msg as { sessionId?: string }).sessionId,
@@ -732,7 +962,7 @@ export class SyncClient {
   }
 
   private handleNestedPageCreateAck(msg: ExtensionToWebviewMessage & { type: 'nestedPageCreateAck' }): void {
-    console.log('[NestedPage] Message received', {
+    clientLog.debug('NestedPage message received', {
       type: msg.type,
       requestId: msg.requestId,
       sessionId: (msg as { sessionId?: string }).sessionId,
@@ -772,6 +1002,7 @@ export class SyncClient {
     // Send ready message to trigger fresh init from extension
     this.vscode.postMessage(createReadyMessage());
     this.callbacks.onSyncStateChange('syncing');
+    this.scheduleInitTimeout('resetSession');
   }
 
   private log(
@@ -783,8 +1014,23 @@ export class SyncClient {
     if (!this.config?.debug.enabled) {
       return;
     }
-
-    console.log(`[${level}] ${message}`, details);
+    switch (level) {
+      case 'INFO':
+        clientLog.info(message, details);
+        break;
+      case 'DEBUG':
+        clientLog.debug(message, details);
+        break;
+      case 'TRACE':
+        clientLog.debug(message, details);
+        break;
+      case 'WARN':
+        clientLog.warn(message, details);
+        break;
+      case 'ERROR':
+        clientLog.error(message, details);
+        break;
+    }
 
     this.vscode.postMessage(createLogClientMessage(level, message, details));
   }

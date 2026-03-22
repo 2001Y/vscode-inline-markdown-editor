@@ -7,6 +7,7 @@ type TestCase = {
 };
 
 const tests: TestCase[] = [];
+const extensionId = '2001y.inlinemark';
 
 const test = (name: string, fn: TestCase['fn']) => {
   tests.push({ name, fn });
@@ -18,11 +19,11 @@ const suite = (_name: string, define: () => void) => {
 
 suite('Extension Test Suite', () => {
   test('Extension should be present', () => {
-    assert.ok(vscode.extensions.getExtension('inlinemark.inlinemark'));
+    assert.ok(vscode.extensions.getExtension(extensionId));
   });
 
   test('Extension should activate on markdown file', async () => {
-    const extension = vscode.extensions.getExtension('inlinemark.inlinemark');
+    const extension = vscode.extensions.getExtension(extensionId);
     if (extension) {
       await extension.activate();
       assert.strictEqual(extension.isActive, true);

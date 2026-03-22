@@ -5,7 +5,7 @@
  */
 
 import { Table } from '@tiptap/extension-table';
-import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { applyNodeViewHandleState, createNodeViewHandleContainer, resolveBlockHandleEligibility } from './blockHandlesExtension.js';
 
 export const TableBlock = Table.extend({
   addNodeView() {
@@ -13,8 +13,8 @@ export const TableBlock = Table.extend({
       const dom = document.createElement('div');
       dom.className = 'table-block';
       dom.setAttribute('data-type', 'table-block');
-
-      let handle: HTMLElement | null = null;
+      const handleContainer = createNodeViewHandleContainer();
+      dom.appendChild(handleContainer);
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'block-content';
@@ -26,45 +26,12 @@ export const TableBlock = Table.extend({
       table.appendChild(tbody);
       contentWrapper.appendChild(table);
 
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          return;
-        }
-        const pos = resolvePos();
-        if (pos !== null) {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'table';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-      };
-
       const syncHandleState = () => {
-        const shouldShowHandle = shouldRenderBlockHandle(editor.state, getPos, 'table');
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          const grip = handle.querySelector('.block-handle') as HTMLElement | null;
-          if (grip) {
-            grip.draggable = false;
-            grip.setAttribute('draggable', 'false');
-          }
-          dom.insertBefore(handle, contentWrapper);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-        }
+        const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'table');
+        applyNodeViewHandleState(dom, handleContainer, eligibility, 'table');
       };
 
       syncHandleState();
-      syncHandlePos();
 
       return {
         dom,
@@ -74,14 +41,13 @@ export const TableBlock = Table.extend({
             return false;
           }
           syncHandleState();
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
           }
-          return handle ? handle.contains(event.target) : false;
+          return false;
         },
       };
     };

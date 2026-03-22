@@ -4,8 +4,6 @@
  * - キーボード操作・選択状態の更新を共通化
  */
 
-import DOMPurify from 'dompurify';
-
 export type BlockMenuType = 'blockType' | 'blockContext' | 'tableContext';
 
 export interface BlockMenuPosition {
@@ -14,29 +12,6 @@ export interface BlockMenuPosition {
   width: number;
   height: number;
 }
-
-const SVG_ICON_SANITIZE_CONFIG = {
-  USE_PROFILES: { svg: true },
-  FORBID_TAGS: ['script', 'foreignObject'],
-};
-
-const stripUnsafeSvgAttributes = (root: Element): void => {
-  root.querySelectorAll('script, foreignObject').forEach((el) => el.remove());
-  const nodes = [root, ...root.querySelectorAll('*')];
-  nodes.forEach((el) => {
-    Array.from(el.attributes).forEach((attr) => {
-      const name = attr.name.toLowerCase();
-      const value = attr.value.trim().toLowerCase();
-      const isUnsafeUrl = value.startsWith('javascript:') || value.startsWith('data:');
-      if (name.startsWith('on') || value.includes('javascript:')) {
-        el.removeAttribute(attr.name);
-      }
-      if ((name === 'href' || name === 'xlink:href') && isUnsafeUrl) {
-        el.removeAttribute(attr.name);
-      }
-    });
-  });
-};
 
 export const createBlockMenu = (type: BlockMenuType): HTMLElement => {
   const menu = document.createElement('div');
@@ -69,21 +44,7 @@ export const createBlockMenuItem = (options: {
     const iconSpan = document.createElement('span');
     iconSpan.className = 'block-menu-icon';
     if (options.icon) {
-      const sanitized = DOMPurify.sanitize(options.icon, SVG_ICON_SANITIZE_CONFIG);
-      const parser = new DOMParser();
-      const svgDoc = parser.parseFromString(sanitized, 'image/svg+xml');
-      const parserError = svgDoc.querySelector('parsererror');
-      if (parserError) {
-        console.error('[BlockMenu] Invalid SVG icon:', parserError.textContent);
-      } else {
-        const svgElement = svgDoc.documentElement;
-        if (svgElement && svgElement.tagName.toLowerCase() === 'svg') {
-          stripUnsafeSvgAttributes(svgElement);
-          iconSpan.appendChild(document.importNode(svgElement, true));
-        } else {
-          console.error('[BlockMenu] Invalid SVG icon: missing <svg> root');
-        }
-      }
+      iconSpan.classList.add(...options.icon.split(' '));
     } else if (options.iconText) {
       iconSpan.textContent = options.iconText;
     }
@@ -104,12 +65,12 @@ export const createBlockMenuSeparator = (): HTMLElement => {
 };
 
 export const getBlockMenuItems = (menu: HTMLElement | null): HTMLElement[] => {
-  if (!menu) return [];
+  if (!menu) {return [];}
   return Array.from(menu.querySelectorAll('.block-menu-item')) as HTMLElement[];
 };
 
 export const updateBlockMenuSelection = (menu: HTMLElement | null, selectedIndex: number): void => {
-  if (!menu) return;
+  if (!menu) {return;}
   const items = getBlockMenuItems(menu);
   items.forEach((item, index) => {
     if (index === selectedIndex) {

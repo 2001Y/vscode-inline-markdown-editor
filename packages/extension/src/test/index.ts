@@ -1,5 +1,5 @@
 import { runRegisteredTests } from './extension.test';
 
-export const runTests = async (): Promise<void> => {
+export const run = async (): Promise<void> => {
   await runRegisteredTests();
 };

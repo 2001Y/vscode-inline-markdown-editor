@@ -4,6 +4,8 @@
  */
 
 import { createMenuStateChangeMessage } from '../protocol/types.js';
+import { postToVsCode } from '../protocol/vscodeApi.js';
+import { createLogger } from '../logger.js';
 
 type MenuId = 'blockType' | 'blockContext' | 'tableContext';
 
@@ -11,18 +13,14 @@ type MenuHideHandler = () => void;
 
 const menuRegistry = new Map<MenuId, MenuHideHandler>();
 let activeMenu: MenuId | null = null;
-
-const getVsCodeApi = (): { postMessage: (msg: unknown) => void } | null => {
-  const win = window as unknown as { vscode?: { postMessage: (msg: unknown) => void } };
-  return win.vscode ?? null;
-};
+const log = createLogger('MenuManager');
 
 const setActiveMenu = (next: MenuId | null): void => {
   if (activeMenu === next) {return;}
   activeMenu = next;
-  const vscode = getVsCodeApi();
-  if (vscode) {
-    vscode.postMessage(createMenuStateChangeMessage(activeMenu !== null));
+  const delivered = postToVsCode(createMenuStateChangeMessage(activeMenu !== null));
+  if (!delivered) {
+    log.warn('VS Code postMessage bridge not available (menuStateChange not sent)');
   }
 };
 
@@ -41,7 +39,7 @@ export const registerMenu = (id: MenuId, hide: MenuHideHandler): void => {
 
 export const openMenu = (id: MenuId): void => {
   if (!menuRegistry.has(id)) {
-    console.warn(`Menu "${id}" is not registered`);
+    log.warn(`Menu "${id}" is not registered`);
     return;
   }
   closeMenusExcept(id);

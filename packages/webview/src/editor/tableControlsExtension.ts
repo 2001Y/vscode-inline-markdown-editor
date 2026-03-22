@@ -15,47 +15,29 @@ import type { Node as ProseMirrorNode } from 'prosemirror-model';
 import { TableMap, cellAround, findTable, moveTableColumn, moveTableRow } from '@tiptap/pm/tables';
 import { t } from './i18n.js';
 import { DEBUG } from './debug.js';
-import { icons } from './icons.js';
+import { icons, createIconElement } from './icons.js';
 import { createBlockMenu, createBlockMenuItem, createBlockMenuSeparator, updateBlockMenuSelection, getBlockMenuItems, positionBlockMenu } from './blockMenu.js';
 import { closeMenu, openMenu, registerMenu, isMenuActive } from './menuManager.js';
 import { serializeMarkdown } from './markdownUtils.js';
+import { createLogger } from '../logger.js';
 
 const MODULE = 'TableControls';
+const log = createLogger(MODULE);
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.info(msg, data);
 };
 
 const logSuccess = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[SUCCESS][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.success(msg, data);
 };
 
 const logWarning = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.warn(msg, data);
 };
 
 const logError = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.error(msg, data);
 };
 
 export const TableControlsPluginKey = new PluginKey('tableControls');
@@ -152,15 +134,15 @@ export const TableControls = Extension.create({
            */
           const resolveCellFromDOM = (cellDom: HTMLElement, table: HTMLTableElement) => {
             const row = cellDom.closest('tr') as HTMLTableRowElement | null;
-            if (!row) return null;
+            if (!row) {return null;}
 
             const rows = Array.from(table.querySelectorAll('tr'));
             const rowIndex = rows.indexOf(row);
-            if (rowIndex < 0) return null;
+            if (rowIndex < 0) {return null;}
 
             const cells = Array.from(row.querySelectorAll('th, td'));
             const colIndex = cells.indexOf(cellDom);
-            if (colIndex < 0) return null;
+            if (colIndex < 0) {return null;}
 
             // Get ProseMirror position for the cell
             const cellStartPos = resolveCellStartPosFromDom(cellDom);
@@ -178,7 +160,7 @@ export const TableControls = Extension.create({
           const resolveCellStartPosFromDom = (cellDom: HTMLElement): number | null => {
             try {
               const pos = view.posAtDOM(cellDom, 0);
-              if (pos < 0) return null;
+              if (pos < 0) {return null;}
               const $pos = view.state.doc.resolve(pos);
               const $cell = cellAround($pos);
               if (!$cell) {
@@ -194,7 +176,7 @@ export const TableControls = Extension.create({
 
           const resolveCellInsidePosFromDom = (cellDom: HTMLElement): number | null => {
             const startPos = resolveCellStartPosFromDom(cellDom);
-            if (startPos === null) return null;
+            if (startPos === null) {return null;}
             return startPos + 1;
           };
 
@@ -217,18 +199,18 @@ export const TableControls = Extension.create({
           const resolveCellPosFromRow = (table: HTMLTableElement, rowIndex: number): number | null => {
             const rows = table.querySelectorAll('tr');
             const row = rows[rowIndex] as HTMLTableRowElement | undefined;
-            if (!row) return null;
+            if (!row) {return null;}
             const cell = row.querySelector('td, th') as HTMLElement | null;
-            if (!cell) return null;
+            if (!cell) {return null;}
             return resolveCellStartPosFromDom(cell);
           };
 
           const resolveCellPosFromCol = (table: HTMLTableElement, colIndex: number): number | null => {
             const firstRow = table.querySelector('tr') as HTMLTableRowElement | null;
-            if (!firstRow) return null;
+            if (!firstRow) {return null;}
             const cells = firstRow.querySelectorAll('td, th');
             const cell = cells[colIndex] as HTMLElement | undefined;
-            if (!cell) return null;
+            if (!cell) {return null;}
             return resolveCellStartPosFromDom(cell);
           };
 
@@ -444,21 +426,21 @@ export const TableControls = Extension.create({
           };
 
           const selectPrevMenuItem = () => {
-            if (menuItemCount === 0) return;
+            if (menuItemCount === 0) {return;}
             menuSelectedIndex = menuSelectedIndex <= 0 ? menuItemCount - 1 : menuSelectedIndex - 1;
             updateMenuSelection();
             DEBUG.log(MODULE, 'Table context menu selection prev', { index: menuSelectedIndex });
           };
 
           const selectNextMenuItem = () => {
-            if (menuItemCount === 0) return;
+            if (menuItemCount === 0) {return;}
             menuSelectedIndex = menuSelectedIndex >= menuItemCount - 1 ? 0 : menuSelectedIndex + 1;
             updateMenuSelection();
             DEBUG.log(MODULE, 'Table context menu selection next', { index: menuSelectedIndex });
           };
 
           const selectCurrentMenuItem = () => {
-            if (menuSelectedIndex < 0) return;
+            if (menuSelectedIndex < 0) {return;}
             const items = getBlockMenuItems(contextMenu);
             const selectedItem = items[menuSelectedIndex] as HTMLElement | undefined;
             selectedItem?.click();
@@ -548,37 +530,37 @@ export const TableControls = Extension.create({
 
           const resolveEdgeCellPos = (table: HTMLTableElement, edge: 'row' | 'col'): number | null => {
             const rows = Array.from(table.querySelectorAll('tr'));
-            if (rows.length === 0) return null;
+            if (rows.length === 0) {return null;}
 
             if (edge === 'row') {
               const lastRow = rows[rows.length - 1];
               const cells = Array.from(lastRow.querySelectorAll('td, th'));
               const lastCell = cells[cells.length - 1] as HTMLElement | undefined;
-              if (!lastCell) return null;
+              if (!lastCell) {return null;}
               return resolveCellInsidePosFromDom(lastCell);
             }
 
             const firstRow = rows[0];
             const firstRowCells = Array.from(firstRow.querySelectorAll('td, th'));
             const lastCell = firstRowCells[firstRowCells.length - 1] as HTMLElement | undefined;
-            if (!lastCell) return null;
+            if (!lastCell) {return null;}
             return resolveCellInsidePosFromDom(lastCell);
           };
 
           const clampBoundary = (value: number, max: number): number => {
-            if (value < 0) return 0;
-            if (value > max) return max;
+            if (value < 0) {return 0;}
+            if (value > max) {return max;}
             return value;
           };
 
           const clampToRect = (value: number, min: number, max: number): number => {
-            if (value < min) return min;
-            if (value > max) return max;
+            if (value < min) {return min;}
+            if (value > max) {return max;}
             return value;
           };
 
           const updateDropIndicator = (axis: 'row' | 'col', boundary: number) => {
-            if (!dragState) return;
+            if (!dragState) {return;}
             const isNoop = boundary === dragState.fromIndex || boundary === dragState.fromIndex + 1;
             if (isNoop) {
               rowDropIndicator.classList.remove('is-visible');
@@ -712,7 +694,7 @@ export const TableControls = Extension.create({
           };
 
           const updatePointerDrag = (e: PointerEvent) => {
-            if (!dragState || activePointerId !== e.pointerId) return;
+            if (!dragState || activePointerId !== e.pointerId) {return;}
 
             const tableHost = view.nodeDOM(dragState.tablePos) as HTMLElement | null;
             const tableDom = resolveTableDom(tableHost);
@@ -763,11 +745,11 @@ export const TableControls = Extension.create({
 
             if (boundary === null) {
               if (dragState.axis === 'row') {
-                if (e.clientY < rect.top) boundary = 0;
-                else if (e.clientY > rect.bottom) boundary = dragState.map.height;
+                if (e.clientY < rect.top) {boundary = 0;}
+                else if (e.clientY > rect.bottom) {boundary = dragState.map.height;}
               } else {
-                if (e.clientX < rect.left) boundary = 0;
-                else if (e.clientX > rect.right) boundary = dragState.map.width;
+                if (e.clientX < rect.left) {boundary = 0;}
+                else if (e.clientX > rect.right) {boundary = dragState.map.width;}
               }
             }
 
@@ -786,7 +768,7 @@ export const TableControls = Extension.create({
           };
 
           const finishPointerDrag = () => {
-            if (!dragState) return;
+            if (!dragState) {return;}
 
             const { axis, anchorCellPos, fromIndex, previewBoundary, startedAt } = dragState;
             const max = axis === 'row' ? dragState.map.height : dragState.map.width;
@@ -926,7 +908,7 @@ export const TableControls = Extension.create({
 
           // Mousemove handler for hover-based detection
           const onMouseMove = (e: MouseEvent) => {
-            if (isDraggingRow || isDraggingCol) return;
+            if (isDraggingRow || isDraggingCol) {return;}
             if (isMenuActive('tableContext')) {
               cancelHideTimeout();
               return;
@@ -969,13 +951,13 @@ export const TableControls = Extension.create({
           };
 
           const onHandlePointerDown = (e: PointerEvent) => {
-            if (!e.isPrimary) return;
-            if (typeof e.button === 'number' && e.button !== 0) return;
+            if (!e.isPrimary) {return;}
+            if (typeof e.button === 'number' && e.button !== 0) {return;}
             const target = e.target as HTMLElement;
             const rowHandle = target.closest('.table-row-handle') as HTMLElement | null;
             const colHandle = target.closest('.table-col-handle') as HTMLElement | null;
             const handle = rowHandle || colHandle;
-            if (!handle) return;
+            if (!handle) {return;}
 
             const cellPosRaw = handle.dataset.cellPos;
             if (!cellPosRaw) {
@@ -1174,7 +1156,7 @@ function createAddButton(type: 'row' | 'col'): HTMLElement {
   btn.setAttribute('aria-label', label);
   btn.title = label;
   btn.dataset.axis = type;
-  btn.innerHTML = icons.plus;
+  btn.replaceChildren(createIconElement('plus'));
   return btn;
 }
 
@@ -1195,7 +1177,7 @@ function createRowHandle(rowIndex: number, cellPos: number): HTMLElement {
   handle.className = 'table-row-handle';
   handle.dataset.rowIndex = String(rowIndex);
   handle.dataset.cellPos = String(cellPos);
-  handle.innerHTML = icons.gripVertical;
+  handle.replaceChildren(createIconElement('gripVertical'));
   handle.draggable = false;
   handle.contentEditable = 'false';
   handle.title = t().tableControls.dragRow;
@@ -1219,7 +1201,7 @@ function createColHandle(colIndex: number, cellPos: number): HTMLElement {
   handle.className = 'table-col-handle';
   handle.dataset.colIndex = String(colIndex);
   handle.dataset.cellPos = String(cellPos);
-  handle.innerHTML = icons.gripHorizontal;
+  handle.replaceChildren(createIconElement('gripHorizontal'));
   handle.draggable = false;
   handle.contentEditable = 'false';
   handle.title = t().tableControls.dragColumn;

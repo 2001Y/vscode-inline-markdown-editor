@@ -2,7 +2,7 @@
   "name": "inlinemark",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "2001y",
   "repository": {
     "type": "git",
@@ -20,8 +20,9 @@
   "l10n": "./l10n",
   "files": [
     "out/**",
-    "media/webview/index.js",
+    "media/webview/*.js",
     "media/webview/*.css",
+    "media/webview/*.ttf",
     "media/webview/.vite/manifest.json",
     "assets/**",
     "l10n/**",
@@ -71,6 +72,56 @@
       {
         "command": "inlineMark.exportLogs",
         "title": "%command.exportLogs.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.find",
+        "title": "%command.find.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.replace",
+        "title": "%command.replace.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.findNext",
+        "title": "%command.findNext.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.findPrevious",
+        "title": "%command.findPrevious.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.closeFind",
+        "title": "%command.closeFind.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleMatchCase",
+        "title": "%command.toggleMatchCase.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleWholeWord",
+        "title": "%command.toggleWholeWord.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleRegex",
+        "title": "%command.toggleRegex.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.toggleFindInSelection",
+        "title": "%command.toggleFindInSelection.title%",
+        "category": "inlineMark"
+      },
+      {
+        "command": "inlineMark.togglePreserveCase",
+        "title": "%command.togglePreserveCase.title%",
         "category": "inlineMark"
       },
       {
@@ -271,6 +322,60 @@
         "key": "ctrl+shift+z",
         "mac": "cmd+shift+z",
         "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == 'inlineMark.editor' && !inlineMark.menuVisible"
+      },
+      {
+        "command": "inlineMark.replace",
+        "key": "ctrl+h",
+        "mac": "cmd+alt+f",
+        "when": "activeCustomEditorId == 'inlineMark.editor' && !inlineMark.menuVisible"
+      },
+      {
+        "command": "inlineMark.findNext",
+        "key": "f3",
+        "mac": "cmd+g",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.findPrevious",
+        "key": "shift+f3",
+        "mac": "shift+cmd+g",
+        "when": "activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.closeFind",
+        "key": "escape",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleMatchCase",
+        "key": "alt+c",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleWholeWord",
+        "key": "alt+w",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleRegex",
+        "key": "alt+r",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.toggleFindInSelection",
+        "key": "alt+l",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
+      },
+      {
+        "command": "inlineMark.togglePreserveCase",
+        "key": "alt+p",
+        "when": "inlineMark.findWidgetVisible && activeCustomEditorId == 'inlineMark.editor'"
       }
     ],
     "menus": {
@@ -302,6 +407,74 @@
     "configuration": {
       "title": "%configuration.title%",
       "properties": {
+        "inlineMark.view.fullWidth": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.view.fullWidth.description%"
+        },
+        "inlineMark.view.noWrap": {
+          "type": ["boolean", "null"],
+          "enum": [null, true, false],
+          "enumDescriptions": [
+            "%configuration.view.noWrap.enum.auto%",
+            "%configuration.view.noWrap.enum.on%",
+            "%configuration.view.noWrap.enum.off%"
+          ],
+          "default": null,
+          "description": "%configuration.view.noWrap.description%"
+        },
+        "inlineMark.preview.html.allowScripts": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowScripts.description%"
+        },
+        "inlineMark.preview.html.allowSameOrigin": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowSameOrigin.description%"
+        },
+        "inlineMark.preview.html.allowPopups": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowPopups.description%"
+        },
+        "inlineMark.preview.html.allowForms": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.preview.html.allowForms.description%"
+        },
+        "inlineMark.preview.mermaid.fontScale": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0.1,
+          "maximum": 4,
+          "description": "%configuration.preview.mermaid.fontScale.description%"
+        },
+        "inlineMark.security.allowWorkspaceImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.security.allowWorkspaceImages.description%"
+        },
+        "inlineMark.security.allowRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.allowRemoteImages.description%"
+        },
+        "inlineMark.security.allowInsecureRemoteImages": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.security.allowInsecureRemoteImages.description%"
+        },
+        "inlineMark.security.confirmExternalLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.security.confirmExternalLinks.description%"
+        },
+        "inlineMark.webview.retainContextWhenHidden": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.webview.retainContextWhenHidden.description%"
+        },
         "inlineMark.sync.debounceMs": {
           "type": "number",
           "default": 250,
@@ -331,41 +504,6 @@
           "type": "boolean",
           "default": false,
           "description": "%configuration.debug.enabled.description%"
-        },
-        "inlineMark.security.allowWorkspaceImages": {
-          "type": "boolean",
-          "default": true,
-          "description": "%configuration.security.allowWorkspaceImages.description%"
-        },
-        "inlineMark.security.allowRemoteImages": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.security.allowRemoteImages.description%"
-        },
-        "inlineMark.security.allowInsecureRemoteImages": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.security.allowInsecureRemoteImages.description%"
-        },
-        "inlineMark.security.confirmExternalLinks": {
-          "type": "boolean",
-          "default": true,
-          "description": "%configuration.security.confirmExternalLinks.description%"
-        },
-        "inlineMark.view.fullWidth": {
-          "type": "boolean",
-          "default": true,
-          "description": "%configuration.view.fullWidth.description%"
-        },
-        "inlineMark.view.noWrap": {
-          "type": ["boolean", "null"],
-          "default": null,
-          "description": "%configuration.view.noWrap.description%"
-        },
-        "inlineMark.webview.retainContextWhenHidden": {
-          "type": "boolean",
-          "default": true,
-          "description": "%configuration.webview.retainContextWhenHidden.description%"
         }
       }
     }

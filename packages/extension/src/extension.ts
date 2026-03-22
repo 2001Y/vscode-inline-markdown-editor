@@ -44,74 +44,97 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  const closeActiveTab = async (tab: vscode.Tab | undefined): Promise<boolean> => {
+    if (!tab) {
+      return true;
+    }
+    try {
+      return await vscode.window.tabGroups.close(tab, true);
+    } catch (error) {
+      logger.warn('Failed to close active tab before reopen', {
+        errorCode: 'CLOSE_ACTIVE_TAB_FAILED',
+        errorStack: String(error),
+      });
+      return false;
+    }
+  };
+
+  const openWithViewType = async (
+    uri: vscode.Uri,
+    viewType: string,
+    viewColumn: vscode.ViewColumn | undefined
+  ): Promise<void> => {
+    await vscode.commands.executeCommand('vscode.openWith', uri, viewType, {
+      viewColumn,
+      preview: false,
+    });
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.reopenWithTextEditor', async () => {
-      // Preferred (best UX): in-place reopen (workbench command)
-      try {
-        await vscode.commands.executeCommand('workbench.action.reopenTextEditor');
-        return;
-      } catch (error) {
-        logger.warn('workbench.action.reopenTextEditor failed; falling back to vscode.openWith', {
-          errorCode: 'REOPEN_TEXT_EDITOR_FAILED',
-          errorStack: String(error),
-        });
-      }
-
-      // Fallback (API command): force built-in text editor (viewType = 'default')
-      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const tabGroup = vscode.window.tabGroups.activeTabGroup;
+      const tab = tabGroup.activeTab;
+      const viewColumn = tabGroup.viewColumn;
       const input = tab?.input;
 
+      let uri: vscode.Uri | null = null;
       if (input instanceof vscode.TabInputCustom && input.viewType === InlineMarkProvider.viewType) {
-        const uri = input.uri;
-        const viewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'default', { viewColumn });
+        uri = input.uri;
+      } else if (input instanceof vscode.TabInputText) {
+        uri = input.uri;
+      } else if (vscode.window.activeTextEditor) {
+        uri = vscode.window.activeTextEditor.document.uri;
+      }
+
+      if (!uri) {
+        vscode.window.showWarningMessage(
+          vscode.l10n.t('Cannot reopen with Text Editor: no active editor found.')
+        );
         return;
       }
 
-      // Fallback of the fallback: if we can't access the tab input, use activeTextEditor when present.
-      const editor = vscode.window.activeTextEditor;
-      if (editor) {
-        await vscode.commands.executeCommand('vscode.openWith', editor.document.uri, 'default', {
-          viewColumn: editor.viewColumn,
+      const closed = await closeActiveTab(tab);
+      if (!closed) {
+        logger.warn('Reopen with Text Editor aborted: close cancelled', {
+          errorCode: 'REOPEN_TEXT_EDITOR_CANCELLED',
         });
         return;
       }
 
-      vscode.window.showWarningMessage(
-        vscode.l10n.t('Cannot reopen with Text Editor: no active editor found.')
-      );
+      await openWithViewType(uri, 'default', viewColumn);
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('inlineMark.reopenWithInlineMark', async () => {
-      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-      const viewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
+      const tabGroup = vscode.window.tabGroups.activeTabGroup;
+      const tab = tabGroup.activeTab;
+      const viewColumn = tabGroup.viewColumn;
+      const input = tab?.input;
 
-      if (tab?.input instanceof vscode.TabInputText) {
-        await vscode.commands.executeCommand(
-          'vscode.openWith',
-          tab.input.uri,
-          InlineMarkProvider.viewType,
-          { viewColumn }
+      let uri: vscode.Uri | null = null;
+      if (input instanceof vscode.TabInputText) {
+        uri = input.uri;
+      } else if (vscode.window.activeTextEditor) {
+        uri = vscode.window.activeTextEditor.document.uri;
+      }
+
+      if (!uri) {
+        vscode.window.showWarningMessage(
+          vscode.l10n.t('Cannot reopen with inlineMark: no active editor found.')
         );
         return;
       }
 
-      const editor = vscode.window.activeTextEditor;
-      if (editor) {
-        await vscode.commands.executeCommand(
-          'vscode.openWith',
-          editor.document.uri,
-          InlineMarkProvider.viewType,
-          { viewColumn: editor.viewColumn }
-        );
+      const closed = await closeActiveTab(tab);
+      if (!closed) {
+        logger.warn('Reopen with inlineMark aborted: close cancelled', {
+          errorCode: 'REOPEN_INLINE_MARK_CANCELLED',
+        });
         return;
       }
 
-      vscode.window.showWarningMessage(
-        vscode.l10n.t('Cannot reopen with inlineMark: no active editor found.')
-      );
+      await openWithViewType(uri, InlineMarkProvider.viewType, viewColumn);
     })
   );
 
@@ -158,6 +181,16 @@ export function activate(context: vscode.ExtensionContext): void {
     'outdentListItem',
     'undo',
     'redo',
+    'find',
+    'replace',
+    'findNext',
+    'findPrevious',
+    'closeFind',
+    'toggleMatchCase',
+    'toggleWholeWord',
+    'toggleRegex',
+    'toggleFindInSelection',
+    'togglePreserveCase',
   ];
 
   // 全エディタコマンドを登録

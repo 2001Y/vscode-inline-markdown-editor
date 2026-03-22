@@ -1,56 +1,72 @@
 /**
- * Tabler Icons (MIT License)
- * https://tabler-icons.io/
+ * Codicon mapping for inlineMark UI
+ * - Use VS Code Codicon font for all UI icons.
  */
 
-export const icons = {
-  trash: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 7l16 0" />
-    <path d="M10 11l0 6" />
-    <path d="M14 11l0 6" />
-    <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />
-    <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
-  </svg>`,
+export type IconName =
+  | 'trash'
+  | 'copy'
+  | 'gripVertical'
+  | 'gripHorizontal'
+  | 'plus'
+  | 'listUnordered'
+  | 'listOrdered'
+  | 'code'
+  | 'openPreview'
+  | 'quote'
+  | 'table'
+  | 'info'
+  | 'fileText'
+  | 'fileSubmodule'
+  | 'chevronUp'
+  | 'chevronDown'
+  | 'chevronRight'
+  | 'close'
+  | 'caseSensitive'
+  | 'wholeWord'
+  | 'regex'
+  | 'selection'
+  | 'preserveCase'
+  | 'replace'
+  | 'replaceAll'
+  | 'arrowUp'
+  | 'arrowDown';
 
-  copy: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" />
-    <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" />
-  </svg>`,
+export const icons: Record<IconName, string> = {
+  trash: 'codicon codicon-trash',
+  copy: 'codicon codicon-copy',
+  gripVertical: 'codicon codicon-gripper',
+  gripHorizontal: 'codicon codicon-gripper',
+  plus: 'codicon codicon-add',
+  listUnordered: 'codicon codicon-list-unordered',
+  listOrdered: 'codicon codicon-list-ordered',
+  code: 'codicon codicon-code',
+  openPreview: 'codicon codicon-open-preview',
+  quote: 'codicon codicon-quote',
+  table: 'codicon codicon-table',
+  info: 'codicon codicon-info',
+  fileText: 'codicon codicon-file-text',
+  fileSubmodule: 'codicon codicon-file-submodule',
+  chevronUp: 'codicon codicon-chevron-up',
+  chevronDown: 'codicon codicon-chevron-down',
+  chevronRight: 'codicon codicon-chevron-right',
+  close: 'codicon codicon-close',
+  caseSensitive: 'codicon codicon-case-sensitive',
+  wholeWord: 'codicon codicon-whole-word',
+  regex: 'codicon codicon-regex',
+  selection: 'codicon codicon-selection',
+  preserveCase: 'codicon codicon-preserve-case',
+  replace: 'codicon codicon-replace',
+  replaceAll: 'codicon codicon-replace-all',
+  arrowUp: 'codicon codicon-arrow-up',
+  arrowDown: 'codicon codicon-arrow-down',
+};
 
-  gripVertical: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="20" viewBox="0 0 14 20" fill="currentColor">
-    <circle cx="4" cy="4" r="1.5"/>
-    <circle cx="10" cy="4" r="1.5"/>
-    <circle cx="4" cy="10" r="1.5"/>
-    <circle cx="10" cy="10" r="1.5"/>
-    <circle cx="4" cy="16" r="1.5"/>
-    <circle cx="10" cy="16" r="1.5"/>
-  </svg>`,
-
-  gripHorizontal: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="14" viewBox="0 0 20 14" fill="currentColor">
-    <circle cx="4" cy="4" r="1.5"/>
-    <circle cx="10" cy="4" r="1.5"/>
-    <circle cx="16" cy="4" r="1.5"/>
-    <circle cx="4" cy="10" r="1.5"/>
-    <circle cx="10" cy="10" r="1.5"/>
-    <circle cx="16" cy="10" r="1.5"/>
-  </svg>`,
-
-  plus: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 5v14" />
-    <path d="M5 12h14" />
-  </svg>`,
-
-  info: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="9" />
-    <line x1="12" y1="10" x2="12" y2="16" />
-    <line x1="12" y1="7" x2="12.01" y2="7" />
-  </svg>`,
-
-  fileText: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M14 2h-6a2 2 0 0 0 -2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-12z" />
-    <path d="M14 2v6h6" />
-    <path d="M16 13h-8" />
-    <path d="M16 17h-8" />
-    <path d="M10 9h-2" />
-  </svg>`,
+export const createIconElement = (icon: IconName, extraClass?: string): HTMLElement => {
+  const span = document.createElement('span');
+  span.className = icons[icon];
+  if (extraClass) {
+    span.classList.add(extraClass);
+  }
+  return span;
 };

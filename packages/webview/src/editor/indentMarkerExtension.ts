@@ -9,38 +9,24 @@
 import { Extension } from '@tiptap/core';
 import type { MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
 import { clampIndentLevel, normalizeIndentAttr } from './indentConfig.js';
-import { DEBUG } from './debug.js';
+import { createLogger } from '../logger.js';
 
 const MODULE = 'IndentMarker';
+const log = createLogger(MODULE);
 
 const START_RE = /^<!--\s*inlineMark:indent(?:=(\d+))?\s*-->\s*(?:\r?\n|$)/i;
 const START_SEARCH_RE = /<!--\s*inlineMark:indent/i;
 
 const logInfo = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.log(`[INFO][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.info(msg, data);
 };
 
 const logWarning = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.warn(`[WARNING][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.warn(msg, data);
 };
 
 const logError = (msg: string, data?: Record<string, unknown>): void => {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`, data);
-  } else {
-    console.error(`[ERROR][${MODULE}] ${timestamp} ${msg}`);
-  }
+  log.error(msg, data);
 };
 
 const findFirstContentToken = (tokens: MarkdownToken[]): { token: MarkdownToken; raw: string } | null => {
@@ -60,6 +46,21 @@ const applyIndentToNode = (node: { attrs?: Record<string, unknown> }, indent: nu
     ...(node.attrs ?? {}),
     indent: next,
   };
+};
+
+const resolveNodeTypeName = (node: unknown): string | null => {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+  const typeValue = (node as { type?: { name?: string } | string }).type;
+  if (typeof typeValue === 'string') {
+    return typeValue;
+  }
+  if (typeValue && typeof typeValue === 'object') {
+    const name = (typeValue as { name?: string }).name;
+    return typeof name === 'string' ? name : null;
+  }
+  return null;
 };
 
 export const IndentMarker = Extension.create({
@@ -123,7 +124,8 @@ export const IndentMarker = Extension.create({
       logWarning('Indent marker parsed multiple blocks; only first is indented', { count: content.length });
     }
 
-    logInfo('Indent marker applied', { indentLevel, nodeType: (first as any).type });
+    const nodeType = resolveNodeTypeName(first);
+    logInfo('Indent marker applied', { indentLevel, nodeType });
     return [first, ...rest];
   },
 });

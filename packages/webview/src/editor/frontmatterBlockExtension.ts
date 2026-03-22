@@ -9,10 +9,12 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import type { MarkdownToken, MarkdownParseHelpers } from '@tiptap/core';
 import { applyIndentAttributesToDom, indentAttribute, normalizeIndentAttr, renderIndentMarker } from './indentConfig.js';
-import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
+import { applyNodeViewHandleState, createNodeViewHandleContainer, resolveBlockHandleEligibility } from './blockHandlesExtension.js';
 import { notifyHostWarn } from './hostNotifier.js';
+import { createLogger } from '../logger.js';
 
 const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/;
+const log = createLogger('FrontmatterBlock');
 
 const normalizeFrontmatter = (content: string): string => {
   return content.endsWith('\n') ? content : `${content}\n`;
@@ -67,7 +69,7 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
       'div',
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         'data-type': 'frontmatter-block',
-        class: 'frontmatter-block-wrapper',
+        class: 'frontmatter-block-wrapper code-block-wrapper',
       }),
       [
         'div',
@@ -89,47 +91,18 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
     return ({ node, getPos, editor }) => {
       const dom = document.createElement('div');
       dom.setAttribute('data-type', 'frontmatter-block');
-      dom.className = 'frontmatter-block-wrapper';
+      dom.className = 'frontmatter-block-wrapper code-block-wrapper';
       applyIndentAttributesToDom(dom, node.attrs?.indent);
-
-      let handle: HTMLElement | null = null;
-
-      const resolvePos = () => {
-        const pos = getPos();
-        return typeof pos === 'number' ? pos : null;
-      };
-
-      const syncHandlePos = () => {
-        if (!handle) {
-          return;
-        }
-        const pos = resolvePos();
-        if (typeof pos === 'number') {
-          handle.dataset.blockPos = String(pos);
-          handle.dataset.blockType = 'frontmatterBlock';
-        } else {
-          delete handle.dataset.blockPos;
-        }
-      };
+      const handleContainer = createNodeViewHandleContainer();
+      dom.appendChild(handleContainer);
 
       const syncHandleState = (updatedNode: typeof node) => {
-        const shouldShowHandle = shouldRenderBlockHandle(editor.state, getPos, 'frontmatterBlock');
-        dom.classList.toggle('block-handle-host', shouldShowHandle);
-
-        if (shouldShowHandle && !handle) {
-          handle = createDragHandleElement();
-          handle.setAttribute('contenteditable', 'false');
-          dom.appendChild(handle);
-        } else if (!shouldShowHandle && handle) {
-          handle.remove();
-          handle = null;
-        }
-
+        const eligibility = resolveBlockHandleEligibility(editor.state, getPos, 'frontmatterBlock');
+        const shouldShowHandle = applyNodeViewHandleState(dom, handleContainer, eligibility, 'frontmatterBlock');
         applyIndentAttributesToDom(dom, shouldShowHandle ? updatedNode.attrs?.indent : 0);
       };
 
       syncHandleState(node);
-      syncHandlePos();
 
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'block-content';
@@ -142,7 +115,7 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
       contentWrapper.appendChild(pre);
 
       const label = document.createElement('span');
-      label.className = 'block-label';
+      label.className = 'block-label code-block-label';
       label.setAttribute('contenteditable', 'false');
 
       const labelText = document.createElement('span');
@@ -156,7 +129,7 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
       contentDom.spellcheck = false;
       pre.appendChild(contentDom);
 
-      console.log('[FrontmatterBlock] NodeView created', {
+      log.info('NodeView created', {
         contentLength: node.textContent.length,
       });
 
@@ -168,15 +141,11 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
             return false;
           }
           syncHandleState(updatedNode);
-          syncHandlePos();
           return true;
         },
         stopEvent: (event) => {
           if (!(event.target instanceof Element)) {
             return false;
-          }
-          if (handle && handle.contains(event.target)) {
-            return true;
           }
           if (label.contains(event.target)) {
             return true;
@@ -221,7 +190,7 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
   parseMarkdown: (token: MarkdownToken, helpers: MarkdownParseHelpers) => {
     const raw = token.raw || '';
     const normalized = raw.trimEnd();
-    console.log('[FrontmatterBlock] parseMarkdown', { contentLength: normalized.length });
+    log.debug('parseMarkdown', { contentLength: normalized.length });
     return helpers.createNode(
       'frontmatterBlock',
       {},
@@ -237,7 +206,7 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
     const renderChildren = helpers?.renderChildren;
     const content = renderChildren ? renderChildren(node.content ?? '') : '';
     const trimmed = content.trimEnd();
-    console.log('[FrontmatterBlock] renderMarkdown', { contentLength: trimmed.length });
+    log.debug('renderMarkdown', { contentLength: trimmed.length });
 
     if (!FRONTMATTER_RE.test(normalizeFrontmatter(trimmed))) {
       notifyHostWarn('FRONTMATTER_INVALID', 'Frontmatter の形式が崩れています。', {

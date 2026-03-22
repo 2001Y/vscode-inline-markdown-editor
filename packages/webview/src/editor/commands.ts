@@ -15,6 +15,9 @@ import { INDENT_LEVEL_MAX, INDENT_MAX_DEPTH_MESSAGE, normalizeIndentAttr } from 
 import { DEBUG } from './debug.js';
 import { notifyHostWarn } from './hostNotifier.js';
 import { LIST_MAX_DEPTH } from './listIndentConfig.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('Commands');
 
 export type CommandName =
   // Marks (テキスト装飾)
@@ -125,9 +128,9 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
   };
 
   const isIndentableNode = (node: ProseMirrorNode | null | undefined): boolean => {
-    if (!node?.isBlock) return false;
+    if (!node?.isBlock) {return false;}
     const typeName = node.type?.name;
-    if (!typeName) return false;
+    if (!typeName) {return false;}
     if (typeName === 'listItem') {
       return false;
     }
@@ -206,22 +209,21 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
     toggleBlockquote: () => editor.chain().focus().toggleBlockquote().run(),
     toggleCodeBlock: () => editor.chain().focus().toggleCodeBlock().run(),
     indentBlock: () => {
-      const timestamp = new Date().toISOString();
       if (isSelectionInListItem()) {
-        console.warn(`[WARNING][Commands] ${timestamp} Indent block ignored: in listItem`);
+        log.warn('Indent block ignored: in listItem');
         return false;
       }
 
       const target = findIndentableBlockAtSelection();
       if (!target) {
-        console.error(`[ERROR][Commands] ${timestamp} Indent block failed: no target block`);
+        log.error('Indent block failed: no target block');
         return false;
       }
 
       const depth = getIndentDepthAtSelection(target.node);
       const prev = findPreviousIndentableSibling(target.pos);
       if (!prev) {
-        console.warn(`[WARNING][Commands] ${timestamp} Indent block blocked: no parent block`, {
+        log.warn('Indent block blocked: no parent block', {
           depth,
           targetPos: target.pos,
           targetType: target.node.type.name,
@@ -237,7 +239,7 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       const prevDepth = getIndentDepthAtSelection(prev.node);
       const allowedDepth = Math.min(INDENT_LEVEL_MAX, prevDepth + 1);
       if (depth >= allowedDepth) {
-        console.warn(`[WARNING][Commands] ${timestamp} Indent block blocked: depth limit`, {
+        log.warn('Indent block blocked: depth limit', {
           depth,
           allowedDepth,
           prevDepth,
@@ -266,7 +268,7 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       try {
         mappedSelection = selection.map(tr.doc, tr.mapping);
       } catch (error) {
-        console.error(`[ERROR][Commands] ${timestamp} Indent block failed: selection mapping error`, {
+        log.error('Indent block failed: selection mapping error', {
           error,
           selectionFrom: selection.from,
           selectionTo: selection.to,
@@ -277,25 +279,24 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
         return false;
       }
       editor.view.dispatch(tr.setSelection(mappedSelection));
-      console.log(`[SUCCESS][Commands] ${timestamp} Indent block applied`, { depth: nextDepth });
+      log.success('Indent block applied', { depth: nextDepth });
       return true;
     },
     outdentBlock: () => {
-      const timestamp = new Date().toISOString();
       if (isSelectionInListItem()) {
-        console.warn(`[WARNING][Commands] ${timestamp} Outdent block ignored: in listItem`);
+        log.warn('Outdent block ignored: in listItem');
         return false;
       }
 
       const target = findIndentableBlockAtSelection();
       if (!target) {
-        console.error(`[ERROR][Commands] ${timestamp} Outdent block failed: no target block`);
+        log.error('Outdent block failed: no target block');
         return false;
       }
 
       const depth = getIndentDepthAtSelection(target.node);
       if (depth <= 0) {
-        console.warn(`[WARNING][Commands] ${timestamp} Outdent block ignored: no indent`);
+        log.warn('Outdent block ignored: no indent');
         return false;
       }
 
@@ -310,7 +311,7 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       try {
         mappedSelection = selection.map(tr.doc, tr.mapping);
       } catch (error) {
-        console.error(`[ERROR][Commands] ${timestamp} Outdent block failed: selection mapping error`, {
+        log.error('Outdent block failed: selection mapping error', {
           error,
           selectionFrom: selection.from,
           selectionTo: selection.to,
@@ -321,19 +322,18 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
         return false;
       }
       editor.view.dispatch(tr.setSelection(mappedSelection));
-      console.log(`[SUCCESS][Commands] ${timestamp} Outdent block applied`, { depth: nextDepth });
+      log.success('Outdent block applied', { depth: nextDepth });
       return true;
     },
     indentListItem: () => {
-      const timestamp = new Date().toISOString();
       const listItemPos = resolveListItemPosFromSelection();
       if (listItemPos === null) {
-        console.error(`[ERROR][Commands] ${timestamp} List indent failed: not in listItem`);
+        log.error('List indent failed: not in listItem');
         return false;
       }
       const depth = getListItemDepthAtPos(listItemPos + 1);
       if (depth >= LIST_MAX_DEPTH) {
-        console.warn(`[WARNING][Commands] ${timestamp} List indent blocked: max depth`, {
+        log.warn('List indent blocked: max depth', {
           depth,
           maxDepth: LIST_MAX_DEPTH,
           selectionFrom: editor.state.selection.from,
@@ -351,12 +351,12 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       }
       const listItem = editor.state.schema.nodes.listItem;
       if (!listItem) {
-        console.error(`[ERROR][Commands] ${timestamp} listItem node not found`);
+        log.error('listItem node not found');
         return false;
       }
       const selectionOk = ensureListItemSelection(listItemPos);
       if (!selectionOk) {
-        console.error(`[ERROR][Commands] ${timestamp} List indent failed: selection not in listItem`, {
+        log.error('List indent failed: selection not in listItem', {
           listItemPos,
           selectionFrom: editor.state.selection.from,
         });
@@ -364,11 +364,11 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       }
       const ok = sinkListItem(listItem)(editor.state, editor.view.dispatch, editor.view);
       if (ok) {
-        console.log(`[SUCCESS][Commands] ${timestamp} List indent applied`, {
+        log.success('List indent applied', {
           selectionFrom: editor.state.selection.from,
         });
       } else {
-        console.warn(`[WARNING][Commands] ${timestamp} List indent blocked`, {
+        log.warn('List indent blocked', {
           selectionFrom: editor.state.selection.from,
         });
         notifyHostWarn(
@@ -384,20 +384,19 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       return ok;
     },
     outdentListItem: () => {
-      const timestamp = new Date().toISOString();
       const listItemPos = resolveListItemPosFromSelection();
       if (listItemPos === null) {
-        console.error(`[ERROR][Commands] ${timestamp} List outdent failed: not in listItem`);
+        log.error('List outdent failed: not in listItem');
         return false;
       }
       const listItem = editor.state.schema.nodes.listItem;
       if (!listItem) {
-        console.error(`[ERROR][Commands] ${timestamp} listItem node not found`);
+        log.error('listItem node not found');
         return false;
       }
       const selectionOk = ensureListItemSelection(listItemPos);
       if (!selectionOk) {
-        console.error(`[ERROR][Commands] ${timestamp} List outdent failed: selection not in listItem`, {
+        log.error('List outdent failed: selection not in listItem', {
           listItemPos,
           selectionFrom: editor.state.selection.from,
         });
@@ -405,11 +404,11 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
       }
       const ok = liftListItem(listItem)(editor.state, editor.view.dispatch, editor.view);
       if (ok) {
-        console.log(`[SUCCESS][Commands] ${timestamp} List outdent applied`, {
+        log.success('List outdent applied', {
           selectionFrom: editor.state.selection.from,
         });
       } else {
-        console.warn(`[WARNING][Commands] ${timestamp} List outdent blocked`, {
+        log.warn('List outdent blocked', {
           selectionFrom: editor.state.selection.from,
         });
       }
@@ -426,7 +425,7 @@ export function executeCommand(editor: Editor, command: CommandName): boolean {
   if (fn) {
     return fn();
   }
-  console.warn(`[Commands] Unknown command: ${command}`);
+  log.warn(`Unknown command: ${command}`);
   return false;
 }
 
