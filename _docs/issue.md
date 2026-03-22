@@ -19,3 +19,4 @@
 - `debug.ts` の `DEBUG.enabled` が `localStorage` を毎回読み、ログ呼び出しごとにチェックが発生する。
 - Webview の prelude で `Found unexpected service worker controller... Waiting for controllerchange.` が出るケースがあり、init 停滞との相関を再検証する余地。
 - ブロックハンドルの重なりは、`Decoration.widget` が `contentDOM` 側に入る一方で本文ガターを `block-handle-host` にしか持たせていない構造が主因。`block-content` かハンドルレイヤーのどちらかを再設計しない限り再発しやすい。
+- Symphony 連携は `LINEAR_API_KEY` が必要で、`WORKFLOW.md` の project slug は `vscode-inline-markdown-editor-175c559a0114` に固定済み。Linear の対象プロジェクトが変わる場合だけ `WORKFLOW.md` の更新が必要。
