@@ -20,3 +20,5 @@
 - Webview の prelude で `Found unexpected service worker controller... Waiting for controllerchange.` が出るケースがあり、init 停滞との相関を再検証する余地。
 - ブロックハンドルの重なりは、`Decoration.widget` が `contentDOM` 側に入る一方で本文ガターを `block-handle-host` にしか持たせていない構造が主因。`block-content` かハンドルレイヤーのどちらかを再設計しない限り再発しやすい。
 - Symphony 連携は `LINEAR_API_KEY` が必要で、`WORKFLOW.md` の project slug は `vscode-inline-markdown-editor-175c559a0114` に固定済み。Linear の対象プロジェクトが変わる場合だけ `WORKFLOW.md` の更新が必要。
+- 通常 VS Code エディタ相当の navigation target (`selection` + `reveal`) が custom editor へ橋渡しされておらず、search / problems / definition / git diff 由来のジャンプでハイライト表示と自動スクロールが再現されない。`_docs/2026-03-31-vscode-standard-editor-gap-audit.md` を正として、host-originated `NavigationTarget` 1 本へ寄せる必要がある。
+- quick diff / dirty diff の gutter / overview / minimap 表示は custom editor に自動継承されず未実装。内容同期用 `diffEngine` とは分離した差分装飾パイプラインが必要。
