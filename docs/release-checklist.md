@@ -40,6 +40,7 @@ For each fixture, compare the exact source before opening, after opening without
 
 - [ ] Handles, menus, drag/drop, indent/outdent, table selection/resize/copy for every affected block type.
 - [ ] Keyboard-only menu navigation, Escape/cancel focus return, repeated clicks and delayed responses.
+- [ ] Physically click a code-block language label, press End, type `:a.ts`, then press Enter and save. The label must retain the caret while typing; code text must remain unchanged; reopening must preserve the filename. Repeat with an empty code block, Escape cancellation, and normal code-body editing. Programmatic focus/fill alone does not cover the label-selection regression.
 - [ ] Preview toggle, hidden/reopened tabs, theme/width changes and loading recovery.
 - [ ] Remote images off by default, dangerous URL handling, workspace image boundaries and HTML sandbox defaults.
 - [ ] Long-document input/scroll/external-update measurements. Report fixture size and measured timings instead of unqualified performance claims.

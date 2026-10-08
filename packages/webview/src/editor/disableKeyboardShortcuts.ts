@@ -658,8 +658,14 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
       label.className = 'block-label code-block-label';
       label.setAttribute('contenteditable', 'true');
       label.setAttribute('spellcheck', 'false');
+      label.tabIndex = 0;
       label.dataset.placeholder = 'language:filename';
-      pre.appendChild(label);
+      // Make the label an independent editing host. Without this boundary,
+      // keyboard input can target ProseMirror even when its caret is in the label.
+      const labelHost = document.createElement('span');
+      labelHost.contentEditable = 'false';
+      labelHost.appendChild(label);
+      pre.appendChild(labelHost);
 
       const code = document.createElement('code');
       pre.appendChild(code);
@@ -826,7 +832,9 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
         },
         ignoreMutation: (mutation) => {
           if (mutation.type === 'selection') {
-            return false;
+            // The label is its own editable surface outside contentDOM. Mapping
+            // its DOM selection into the document moves the caret into code.
+            return label.contains(mutation.target);
           }
           const target = mutation.target as Node;
           if (target === code && mutation.type === 'attributes') {
