@@ -1,14 +1,26 @@
 # inlineMark for VS Code
 
-![inlineMark thumbnail](assets/tmb.png)
+![inlineMark thumbnail](https://raw.githubusercontent.com/2001Y/vscode-inline-markdown-editor/main/assets/tmb.png)
 
-> [English](#english) | [日本語](#japanese) | [中文](#chinese)
+> [English](#english) | [日本語](#日本語) | [中文](#中文)
 
 ---
 
-/
 
 ## English
+
+### Install and open
+
+Requires **VS Code 1.105.0 or newer**. Install [inlineMark from the Marketplace](https://marketplace.visualstudio.com/items?itemName=2001y.inlinemark), then open a `.md` file. If it opens as text, use **Reopen Editor With…** and select inlineMark. Use **inlineMark: Reopen with Text Editor** to return to source editing.
+
+### Current limitations
+
+- This is a custom editor; standard VS Code navigation highlights, auto-reveal and Git dirty-diff decorations are not fully inherited.
+- Find searches within text blocks; matches spanning blocks are not supported.
+- ChangeGuard settings are currently exposed, but enforcement in the edit-apply path is disabled. Do not rely on them as a data-loss safeguard.
+- Workspace-settings changes are offered separately. Review them before accepting; formatting behavior for other Markdown editing in that workspace can change.
+- Remote images and HTML preview script/same-origin/popup/form permissions default to off. Enable only what your content needs.
+
 
 ### inlineMark for VS Code 📝
 
@@ -40,7 +52,7 @@ Your changes sync instantly between the rich text editor and the underlying Mark
 
 #### 📄 G5-lite Minimal Reformatting
 
-Unlike other Markdown editors that reformat your entire document, this extension uses the **G5-lite algorithm** with [diff-match-patch](https://github.com/google/diff-match-patch) to make minimal changes to your source file. Your formatting preferences, whitespace, and style are preserved.
+The extension computes text patches with [diff-match-patch](https://github.com/google/diff-match-patch) after serializing the editor content. This reduces the text changes applied to the source, but does not guarantee byte-for-byte preservation of Markdown formatting, whitespace, or unsupported syntax. Review the source diff when editing important files.
 
 #### 🔒 Security First
 
@@ -50,17 +62,17 @@ Built with security as a priority:
 - **Dangerous link blocking** - `command:`, `vscode:`, and `file:` schemes are always blocked
 - **External link confirmation** - optionally prompt before opening external URLs
 - **Workspace Trust integration** - respects VS Code's workspace trust settings
-- **Local resource restrictions** - images are loaded securely via `asWebviewUri`
+- **Local resource restrictions** - workspace-local images are loaded via `asWebviewUri`
 
 #### 🖼️ Image Support
 
-- **Relative path resolution** - `![](./images/photo.png)` works automatically
+- **Relative path resolution** - Workspace-relative image paths such as `./images/photo.png` are supported
 - **Remote images** - configurable support for external image URLs
-- **Secure loading** - all images are loaded through VS Code's secure webview URI system
+- **Workspace-local image loading** - Local images use VS Code webview URIs; allowed remote images retain their remote URLs
 
 #### 📦 RAW Block Preservation
 
-Unsupported Markdown syntax like **YAML frontmatter** is preserved as editable RAW blocks. Your frontmatter, custom directives, and other non-standard syntax won't be lost or corrupted.
+The editor has dedicated frontmatter and RAW-block handling for supported cases. This is not a guarantee that every custom directive or unsupported Markdown dialect round-trips unchanged. Keep a backup or use version control, and inspect source changes.
 
 ```yaml
 ---
@@ -84,9 +96,9 @@ The editor automatically adapts to your VS Code theme, whether you prefer light,
 
 #### ⚡ Performance Optimized
 
-- **Virtual scrolling** with CSS `content-visibility` for large documents
-- **Efficient diff algorithm** for minimal memory usage
-- **Debounced updates** to prevent UI lag
+- **Debounced updates** to reduce synchronization frequency
+- **Text patches** instead of replacing the entire source file on every edit
+- Large-document performance depends on content and enabled previews; no fixed size or latency guarantee is made
 
 #### 📊 Comprehensive Logging
 
@@ -195,6 +207,19 @@ The extension will prompt you to apply these settings when you first open a Mark
 
 ## 日本語
 
+### インストールと起動
+
+**VS Code 1.105.0以降**が必要です。[MarketplaceからinlineMarkをインストール](https://marketplace.visualstudio.com/items?itemName=2001y.inlinemark)して `.md` ファイルを開きます。テキストで開く場合は「エディターを別のアプリケーションで開く…」からinlineMarkを選択してください。「inlineMark: テキストエディターで開き直す」相当のコマンドでソース編集へ戻せます（表示名は言語設定に従います）。
+
+### 現在の制限
+
+- カスタムエディターのため、通常のVS Codeの外部ジャンプ時の選択・スクロールやGit差分装飾は完全には引き継がれません。
+- 検索はテキストブロック内が対象で、ブロックを跨ぐ一致には対応していません。
+- ChangeGuard設定は表示されますが、編集適用時の強制チェックは現在無効です。データ保護の保証として利用しないでください。
+- ワークスペース設定の変更は内容を確認してから適用してください。そのワークスペース内の他のMarkdown編集にも影響します。
+- リモート画像とHTMLプレビューのscript/same-origin/popup/form許可は既定で無効です。必要なものだけ有効にしてください。
+
+
 ### VS Code用 inlineMark 📝
 
 Visual Studio CodeでMarkdown編集体験を変革する強力な**WYSIWYGエディタ**拡張機能です。リアルタイムのリッチテキスト編集、ライブプレビュー、シームレスな同期を提供します。
@@ -225,7 +250,7 @@ Visual Studio CodeでMarkdown編集体験を変革する強力な**WYSIWYGエデ
 
 #### 📄 G5-lite 最小限の再フォーマット
 
-他のMarkdownエディタのようにドキュメント全体を再フォーマットするのではなく、[diff-match-patch](https://github.com/google/diff-match-patch)を使用した**G5-liteアルゴリズム**でソースファイルへの変更を最小限に抑えます。フォーマット設定、空白、スタイルが保持されます。
+編集内容をMarkdownへシリアライズした後、[diff-match-patch](https://github.com/google/diff-match-patch)でテキスト差分を計算します。ソースへの変更を抑える仕組みですが、書式・空白・未対応構文のバイト単位の完全保持を保証するものではありません。重要なファイルではソース差分を確認してください。
 
 #### 🔒 セキュリティ優先
 
@@ -235,17 +260,17 @@ Visual Studio CodeでMarkdown編集体験を変革する強力な**WYSIWYGエデ
 - **危険なリンクのブロック** - `command:`、`vscode:`、`file:`スキームは常にブロック
 - **外部リンク確認** - 外部URLを開く前にオプションで確認
 - **ワークスペース信頼統合** - VS Codeのワークスペース信頼設定を尊重
-- **ローカルリソース制限** - 画像は`asWebviewUri`経由で安全に読み込み
+- **ローカルリソース制限** - ワークスペース内の画像は`asWebviewUri`経由で読み込み
 
 #### 🖼️ 画像サポート
 
-- **相対パス解決** - `![](./images/photo.png)`が自動的に動作
+- **相対パス解決** - `./images/photo.png` など、ワークスペース内の相対画像パスに対応
 - **リモート画像** - 外部画像URLの設定可能なサポート
-- **安全な読み込み** - すべての画像はVS Codeの安全なwebview URIシステム経由で読み込み
+- **ローカル画像の読み込み** - ローカル画像はVS Codeのwebview URIを使用し、許可されたリモート画像は元のURLを使用します
 
 #### 📦 RAWブロック保持
 
-**YAMLフロントマター**などの未対応Markdown構文は編集可能なRAWブロックとして保持されます。フロントマター、カスタムディレクティブ、その他の非標準構文は失われたり破損したりしません。
+フロントマターとRAWブロックには専用の処理があります。ただし、すべてのカスタムディレクティブやMarkdown方言が変更なく往復変換できるとは限りません。バックアップまたはバージョン管理を利用し、編集後のソース差分を確認してください。
 
 ```yaml
 ---
@@ -269,9 +294,9 @@ tags: [markdown, editor]
 
 #### ⚡ パフォーマンス最適化
 
-- **仮想スクロール** - 大きなドキュメント用のCSS `content-visibility`
-- **効率的な差分アルゴリズム** - 最小限のメモリ使用
-- **デバウンス更新** - UIラグを防止
+- **デバウンス更新** - 同期の頻度を抑制
+- **テキスト差分** - 編集ごとのソース全置換を回避
+- 大きな文書の性能は内容やプレビュー設定に依存します。特定の文書サイズや応答時間は保証していません
 
 #### 📊 包括的なログ
 
@@ -380,6 +405,19 @@ Markdownファイルを初めて開くと、これらの設定を適用するよ
 
 ## 中文
 
+### 安装与打开
+
+需要 **VS Code 1.105.0 或更新版本**。从 [Marketplace 安装 inlineMark](https://marketplace.visualstudio.com/items?itemName=2001y.inlinemark)，然后打开 `.md` 文件。如果显示为文本，请使用 **Reopen Editor With…** 选择 inlineMark。可通过 inlineMark 的重新以文本编辑器打开命令返回源文件。
+
+### 当前限制
+
+- 自定义编辑器不会完整继承 VS Code 的外部跳转高亮、自动滚动和 Git 差异装饰。
+- 搜索限于文本块内部，不支持跨块匹配。
+- ChangeGuard 设置仍可见，但编辑应用路径中的强制检查目前已禁用，不能作为数据保护保证。
+- 接受工作区设置变更前请检查内容，这会影响该工作区的其他 Markdown 编辑。
+- 远程图片及 HTML 预览的 script/same-origin/popup/form 权限默认关闭，只启用必要选项。
+
+
 ### VS Code inlineMark 📝
 
 一款强大的 **所见即所得 Markdown 编辑器** VS Code 扩展，通过实时富文本编辑、实时预览和无缝同步，彻底改变您的 Markdown 编辑体验。
@@ -410,7 +448,7 @@ Markdownファイルを初めて開くと、これらの設定を適用するよ
 
 #### 📄 G5-lite 最小化重新格式化
 
-与其他重新格式化整个文档的 Markdown 编辑器不同，此扩展使用 [diff-match-patch](https://github.com/google/diff-match-patch) 的 **G5-lite 算法**对源文件进行最小更改。您的格式偏好、空白和样式都会被保留。
+扩展先将编辑内容序列化为 Markdown，再使用 [diff-match-patch](https://github.com/google/diff-match-patch) 计算文本补丁。这有助于减少源文件改动，但不保证格式、空白或不支持的语法逐字节保持不变。编辑重要文件时请检查源文件差异。
 
 #### 🔒 安全优先
 
@@ -420,17 +458,17 @@ Markdownファイルを初めて開くと、これらの設定を適用するよ
 - **危险链接阻止** - `command:`、`vscode:` 和 `file:` 协议始终被阻止
 - **外部链接确认** - 可选择在打开外部 URL 前提示
 - **工作区信任集成** - 尊重 VS Code 的工作区信任设置
-- **本地资源限制** - 图片通过 `asWebviewUri` 安全加载
+- **本地资源限制** - 工作区内的图片通过 `asWebviewUri` 加载
 
 #### 🖼️ 图片支持
 
-- **相对路径解析** - `![](./images/photo.png)` 自动工作
+- **相对路径解析** - 支持 `./images/photo.png` 等工作区相对图片路径
 - **远程图片** - 可配置的外部图片 URL 支持
-- **安全加载** - 所有图片通过 VS Code 的安全 webview URI 系统加载
+- **本地图片加载** - 本地图片使用 VS Code webview URI；允许的远程图片保留其远程 URL
 
 #### 📦 RAW 块保留
 
-不支持的 Markdown 语法（如 **YAML frontmatter**）作为可编辑的 RAW 块保留。您的 frontmatter、自定义指令和其他非标准语法不会丢失或损坏。
+编辑器为 frontmatter 和受支持的 RAW 块提供专门处理，但不保证所有自定义指令或 Markdown 方言都能无损往返转换。请使用备份或版本控制，并检查编辑后的源文件差异。
 
 ```yaml
 ---
@@ -454,9 +492,9 @@ tags: [markdown, editor]
 
 #### ⚡ 性能优化
 
-- **虚拟滚动** - 大型文档使用 CSS `content-visibility`
-- **高效差异算法** - 最小内存使用
-- **防抖更新** - 防止 UI 卡顿
+- **防抖更新** - 降低同步频率
+- **文本补丁** - 避免每次编辑都替换整个源文件
+- 大型文档的性能取决于内容和预览设置，不保证特定文档大小或响应时间
 
 #### 📊 全面的日志记录
 
@@ -592,11 +630,11 @@ npm run watch
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/2001Y/vscode-inline-markdown-editor/blob/main/LICENSE) for details.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting a pull request.
+Contributions are welcome! Please read [CONTRIBUTING](https://github.com/2001Y/vscode-inline-markdown-editor/blob/main/CONTRIBUTING.md) before submitting a pull request.
 
 ## 🔗 Links
 
@@ -641,11 +679,11 @@ npm run watch
 
 ## 📄 ライセンス
 
-MIT License - 詳細は [LICENSE](LICENSE) を参照してください。
+MIT License - 詳細は [LICENSE](https://github.com/2001Y/vscode-inline-markdown-editor/blob/main/LICENSE) を参照してください。
 
 ## 🤝 コントリビュート
 
-コントリビューション歓迎です！PR を送る前にガイドラインをご確認ください。
+コントリビューション歓迎です！PR を送る前に[コントリビューションガイド](https://github.com/2001Y/vscode-inline-markdown-editor/blob/main/CONTRIBUTING.md)をご確認ください。
 
 ## 🔗 リンク
 
@@ -690,11 +728,11 @@ npm run watch
 
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](LICENSE)。
+MIT License - 详见 [LICENSE](https://github.com/2001Y/vscode-inline-markdown-editor/blob/main/LICENSE)。
 
 ## 🤝 贡献
 
-欢迎贡献！提交 PR 前请阅读贡献指南。
+欢迎贡献！提交 PR 前请阅读[贡献指南](https://github.com/2001Y/vscode-inline-markdown-editor/blob/main/CONTRIBUTING.md)。
 
 ## 🔗 链接
 

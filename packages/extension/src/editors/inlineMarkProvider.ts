@@ -58,6 +58,7 @@ import {
   createNestedPageCreateAckMessage,
   createNestedPageCreateFailedMessage,
   isValidWebviewMessage,
+  areValidReplaces,
 } from '../protocol/messages.js';
 import {
   replacesToWorkspaceEdit,
@@ -666,6 +667,17 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         baseVersion,
         docVersion: document.version,
       });
+      return;
+    }
+
+    // positionAt clamps out-of-bounds offsets; reject instead of editing a
+    // different range than the Webview requested. This is protocol validation,
+    // independent of the intentionally disabled ChangeGuard below.
+    if (!areValidReplaces(changes, document.getText().length)) {
+      await panel.panel.webview.postMessage(
+        createNackMessage(txId, document.version, 'applyFailed', state.sessionId, 'Invalid edit ranges')
+      );
+      logger.warn('Edit rejected (invalid ranges)', { clientId, txId, docVersion: document.version });
       return;
     }
 
