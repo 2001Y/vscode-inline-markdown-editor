@@ -56,11 +56,13 @@ suite('Extension Test Suite', () => {
 });
 
 export const runRegisteredTests = async (): Promise<void> => {
+  console.log(`[inlineMark tests] Running ${tests.length} registered tests.`);
   vscode.window.showInformationMessage('Start all tests.');
 
   for (const { name, fn } of tests) {
     try {
       await fn();
+      console.log(`[inlineMark tests] PASS: ${name}`);
     } catch (error) {
       const message = error instanceof Error ? error.stack ?? error.message : String(error);
       throw new Error(`Test failed: ${name}\n${message}`);

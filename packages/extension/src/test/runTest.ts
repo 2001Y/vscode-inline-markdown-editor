@@ -1,6 +1,8 @@
 import * as path from 'path';
 import * as os from 'os';
-import { runTests } from '@vscode/test-electron';
+import { downloadAndUnzipVSCode } from '@vscode/test-electron';
+import { mkdtempSync } from 'fs';
+import { runVSCodeTestProcess } from './vscodeTestProcess';
 
 const run = async (): Promise<void> => {
   const startedAt = Date.now();
@@ -14,7 +16,7 @@ const run = async (): Promise<void> => {
     delete process.env[envKey];
   }
 
-  const baseDir = path.join(os.tmpdir(), `inlinemark-vscode-test-${process.pid}`);
+  const baseDir = mkdtempSync(path.join(os.tmpdir(), 'inlinemark-vscode-test-'));
   const userDataDir = path.join(baseDir, 'user-data');
   const extensionsDir = path.join(baseDir, 'extensions');
 
@@ -27,10 +29,15 @@ const run = async (): Promise<void> => {
   const extensionTestsPath = path.resolve(__dirname, './index');
 
   try {
-    await runTests({
+    const vscodeExecutablePath = await downloadAndUnzipVSCode({
+      version: process.env.INLINEMARK_VSCODE_VERSION || 'stable',
+      cachePath: process.env.INLINEMARK_VSCODE_CACHE || path.resolve(extensionDevelopmentPath, '.vscode-test'),
+    });
+    await runVSCodeTestProcess(vscodeExecutablePath, {
       extensionDevelopmentPath,
       extensionTestsPath,
-      launchArgs: [`--user-data-dir=${userDataDir}`, `--extensions-dir=${extensionsDir}`],
+      userDataDir,
+      extensionsDir,
     });
     console.log(`[SUCCESS][TestRunner] ${new Date().toISOString()} Tests completed.`, {
       durationMs: Date.now() - startedAt,
@@ -47,5 +54,6 @@ const run = async (): Promise<void> => {
 run().catch((error) => {
   console.error('Failed to run extension tests.');
   console.error(error);
-  process.exit(1);
+  // Keep the event loop alive for bounded cleanup of our own timed-out child.
+  process.exitCode = 1;
 });

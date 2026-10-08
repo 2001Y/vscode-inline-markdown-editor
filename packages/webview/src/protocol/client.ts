@@ -117,7 +117,7 @@ export interface SyncClientCallbacks {
 
 export class SyncClient {
   private vscode: VsCodeApi;
-  private callbacks: SyncClientCallbacks;
+  private callbacks: SyncClientCallbacks & Required<Pick<SyncClientCallbacks, 'onSyncStateChange'>>;
   private config: WebviewConfig | null = null;
   private i18n: Record<string, string> = {};
 
@@ -262,17 +262,19 @@ export class SyncClient {
       return;
     }
 
-    const msg = raw as ExtensionToWebviewMessage & { type?: string; v?: number };
-    if (!msg.type || !EXTENSION_MESSAGE_TYPES.has(msg.type)) {
-      if (msg.type === 'inlineMarkPreviewHeight') {
+    const envelope = raw as { type?: unknown; v?: unknown };
+    if (envelope.type === 'editorCommand') {return;}
+    if (typeof envelope.type !== 'string' || !EXTENSION_MESSAGE_TYPES.has(envelope.type)) {
+      if (envelope.type === 'inlineMarkPreviewHeight') {
         return;
       }
       this.logPreInit('DEBUG', 'Ignored non-protocol window message', {
-        messageType: msg.type ?? null,
+        messageType: envelope.type ?? null,
       });
       return;
     }
 
+    const msg = raw as ExtensionToWebviewMessage;
     if (typeof msg.type === 'string' && msg.type.startsWith('nestedPage')) {
       clientLog.debug('NestedPage raw message received', {
         type: msg.type,
@@ -280,10 +282,6 @@ export class SyncClient {
         requestId: (msg as { requestId?: string }).requestId,
         sessionId: (msg as { sessionId?: string }).sessionId,
       });
-    }
-    if (msg.type === 'editorCommand') {
-      // editorCommand is handled by main.ts and is not part of the sync protocol.
-      return;
     }
 
     if (typeof msg.v !== 'number') {

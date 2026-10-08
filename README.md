@@ -23,12 +23,13 @@ Use a supported Node.js version compatible with the locked dependencies (Node.js
 ```sh
 npm ci
 npm run lint
+npm run typecheck
 npm run build
 npm run test:unit
 npm test
 npm run package
 ```
 
-`test:unit` covers text-patch and protocol validation without launching VS Code. It does not test the complete editor/Markdown codec. `npm test` additionally launches the VS Code extension-host tests and requires a display plus access to the VS Code download service. See [release checks](docs/release-checklist.md) for UI, round-trip, and distribution verification that remains separate.
+`typecheck` checks both the extension and webview with their strict TypeScript settings. `test:unit` covers text-patch/protocol validation, mocked host paths, and selected real Markdown-codec cases without launching VS Code. These samples do not guarantee complete dialect fidelity or UI behavior. `npm test` additionally launches the VS Code extension-host tests and requires a display plus access to the VS Code download service. See [release checks](docs/release-checklist.md) for UI, round-trip, and distribution verification that remains separate.
 
 MIT licensed. See [LICENSE](LICENSE).

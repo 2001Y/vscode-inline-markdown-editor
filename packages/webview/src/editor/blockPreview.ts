@@ -1055,7 +1055,6 @@ const buildMermaidPreviewDocument = (diagram: string, options: MermaidDocOptions
 
 export class BlockPreviewController {
   private renderer: PreviewRenderer;
-  private readonly host: HTMLElement;
   private toolbar: HTMLElement;
   private switchText: HTMLSpanElement;
   private switchLabel: HTMLLabelElement;
@@ -1087,7 +1086,6 @@ export class BlockPreviewController {
     defaultPreviewEnabled?: boolean;
   }) {
     this.renderer = params.renderer;
-    this.host = params.host;
     this.contentDom = params.contentDom;
     this.getSource = params.getSource;
     this.padded = params.padded;

@@ -199,12 +199,11 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
   },
 
   renderMarkdown: (
-    node: { attrs?: { indent?: number }; content?: unknown },
-    helpers: { renderChildren?: (content: unknown) => string },
-    context?: { parentType?: { name?: string } }
+    node,
+    helpers,
+    context
   ) => {
-    const renderChildren = helpers?.renderChildren;
-    const content = renderChildren ? renderChildren(node.content ?? '') : '';
+    const content = helpers.renderChildren(node.content ?? []);
     const trimmed = content.trimEnd();
     log.debug('renderMarkdown', { contentLength: trimmed.length });
 
@@ -215,7 +214,7 @@ export const FrontmatterBlock = Node.create<FrontmatterBlockOptions>({
     }
 
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
 
     return `${marker}${normalizeFrontmatter(trimmed)}`;

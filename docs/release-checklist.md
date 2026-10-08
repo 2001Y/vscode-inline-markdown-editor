@@ -14,15 +14,16 @@ Record the exact source commit, environment, command, outcome and artifact hash.
 ```sh
 npm ci
 npm run lint
+npm run typecheck
 npm run build
 npm run test:unit
 npm test
 npm run package
 ```
 
-`test:unit` compiles selected production TypeScript modules and tests patch reconstruction, ordering, UTF-16 offsets, protocol counters, edit-range validation and a mocked receive-to-host path that must reject out-of-bounds edits before conversion or applyEdit. These tests do **not** parse Markdown through Tiptap or exercise the extension host.
+`test:unit` compiles selected production TypeScript modules and tests patch reconstruction, ordering, UTF-16 offsets, protocol counters, edit-range validation and a mocked receive-to-host path that must reject out-of-bounds edits before conversion or applyEdit. The ESM cases also exercise selected real Tiptap Markdown parse/serialize paths and sync-client messages. They do **not** exercise a real extension host or prove byte-for-byte fidelity of all dialects.
 
-`npm test` additionally runs the extension-host smoke tests. A VS Code download failure or missing display is blocked verification, not a test pass. Record the resolved VS Code version; also verify the minimum supported version before claiming compatibility.
+`typecheck` validates both packages with strict TypeScript settings and is required by `npm test` and `npm run package`. `npm test` additionally runs the extension-host smoke tests. A VS Code download failure or missing display is blocked verification, not a test pass. Record the resolved VS Code version; also verify the minimum supported version before claiming compatibility.
 
 ## Markdown round-trip and synchronization
 

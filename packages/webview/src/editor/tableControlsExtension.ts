@@ -1054,7 +1054,7 @@ export const TableControls = Extension.create({
             setTimeout(() => {
               suppressNextDocumentClick = false;
             }, 0);
-            showContextMenu(e.clientX, e.clientY, axis);
+            showContextMenu(e.clientX, e.clientY, axis === 'col' ? 'column' : 'row');
           };
 
           const onHandlePointerCancel = (e: PointerEvent) => {
