@@ -293,7 +293,7 @@ export const RawBlock = Node.create<RawBlockOptions>({
           if (mutation.type === 'selection') {
             return false;
           }
-          const target = mutation.target as Node;
+          const target = mutation.target;
           if (target === contentDom && mutation.type === 'attributes') {
             return true;
           }
@@ -358,9 +358,9 @@ export const RawBlock = Node.create<RawBlockOptions>({
   },
 
   renderMarkdown: (
-    node: { attrs?: { indent?: number; kind?: string }; content?: unknown },
-    _helpers: { renderChildren?: (content: unknown) => string },
-    _context?: { parentType?: { name?: string } }
+    node,
+    _helpers,
+    _context
   ) => {
     const kind = node.attrs?.kind ?? 'raw';
     const raw = collectRawText(node.content ?? []);

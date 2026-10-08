@@ -66,11 +66,11 @@ const parseSvgElement = (svgText: string): SVGSVGElement => {
   }
 
   const root = parsed.documentElement;
-  if (!root || root.tagName.toLowerCase() !== 'svg') {
+  if (!(root instanceof SVGSVGElement)) {
     throw new Error('Rendered Mermaid output is not an SVG root element');
   }
 
-  return root as SVGSVGElement;
+  return root;
 };
 
 const renderMermaid = async (): Promise<void> => {

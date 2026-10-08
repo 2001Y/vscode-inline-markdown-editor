@@ -90,22 +90,22 @@ export type BlockHandleEligibility = {
 
 export const resolveBlockHandleEligibility = (
   state: { doc: ProseMirrorNode },
-  getPos: (() => number) | false | undefined,
+  getPos: (() => number | undefined) | false | undefined,
   selfType?: string
 ): BlockHandleEligibility => {
   if (!getPos) {
     return { allowed: false, reason: 'missing-getPos', pos: null, selfType };
   }
 
-  let pos: number;
+  let pos: number | undefined;
   try {
     pos = getPos();
   } catch (error) {
     return { allowed: false, reason: 'getPos-error', pos: null, selfType, error: String(error) };
   }
 
-  if (!Number.isFinite(pos)) {
-    return { allowed: false, reason: 'pos-not-finite', pos: Number.isFinite(pos) ? pos : null, selfType };
+  if (typeof pos !== 'number' || !Number.isFinite(pos)) {
+    return { allowed: false, reason: 'pos-not-finite', pos: null, selfType };
   }
 
   let resolved: ResolvedPos;
@@ -135,7 +135,7 @@ export const resolveBlockHandleEligibility = (
 
 export const shouldRenderBlockHandle = (
   state: { doc: ProseMirrorNode },
-  getPos: (() => number) | false | undefined,
+  getPos: (() => number | undefined) | false | undefined,
   selfType?: string
 ): boolean => {
   const eligibility = resolveBlockHandleEligibility(state, getPos, selfType);
@@ -667,9 +667,9 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
         return;
       }
 
-      blockTypes.forEach((bt) => {
+      for (const bt of blockTypes) {
         blockTypeMenu.appendChild(createBlockTypeItem(bt));
-      });
+      }
 
       storage.menuItemCount = blockTypes.length;
       storage.selectedMenuIndex = 0;
@@ -872,9 +872,9 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
       contextItems.push({ label: bh.delete, action: 'delete', icon: icons.trash });
       contextItems.push({ label: bh.copy, action: 'copy', icon: icons.copy });
 
-      contextItems.forEach((item) => {
+      for (const item of contextItems) {
         contextMenu.appendChild(createMenuItem(item.label, item.action, item.icon, item.iconText));
-      });
+      }
 
       storage.contextItemCount = contextItems.length;
       storage.selectedContextIndex = 0;
@@ -944,13 +944,13 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
 
               switch (blockType) {
                 case 'heading1':
-                  editor.chain().focus().setHeading({ level: 1, indent }).run();
+                  editor.chain().focus().setHeading({ level: 1 }).updateAttributes('heading', { indent }).run();
                   break;
                 case 'heading2':
-                  editor.chain().focus().setHeading({ level: 2, indent }).run();
+                  editor.chain().focus().setHeading({ level: 2 }).updateAttributes('heading', { indent }).run();
                   break;
                 case 'heading3':
-                  editor.chain().focus().setHeading({ level: 3, indent }).run();
+                  editor.chain().focus().setHeading({ level: 3 }).updateAttributes('heading', { indent }).run();
                   break;
                 case 'bulletList':
                   editor.chain().focus().toggleBulletList().updateAttributes('bulletList', { indent }).run();
@@ -959,10 +959,10 @@ export const BlockHandles = Extension.create<BlockHandlesOptions, BlockHandlesSt
                   editor.chain().focus().toggleOrderedList().updateAttributes('orderedList', { indent }).run();
                   break;
                 case 'codeBlock':
-                  editor.chain().focus().setCodeBlock({ indent }).run();
+                  editor.chain().focus().setCodeBlock().updateAttributes('codeBlock', { indent }).run();
                   break;
                 case 'blockquote':
-                  editor.chain().focus().setBlockquote({ indent }).run();
+                  editor.chain().focus().setBlockquote().updateAttributes('blockquote', { indent }).run();
                   break;
                 case 'table':
                   editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();

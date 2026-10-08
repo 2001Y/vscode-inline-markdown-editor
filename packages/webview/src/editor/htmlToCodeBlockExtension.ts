@@ -24,7 +24,7 @@ export const HtmlToCodeBlock = Extension.create({
       contentLength: raw.length,
     });
     if (!raw.trim()) {
-      return null;
+      return [];
     }
 
     // inline HTML を block ノード化すると paragraph 配下に block が混入し、

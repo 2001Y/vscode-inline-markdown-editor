@@ -11,11 +11,11 @@ Do not upload private documents, credentials, or logs containing document text. 
 1. Preserve existing local changes and work from a separate branch.
 2. Run `npm ci`, then reproduce the issue before editing.
 3. Add an appropriate regression test and make the smallest coherent change.
-4. Run `npm run lint`, `npm run build`, `npm run test:unit`, `npm test`, and `npm run package`.
+4. Run `npm run lint`, `npm run typecheck`, `npm run build`, `npm run test:unit`, `npm test`, and `npm run package`.
 5. Explain the root cause, changed behavior, and which checks passed, failed, or could not run in the PR.
 
 The documentation source for the packaged extension is `README/README.md`. Run `npm run copy-readme -w packages/extension` after updating it and include both files. The root README is a short repository entry point.
 
-Pure text-patch/protocol tests live in `test/unit`; they are not a substitute for Markdown-codec or UI testing. New sync, selection, IME, drag, preview, or Markdown serialization changes also need the relevant checks in [the release checklist](docs/release-checklist.md).
+Text-patch/protocol and mocked-host tests live in `test/unit`; ESM Markdown-codec and sync-client tests live in `test/webview`. Codec cases check selected semantic round-trips, not byte-for-byte preservation of all syntax. Neither suite replaces UI testing. New sync, selection, IME, drag, preview, or Markdown serialization changes also need the relevant checks in [the release checklist](docs/release-checklist.md).
 
 Keep dependency-major upgrades and architecture migrations separate from routine fixes. Do not publish a VSIX or change a version as part of an unrelated patch.

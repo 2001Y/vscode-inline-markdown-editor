@@ -27,6 +27,7 @@ import { applyIndentAttributesToDom, indentAttribute, normalizeIndentAttr, rende
 import { createDragHandleElement, resolveBlockHandleEligibility } from './blockHandlesExtension.js';
 import { BlockPreviewController } from './blockPreview.js';
 import { createLogger } from '../logger.js';
+import { resolveNodeViewPosition } from './nodeViewPosition.js';
 
 const CODE_BLOCK_FENCE_RE = /^(```|~~~)([^\n]*)\n/;
 const CODE_BLOCK_FILENAME_RE = /filename\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s]+))/i;
@@ -306,7 +307,7 @@ export const ParagraphNoShortcut = Paragraph.extend({
       return '';
     }
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     const content = h.renderChildren(node.content);
     return `${marker}${content}`;
@@ -388,7 +389,7 @@ export const HeadingNoShortcut = Heading.extend({
     }
 
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     const content = `${headingChars} ${h.renderChildren(node.content)}`;
     return `${marker}${content}`;
@@ -413,7 +414,7 @@ export const BulletListNoShortcut = BulletList.extend({
       return '';
     }
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     const content = h.renderChildren(node.content, '\n');
     return `${marker}${content}`;
@@ -438,7 +439,7 @@ export const OrderedListNoShortcut = OrderedList.extend({
       return '';
     }
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     const content = h.renderChildren(node.content, '\n');
     return `${marker}${content}`;
@@ -569,7 +570,7 @@ export const BlockquoteNoShortcut = Blockquote.extend({
     });
 
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     const content = result.join(`\n${prefix}\n`);
     return `${marker}${content}`;
@@ -712,7 +713,7 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
       };
 
       const applyLabelChange = () => {
-        const pos = resolvePos();
+        const pos = resolveNodeViewPosition(getPos, editor.state.doc, 'codeBlock');
         if (pos === null) {
           return;
         }
@@ -872,7 +873,7 @@ export const CodeBlockNoShortcut = CodeBlockLowlight.extend({
     }
 
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     return `${marker}${output}`;
   },
@@ -940,7 +941,7 @@ export const HorizontalRuleNoShortcut = HorizontalRule.extend({
   renderMarkdown: (node, _h, context) => {
     const indent = normalizeIndentAttr(node.attrs?.indent);
     const content = '---';
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     return `${marker}${content}`;
   },

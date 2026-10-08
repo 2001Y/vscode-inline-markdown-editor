@@ -1,0 +1,12 @@
+{
+  "extends": "./packages/webview/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "noEmitOnError": true,
+    "allowImportingTsExtensions": false,
+    "rootDir": "./packages/webview/src",
+    "outDir": "./.test-webview",
+    "sourceMap": false
+  },
+  "include": ["packages/webview/src/**/*.ts"]
+}

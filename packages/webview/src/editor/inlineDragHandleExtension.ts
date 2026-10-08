@@ -20,6 +20,16 @@ import { LIST_MAX_DEPTH } from './listIndentConfig.js';
 import { createDragHandleElement, shouldRenderBlockHandle } from './blockHandlesExtension.js';
 import { createLogger } from '../logger.js';
 
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    inlineDragHandle: {
+      lockDragHandle: () => ReturnType;
+      unlockDragHandle: () => ReturnType;
+      toggleDragHandle: () => ReturnType;
+    };
+  }
+}
+
 const MODULE = 'InlineDragHandle';
 const TABLE_CELL_SELECTOR = 'td, th';
 const LIST_INDENT_STEP_PX = 24;
@@ -326,7 +336,7 @@ const createHandleDecorations = (
   const excludedTypes: Record<string, number> = {};
   const skippedReasons: Record<string, number> = {};
   const allExcluded =
-    Boolean(allowed) &&
+    allowed !== undefined &&
     Array.from(allowed.values()).every((typeName) => HANDLE_NODEVIEW_EXCLUSIONS.has(typeName));
 
   const bump = (target: Record<string, number>, key: string) => {
@@ -483,7 +493,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
     const options = this.options;
     let locked = false;
     let dragSelectionRange: { from: number; to: number; size: number } | null = null;
-    let dragPayload: { slice: unknown; move: boolean } | null = null;
+    let dragPayload: { slice: Slice; move: boolean } | null = null;
     let dragIndentState: { startX: number; sourceDepth: number; startedAt: number; sourcePos: number } | null = null;
     let blockIndentState: { startX: number; sourceIndent: number; startedAt: number; sourcePos: number } | null = null;
     let pendingDropX: number | null = null;
@@ -1673,7 +1683,7 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       const { node, pos } = target;
       dragStartedAt = Date.now();
       const activeSelection = editor.state.selection;
-      let selection: Selection;
+      let selection: Selection | null;
 
       const createNodeSelection = (): Selection | null => {
         try {
