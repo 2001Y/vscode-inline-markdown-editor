@@ -12,10 +12,12 @@
     "watch:extension": "npm run watch -w packages/extension",
     "watch:webview": "npm run watch -w packages/webview",
     "lint": "npm run lint -w packages/extension && npm run lint -w packages/webview",
-    "test": "env -u ELECTRON_RUN_AS_NODE npm run test -w packages/extension",
-    "package": "npm run build && NODE_OPTIONS=\"--require $PWD/scripts/patch-os-cpus.cjs\" sh -c 'cd packages/extension && vsce package --no-dependencies'"
+    "test": "npm run test:unit && env -u ELECTRON_RUN_AS_NODE npm run test -w packages/extension",
+    "package": "npm run build && NODE_OPTIONS=\"--require $PWD/scripts/patch-os-cpus.cjs\" sh -c 'cd packages/extension && vsce package --no-dependencies'",
+    "test:unit": "tsc -p tsconfig.unit-tests.json && node --test test/unit/*.test.cjs"
   },
   "devDependencies": {
+    "@vscode/vsce": "4.0.0",
     "typescript": "^5.9.3"
   },
   "optionalDependencies": {

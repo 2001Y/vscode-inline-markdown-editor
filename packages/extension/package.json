@@ -19,7 +19,10 @@
   "main": "./out/extension.js",
   "l10n": "./l10n",
   "files": [
-    "out/**",
+    "out/extension.js",
+    "out/editors/*.js",
+    "out/protocol/*.js",
+    "out/util/*.js",
     "media/webview/*.js",
     "media/webview/*.css",
     "media/webview/*.ttf",

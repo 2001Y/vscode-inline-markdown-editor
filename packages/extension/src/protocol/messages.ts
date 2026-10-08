@@ -347,6 +347,27 @@ const VALID_WEBVIEW_MESSAGE_TYPES = [
   'findWidgetStateChange',
 ] as const;
 
+const isNonNegativeSafeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+/** Validate original-document UTF-16 offsets before VS Code can clamp them. */
+export function areValidReplaces(changes: unknown, documentLength?: number): changes is Replace[] {
+  if (!Array.isArray(changes)) {return false;}
+  if (documentLength !== undefined && !isNonNegativeSafeInteger(documentLength)) {return false;}
+  let previousStart = -1;
+  let previousEnd = 0;
+  for (const change of changes) {
+    if (typeof change !== 'object' || change === null) {return false;}
+    if (!isNonNegativeSafeInteger(change.start) || !isNonNegativeSafeInteger(change.end)) {return false;}
+    if (typeof change.text !== 'string') {return false;}
+    if (change.end < change.start || change.start < previousEnd || change.start <= previousStart) {return false;}
+    if (documentLength !== undefined && change.end > documentLength) {return false;}
+    previousStart = change.start;
+    previousEnd = change.end;
+  }
+  return true;
+}
+
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
   if (typeof msg !== 'object' || msg === null) {
     return false;
@@ -367,15 +388,9 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
   }
 
   if (m.type === 'edit') {
-    if (typeof m.txId !== 'number') {return false;}
-    if (typeof m.baseVersion !== 'number') {return false;}
-    if (!Array.isArray(m.changes)) {return false;}
-    for (const change of m.changes) {
-      if (typeof change !== 'object' || change === null) {return false;}
-      if (typeof change.start !== 'number') {return false;}
-      if (typeof change.end !== 'number') {return false;}
-      if (typeof change.text !== 'string') {return false;}
-    }
+    if (!isNonNegativeSafeInteger(m.txId)) {return false;}
+    if (!isNonNegativeSafeInteger(m.baseVersion)) {return false;}
+    if (!areValidReplaces(m.changes)) {return false;}
   }
 
   if (m.type === 'initAck') {
