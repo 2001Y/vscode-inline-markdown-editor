@@ -1755,6 +1755,11 @@ export const InlineDragHandle = Extension.create<InlineDragHandleOptions>({
       };
       dragPayload = { slice: dragSlice, move };
 
+      // This handle already supplied the block slice. ProseMirror's bubbling
+      // dragstart handler would replace it with the unrelated live selection.
+      // Keep the browser's native drag default action, but own this event.
+      e.stopPropagation();
+
       if (node.type.name === 'listItem') {
         const listItemDom = editor.view.nodeDOM(pos) as HTMLElement | null;
         const listItem = listItemDom ? resolveListItem(listItemDom) : null;
