@@ -13,6 +13,7 @@
   "files": [
     "packages/webview/src/editor/diffEngine.ts",
     "packages/extension/src/protocol/messages.ts",
-    "packages/extension/src/editors/inlineMarkProvider.ts"
+    "packages/extension/src/editors/inlineMarkProvider.ts",
+    "packages/webview/src/observability.ts"
   ]
 }

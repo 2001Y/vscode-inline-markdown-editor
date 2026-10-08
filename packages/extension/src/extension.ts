@@ -17,7 +17,10 @@
 
 import * as vscode from 'vscode';
 import { InlineMarkProvider } from './editors/inlineMarkProvider.js';
+import { captureInlineEditorOpenTrace, resolveReopenTargetUri } from './util/inlineEditorOpenTrace.js';
 import { logger } from './util/log.js';
+
+let providerInstance: InlineMarkProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   logger.initialize(context);
@@ -62,12 +65,56 @@ export function activate(context: vscode.ExtensionContext): void {
   const openWithViewType = async (
     uri: vscode.Uri,
     viewType: string,
-    viewColumn: vscode.ViewColumn | undefined
+    viewColumn: vscode.ViewColumn | undefined,
+    openTrace?: ReturnType<typeof captureInlineEditorOpenTrace>
   ): Promise<void> => {
-    await vscode.commands.executeCommand('vscode.openWith', uri, viewType, {
-      viewColumn,
-      preview: false,
+    const docUri = uri.toString();
+    const startedAt = Date.now();
+    logger.info('inlineEditor.open.commandIssued', {
+      docUri,
+      details: {
+        seq: openTrace?.seq ?? null,
+        reason: openTrace?.reason ?? null,
+        requestedViewType: viewType,
+        viewColumn: viewColumn ?? null,
+      },
     });
+    try {
+      const open = () => vscode.commands.executeCommand('vscode.openWith', uri, viewType, {
+        viewColumn,
+        preview: false,
+      });
+      if (viewType === InlineMarkProvider.viewType && openTrace && providerInstance) {
+        await providerInstance.runWithOpenTrace(openTrace, open);
+      } else {
+        await open();
+      }
+      logger.info('inlineEditor.open.commandCompleted', {
+        docUri,
+        durationMs: Date.now() - startedAt,
+        details: {
+          seq: openTrace?.seq ?? null,
+          reason: openTrace?.reason ?? null,
+          requestedViewType: viewType,
+        },
+      });
+    } catch (error) {
+      if (viewType === InlineMarkProvider.viewType && openTrace && providerInstance) {
+        providerInstance.dropQueuedOpenTrace(uri, openTrace.seq, 'openWithFailed');
+      }
+      logger.error('inlineEditor.open.commandFailed', {
+        docUri,
+        durationMs: Date.now() - startedAt,
+        errorCode: 'INLINE_EDITOR_OPEN_FAILED',
+        errorStack: String(error),
+        details: {
+          seq: openTrace?.seq ?? null,
+          reason: openTrace?.reason ?? null,
+          requestedViewType: viewType,
+        },
+      });
+      throw error;
+    }
   };
 
   context.subscriptions.push(
@@ -76,17 +123,17 @@ export function activate(context: vscode.ExtensionContext): void {
       const tab = tabGroup.activeTab;
       const viewColumn = tabGroup.viewColumn;
       const input = tab?.input;
+      const activeTextEditor = vscode.window.activeTextEditor;
 
-      let uri: vscode.Uri | null = null;
-      if (input instanceof vscode.TabInputCustom && input.viewType === InlineMarkProvider.viewType) {
-        uri = input.uri;
-      } else if (input instanceof vscode.TabInputText) {
-        uri = input.uri;
-      } else if (vscode.window.activeTextEditor) {
-        uri = vscode.window.activeTextEditor.document.uri;
-      }
+      const uri = resolveReopenTargetUri(input, activeTextEditor, InlineMarkProvider.viewType);
 
       if (!uri) {
+        logger.warn('inlineEditor.reopen.textEditor.noTarget', {
+          details: {
+            activeTabInputKind: tab?.input ? tab.input.constructor.name : null,
+            activeTextEditorUri: activeTextEditor?.document.uri.toString() ?? null,
+          },
+        });
         vscode.window.showWarningMessage(
           vscode.l10n.t('Cannot reopen with Text Editor: no active editor found.')
         );
@@ -111,30 +158,68 @@ export function activate(context: vscode.ExtensionContext): void {
       const tab = tabGroup.activeTab;
       const viewColumn = tabGroup.viewColumn;
       const input = tab?.input;
+      const activeTextEditor = vscode.window.activeTextEditor;
 
-      let uri: vscode.Uri | null = null;
-      if (input instanceof vscode.TabInputText) {
-        uri = input.uri;
-      } else if (vscode.window.activeTextEditor) {
-        uri = vscode.window.activeTextEditor.document.uri;
-      }
+      const uri = resolveReopenTargetUri(input, activeTextEditor);
 
       if (!uri) {
+        logger.warn('inlineEditor.open.requestRejected', {
+          details: {
+            reason: 'no-target-uri',
+            sourceCommand: 'inlineMark.reopenWithInlineMark',
+            activeTabInputKind: tab?.input ? tab.input.constructor.name : null,
+            activeTextEditorUri: activeTextEditor?.document.uri.toString() ?? null,
+          },
+        });
         vscode.window.showWarningMessage(
           vscode.l10n.t('Cannot reopen with inlineMark: no active editor found.')
         );
         return;
       }
 
+      const openTrace = captureInlineEditorOpenTrace({
+        targetUri: uri,
+        reason: 'reopenWithInlineMark',
+        sourceCommand: 'inlineMark.reopenWithInlineMark',
+        requestedViewType: InlineMarkProvider.viewType,
+        viewColumn,
+        activeTab: tab,
+        activeTextEditor,
+      });
+
+      logger.info('inlineEditor.open.requestCaptured', {
+        docUri: uri.toString(),
+        details: {
+          ...openTrace,
+        },
+      });
+      if (!openTrace.targetSelection) {
+        logger.warn('inlineEditor.open.targetSelectionUnavailable', {
+          docUri: uri.toString(),
+          details: {
+            seq: openTrace.seq,
+            reason: openTrace.reason,
+            activeTextEditorUri: activeTextEditor?.document.uri.toString() ?? null,
+            activeTab: openTrace.activeTab,
+          },
+        });
+      }
+
       const closed = await closeActiveTab(tab);
       if (!closed) {
-        logger.warn('Reopen with inlineMark aborted: close cancelled', {
+        logger.warn('inlineEditor.open.requestAborted', {
+          docUri: uri.toString(),
           errorCode: 'REOPEN_INLINE_MARK_CANCELLED',
+          details: {
+            seq: openTrace.seq,
+            reason: openTrace.reason,
+            stage: 'closeActiveTab',
+          },
         });
         return;
       }
 
-      await openWithViewType(uri, InlineMarkProvider.viewType, viewColumn);
+      await openWithViewType(uri, InlineMarkProvider.viewType, viewColumn, openTrace);
     })
   );
 
@@ -220,5 +305,3 @@ export function deactivate(): void {
   logger.info('Extension deactivating');
   logger.dispose();
 }
-
-let providerInstance: InlineMarkProvider | undefined;

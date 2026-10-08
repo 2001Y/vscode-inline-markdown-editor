@@ -314,9 +314,10 @@ export class Logger {
     uriString: string,
     workspaceFolders: readonly vscode.WorkspaceFolder[]
   ): string {
+    uriString = uriString.split(/[?#]/, 1)[0];
     for (const folder of workspaceFolders) {
-      const folderUri = folder.uri.toString();
-      if (uriString.startsWith(folderUri)) {
+      const folderUri = folder.uri.toString().replace(/\/$/, '');
+      if (uriString === folderUri || uriString.startsWith(`${folderUri}/`)) {
         const relativePath = uriString.slice(folderUri.length);
         return `workspace://${folder.name}${relativePath}`;
       }
@@ -352,17 +353,25 @@ export class Logger {
     details: Record<string, unknown>,
     workspaceFolders: readonly vscode.WorkspaceFolder[]
   ): Record<string, unknown> {
-    const masked = { ...details };
-
-    if (typeof masked.url === 'string' && masked.url.startsWith('file://')) {
-      masked.url = this.maskPath(masked.url, workspaceFolders);
-    }
-
-    if (typeof masked.path === 'string') {
-      masked.path = this.maskPath(masked.path, workspaceFolders);
-    }
-
-    return masked;
+    const visit = (value: unknown, key = ''): unknown => {
+      if (typeof value === 'string') {
+        // URI/path fields can appear inside arrays and nested editor snapshots.
+        // Mask the complete URI so query/authority data cannot survive export.
+        if (/(?:uri|path|url)$/i.test(key) || /^(?:file|vscode-remote|git):/i.test(value)) {
+          if (/^https?:/i.test(value) && /url$/i.test(key)) {
+            return value;
+          }
+          return this.maskPath(value.split(/[?#]/, 1)[0], workspaceFolders);
+        }
+        return this.maskPathsInString(value, workspaceFolders);
+      }
+      if (Array.isArray(value)) {return value.map((entry) => visit(entry, key));}
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, visit(entry, name)]));
+      }
+      return value;
+    };
+    return visit(details) as Record<string, unknown>;
   }
 
   dispose(): void {

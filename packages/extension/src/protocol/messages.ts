@@ -44,6 +44,54 @@ export interface Replace {
   text: string;
 }
 
+export interface PositionSnapshot {
+  line: number;
+  character: number;
+}
+
+export interface RangeSnapshot {
+  start: PositionSnapshot;
+  end: PositionSnapshot;
+}
+
+export interface SelectionSnapshot extends RangeSnapshot {
+  anchor: PositionSnapshot;
+  active: PositionSnapshot;
+  isEmpty: boolean;
+  isReversed: boolean;
+}
+
+export interface ActiveTextEditorSnapshot {
+  docUri: string;
+  viewColumn: number | null;
+  selection: SelectionSnapshot | null;
+  visibleRanges: RangeSnapshot[];
+}
+
+export interface TabInputSnapshot {
+  kind: 'text' | 'textDiff' | 'custom' | 'unknown';
+  uri?: string;
+  originalUri?: string;
+  modifiedUri?: string;
+  viewType?: string;
+}
+
+export interface InlineEditorOpenTrace {
+  seq: number;
+  reason: string;
+  sourceCommand: string | null;
+  requestedViewType: string;
+  targetUri: string;
+  targetRange: RangeSnapshot | null;
+  targetSelection: SelectionSnapshot | null;
+  targetVisibleRanges: RangeSnapshot[];
+  activeTextEditor: ActiveTextEditorSnapshot | null;
+  activeTab: TabInputSnapshot | null;
+  createdAt: string;
+  createdAtMs: number;
+  viewColumn: number | null;
+}
+
 export interface BaseMessage {
   v: number;
   type: string;
@@ -193,6 +241,7 @@ export interface InitMessage extends BaseMessage {
   locale: string;
   i18n: Record<string, string>;
   config: WebviewConfig;
+  openTrace?: InlineEditorOpenTrace | null;
 }
 
 export interface ConfigChangedMessage extends BaseMessage {
@@ -442,7 +491,8 @@ export function createInitMessage(
   clientId: string,
   locale: string,
   i18n: Record<string, string>,
-  config: WebviewConfig
+  config: WebviewConfig,
+  openTrace?: InlineEditorOpenTrace | null
 ): InitMessage {
   return {
     v: PROTOCOL_VERSION,
@@ -456,6 +506,7 @@ export function createInitMessage(
     locale,
     i18n,
     config,
+    openTrace: openTrace ?? null,
   };
 }
 
