@@ -25,11 +25,17 @@
 import { SyncClient } from './protocol/client.js';
 import { createEditor, type EditorInstance } from './editor/createEditor.js';
 import { createFindWidget, type FindWidgetApi, type FindWidgetState } from './editor/findWidget.js';
-import type { Replace, Remediation, WebviewConfig } from './protocol/types.js';
+import type { InlineEditorOpenTrace, Replace, Remediation, WebviewConfig } from './protocol/types.js';
 import type { ChangeMetrics } from './editor/diffEngine.js';
 import { executeCommand, type CommandName } from './editor/commands.js';
 import { getRuntimeConfig, setRuntimeConfig } from './editor/runtimeConfig.js';
 import { createLogger, setDebugEnabled } from './logger.js';
+import {
+  logObservabilityEvent,
+  setCurrentOpenTrace,
+  setObservabilityReporter,
+  scheduleObservabilityCallback,
+} from './observability.js';
 import './styles.css';
 
 interface AppState {
@@ -53,8 +59,39 @@ let lastOpaqueBlockShellBg = '';
 let blockShellThemeObserver: MutationObserver | null = null;
 
 const INIT_LOADING_TIMEOUT_MS = 15000;
+const VIEWPORT_PROBE_INSET_PX = 8;
 
 const log = createLogger('Main');
+
+interface ViewportSnapshot {
+  available: boolean;
+  reason: string;
+  scrollTop: number | null;
+  scrollLeft: number | null;
+  clientWidth: number | null;
+  clientHeight: number | null;
+  scrollWidth: number | null;
+  scrollHeight: number | null;
+  containerRect: {
+    top: number | null;
+    bottom: number | null;
+    left: number | null;
+    right: number | null;
+  };
+  visiblePosRange: {
+    from: number | null;
+    to: number | null;
+  };
+  selection: {
+    from: number | null;
+    to: number | null;
+    empty: boolean | null;
+    endpointsVisible: boolean | null;
+    startCoords: { top: number; bottom: number; left: number; right: number } | null;
+    endCoords: { top: number; bottom: number; left: number; right: number } | null;
+  };
+  mappingError: string | null;
+}
 
 const VALID_EDITOR_COMMANDS: ReadonlySet<CommandName> = new Set([
   'toggleBold',
@@ -156,6 +193,10 @@ function main(): void {
     onImageResolved: handleImageResolved,
     onConfigChanged: handleConfigChanged,
   });
+  setObservabilityReporter((level, event, details) => {
+    syncClient?.emitHostLog(level, event, details);
+  });
+  setCurrentOpenTrace(null);
 
   window.addEventListener('error', (event) => {
     const errorEvent = event as ErrorEvent;
@@ -207,6 +248,130 @@ const setLoadingVisible = (visible: boolean, reason: string): void => {
   log.debug('Loading indicator', { visible, reason });
 };
 
+const captureViewportSnapshot = (reason: string): ViewportSnapshot => {
+  if (!editorContainerEl || !editorInstance) {
+    return {
+      available: false,
+      reason,
+      scrollTop: null,
+      scrollLeft: null,
+      clientWidth: null,
+      clientHeight: null,
+      scrollWidth: null,
+      scrollHeight: null,
+      containerRect: {
+        top: null,
+        bottom: null,
+        left: null,
+        right: null,
+      },
+      visiblePosRange: {
+        from: null,
+        to: null,
+      },
+      selection: {
+        from: null,
+        to: null,
+        empty: null,
+        endpointsVisible: null,
+        startCoords: null,
+        endCoords: null,
+      },
+      mappingError: 'editor-not-ready',
+    };
+  }
+
+  const view = editorInstance.editor.view;
+  const selection = editorInstance.editor.state.selection;
+  const containerRect = editorContainerEl.getBoundingClientRect();
+  const probeLeft = Math.max(containerRect.left + VIEWPORT_PROBE_INSET_PX, containerRect.left + 1);
+  const probeTop = Math.min(containerRect.bottom - 1, containerRect.top + VIEWPORT_PROBE_INSET_PX);
+  const probeBottom = Math.max(containerRect.top + 1, containerRect.bottom - VIEWPORT_PROBE_INSET_PX);
+
+  let visibleFrom = null;
+  let visibleTo = null;
+  let mappingError: string | null = null;
+  let selectionStartCoords: ViewportSnapshot['selection']['startCoords'] = null;
+  let selectionEndCoords: ViewportSnapshot['selection']['endCoords'] = null;
+  let selectionEndpointsVisible: boolean | null = null;
+
+  try {
+    visibleFrom = view.posAtCoords({ left: probeLeft, top: probeTop })?.pos ?? null;
+    visibleTo = view.posAtCoords({ left: probeLeft, top: probeBottom })?.pos ?? null;
+    const start = view.coordsAtPos(selection.from);
+    const end = view.coordsAtPos(selection.to);
+    selectionStartCoords = {
+      top: start.top,
+      bottom: start.bottom,
+      left: start.left,
+      right: start.right,
+    };
+    selectionEndCoords = {
+      top: end.top,
+      bottom: end.bottom,
+      left: end.left,
+      right: end.right,
+    };
+    selectionEndpointsVisible =
+      [start, end].every((rect) =>
+        rect.top >= containerRect.top && rect.bottom <= containerRect.bottom &&
+        rect.left >= containerRect.left && rect.right <= containerRect.right
+      );
+  } catch (error) {
+    mappingError = String(error);
+  }
+
+  return {
+    available: true,
+    reason,
+    scrollTop: editorContainerEl.scrollTop,
+    scrollLeft: editorContainerEl.scrollLeft,
+    clientWidth: editorContainerEl.clientWidth,
+    clientHeight: editorContainerEl.clientHeight,
+    scrollWidth: editorContainerEl.scrollWidth,
+    scrollHeight: editorContainerEl.scrollHeight,
+    containerRect: {
+      top: containerRect.top,
+      bottom: containerRect.bottom,
+      left: containerRect.left,
+      right: containerRect.right,
+    },
+    visiblePosRange: {
+      from: visibleFrom,
+      to: visibleTo,
+    },
+    selection: {
+      from: selection.from,
+      to: selection.to,
+      empty: selection.empty,
+      endpointsVisible: selectionEndpointsVisible,
+      startCoords: selectionStartCoords,
+      endCoords: selectionEndCoords,
+    },
+    mappingError,
+  };
+};
+
+const logViewportSnapshot = (event: string, reason: string): void => {
+  const snapshot = captureViewportSnapshot(reason);
+  const level =
+    !snapshot.available ||
+    snapshot.mappingError !== null ||
+    snapshot.visiblePosRange.from === null ||
+    snapshot.visiblePosRange.to === null
+      ? 'WARNING'
+      : 'INFO';
+  logObservabilityEvent(level, event, { ...snapshot });
+};
+
+const scheduleViewportSnapshot = (
+  event: string,
+  reason: string,
+  frames = 1
+): void => {
+  scheduleObservabilityCallback(() => logViewportSnapshot(event, reason), frames);
+};
+
 const waitForInitialContent = (
   reason: string,
   sequence: number,
@@ -224,6 +389,12 @@ const waitForInitialContent = (
     if (!editorContainerEl) {
       const elapsedMs = Math.round(performance.now() - startedAtPerf);
       setLoadingVisible(false, 'init-missing-container');
+      logObservabilityEvent('ERROR', 'inlineEditor.display.containerMissing', {
+        startedAt,
+        elapsedMs,
+        contentLength,
+        reason,
+      });
       syncClient?.notifyHost(
         'ERROR',
         'WEBVIEW_CONTAINER_MISSING',
@@ -242,6 +413,15 @@ const waitForInitialContent = (
     const contentEl = editorContainerEl.querySelector('.inline-markdown-editor-content');
     if (contentEl) {
       setLoadingVisible(false, reason);
+      const elapsedMs = Math.round(performance.now() - startedAtPerf);
+      logObservabilityEvent('INFO', 'inlineEditor.display.contentVisible', {
+        startedAt,
+        elapsedMs,
+        contentLength,
+        reason,
+        documentHasFocus: document.hasFocus(),
+      });
+      scheduleViewportSnapshot('inlineEditor.viewport.initial', `${reason}:content-visible`, 2);
       return;
     }
 
@@ -249,6 +429,13 @@ const waitForInitialContent = (
     if (elapsed >= timeoutMs) {
       const elapsedMs = Math.round(elapsed);
       setLoadingVisible(false, 'init-timeout');
+      logObservabilityEvent('ERROR', 'inlineEditor.display.initTimeout', {
+        startedAt,
+        elapsedMs,
+        timeoutMs,
+        contentLength,
+        reason,
+      });
       syncClient?.notifyHost(
         'ERROR',
         'WEBVIEW_INIT_TIMEOUT',
@@ -399,14 +586,26 @@ function handleInit(
   content: string,
   _version: number,
   config: WebviewConfig,
-  _i18n: Record<string, string>
+  _i18n: Record<string, string>,
+  openTrace?: InlineEditorOpenTrace | null,
+  sessionId?: string | null
 ): void {
   const initStartedAt = Date.now();
+  initSequence += 1;
   setDebugEnabled(Boolean(config.debug?.enabled));
+  setCurrentOpenTrace(openTrace ?? null, initSequence, sessionId ?? null);
   log.info('Init received', {
     contentLength: content.length,
     version: _version,
     configDebugEnabled: config.debug.enabled
+  });
+  logObservabilityEvent('INFO', 'inlineEditor.open.initReceived', {
+    version: _version,
+    contentLength: content.length,
+    hasOpenTrace: Boolean(openTrace),
+    hasTargetSelection: Boolean(openTrace?.targetSelection),
+    activeTab: openTrace?.activeTab ?? null,
+    activeTextEditor: openTrace?.activeTextEditor ?? null,
   });
 
   setRuntimeConfig(config);
@@ -453,6 +652,12 @@ function handleInit(
     onChangeGuardExceeded: handleChangeGuardExceeded,
     initialContent: content,
   });
+  logObservabilityEvent('INFO', 'inlineEditor.display.editorCreated', {
+    version: _version,
+    contentLength: content.length,
+    elapsedSinceInitMs: Date.now() - initStartedAt,
+    hasSavedScroll: savedState?.scrollTop !== undefined,
+  });
 
   resolveImagesInEditor();
   setupImageObserver();
@@ -474,12 +679,46 @@ function handleInit(
     findWidget.restoreState(appState.findWidget);
   }
 
+  const hasSavedScroll = savedState?.scrollTop !== undefined;
+  const hasTargetSelection = Boolean(openTrace?.targetSelection);
   if (savedState?.scrollTop !== undefined) {
     log.debug('Restoring scroll position', { scrollTop: savedState.scrollTop });
     editorContainerEl.scrollTop = savedState.scrollTop;
+    if (savedState.scrollLeft !== undefined) {
+      editorContainerEl.scrollLeft = savedState.scrollLeft;
+    }
+  }
+  logObservabilityEvent(
+    'DEBUG',
+    'inlineEditor.open.scrollRestoreDecision',
+    {
+      hasSavedScroll,
+      hasTargetSelection,
+      restored: hasSavedScroll,
+      savedScrollTop: savedState?.scrollTop ?? null,
+      savedScrollLeft: savedState?.scrollLeft ?? null,
+      reason: !hasSavedScroll
+        ? 'no-saved-scroll'
+        : hasTargetSelection
+          ? 'restored-with-unapplied-navigation-target'
+          : 'restored-saved-scroll',
+    }
+  );
+  if (hasSavedScroll) {
+    scheduleViewportSnapshot('inlineEditor.viewport.afterScrollRestore', 'after-scroll-restore', 1);
+  }
+  if (openTrace?.targetSelection) {
+    logObservabilityEvent('DEBUG', 'inlineEditor.open.navigationTargetUnapplied', {
+      targetRange: openTrace.targetRange,
+      targetSelection: openTrace.targetSelection,
+      targetVisibleRanges: openTrace.targetVisibleRanges,
+      revealRequested: false,
+      revealApplied: false,
+      decorationApplied: false,
+      reason: 'selection-reveal-parity-not-implemented',
+    });
   }
 
-  initSequence += 1;
   waitForInitialContent(
     'init-complete',
     initSequence,
@@ -492,6 +731,7 @@ function handleInit(
     contentLength: content.length,
     version: _version
   });
+  scheduleViewportSnapshot('inlineEditor.viewport.afterEditorCreate', 'after-editor-create', 1);
 }
 
 function handleConfigChanged(config: WebviewConfig): void {
