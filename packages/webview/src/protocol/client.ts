@@ -431,6 +431,10 @@ export class SyncClient {
       clearTimeout(this.initTimeoutId);
       this.initTimeoutId = null;
     }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
     this.sessionId = msg.sessionId;
     this.clientId = msg.clientId;
     this.baseVersion = msg.version;

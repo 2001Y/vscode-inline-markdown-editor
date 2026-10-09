@@ -71,3 +71,17 @@ test('resetSession cancels an edit that is still waiting for debounce', async ()
     data: { ...init(false), sessionId: 'reset-session', content: 'authoritative' },
   });
 });
+
+test('a fresh init cancels an edit left over from the previous session', async () => {
+  const { client, posts } = fixture();
+  client.handleMessage({ data: init(false) });
+  posts.length = 0;
+
+  client.scheduleEdit(() => [{ start: 5, end: 5, text: 'stale' }]);
+  client.handleMessage({
+    data: { ...init(false), sessionId: 'reset-session', content: 'authoritative' },
+  });
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  assert.deepEqual(posts.map(message => message.type), ['initAck']);
+});
