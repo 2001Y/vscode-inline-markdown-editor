@@ -47,6 +47,7 @@
 
 import {
   type ExtensionToWebviewMessage,
+  type InlineEditorOpenTrace,
   type WebviewConfig,
   type Replace,
   type Remediation,
@@ -99,7 +100,14 @@ declare function acquireVsCodeApi(): VsCodeApi;
 export type SyncState = 'idle' | 'syncing' | 'error';
 
 export interface SyncClientCallbacks {
-  onInit: (content: string, version: number, config: WebviewConfig, i18n: Record<string, string>) => void;
+  onInit: (
+    content: string,
+    version: number,
+    config: WebviewConfig,
+    i18n: Record<string, string>,
+    openTrace?: InlineEditorOpenTrace | null,
+    sessionId?: string | null
+  ) => void;
   onDocChanged: (version: number, changes: Replace[], fullContent?: string) => void;
   onError: (code: string, message: string, remediation: string[]) => void;
   onConfigChanged?: (config: WebviewConfig) => void;
@@ -109,7 +117,7 @@ export interface SyncClientCallbacks {
 
 export class SyncClient {
   private vscode: VsCodeApi;
-  private callbacks: SyncClientCallbacks;
+  private callbacks: SyncClientCallbacks & Required<Pick<SyncClientCallbacks, 'onSyncStateChange'>>;
   private config: WebviewConfig | null = null;
   private i18n: Record<string, string> = {};
 
@@ -180,6 +188,23 @@ export class SyncClient {
     this.vscode.postMessage(createFindWidgetStateChangeMessage(visible));
   }
 
+  emitHostLog(
+    level: 'INFO' | 'DEBUG' | 'TRACE' | 'WARN' | 'ERROR',
+    message: string,
+    details?: Record<string, unknown>
+  ): void {
+    if (!this.config?.debug.enabled && level !== 'WARN' && level !== 'ERROR') {return;}
+    try {
+      this.vscode.postMessage({
+        ...createLogClientMessage(level, message, details),
+        sessionId: this.sessionId ?? undefined,
+        clientId: this.clientId ?? undefined,
+      });
+    } catch {
+      // ignore logging failures
+    }
+  }
+
   start(): void {
     this.vscode.postMessage(createReadyMessage());
     this.log('DEBUG', 'Ready message sent');
@@ -237,17 +262,19 @@ export class SyncClient {
       return;
     }
 
-    const msg = raw as ExtensionToWebviewMessage & { type?: string; v?: number };
-    if (!msg.type || !EXTENSION_MESSAGE_TYPES.has(msg.type)) {
-      if (msg.type === 'inlineMarkPreviewHeight') {
+    const envelope = raw as { type?: unknown; v?: unknown };
+    if (envelope.type === 'editorCommand') {return;}
+    if (typeof envelope.type !== 'string' || !EXTENSION_MESSAGE_TYPES.has(envelope.type)) {
+      if (envelope.type === 'inlineMarkPreviewHeight') {
         return;
       }
       this.logPreInit('DEBUG', 'Ignored non-protocol window message', {
-        messageType: msg.type ?? null,
+        messageType: envelope.type ?? null,
       });
       return;
     }
 
+    const msg = raw as ExtensionToWebviewMessage;
     if (typeof msg.type === 'string' && msg.type.startsWith('nestedPage')) {
       clientLog.debug('NestedPage raw message received', {
         type: msg.type,
@@ -255,10 +282,6 @@ export class SyncClient {
         requestId: (msg as { requestId?: string }).requestId,
         sessionId: (msg as { sessionId?: string }).sessionId,
       });
-    }
-    if (msg.type === 'editorCommand') {
-      // editorCommand is handled by main.ts and is not part of the sync protocol.
-      return;
     }
 
     if (typeof msg.v !== 'number') {
@@ -383,11 +406,7 @@ export class SyncClient {
     message: string,
     details?: Record<string, unknown>
   ): void {
-    try {
-      this.vscode.postMessage(createLogClientMessage(level, message, details));
-    } catch {
-      // ignore logging failures
-    }
+    this.emitHostLog(level, message, details);
   }
 
   private describeMessageSource(source: MessageEventSource | null): string {
@@ -412,6 +431,10 @@ export class SyncClient {
       clearTimeout(this.initTimeoutId);
       this.initTimeoutId = null;
     }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
     this.sessionId = msg.sessionId;
     this.clientId = msg.clientId;
     this.baseVersion = msg.version;
@@ -431,19 +454,14 @@ export class SyncClient {
     try {
       const elapsedMs = this.readySentAt ? this.initReceivedAt - this.readySentAt : null;
       this.sendInitAck(elapsedMs, msg.content.length);
-      this.callbacks.onInit(msg.content, msg.version, msg.config, msg.i18n);
+      this.callbacks.onInit(msg.content, msg.version, msg.config, msg.i18n, msg.openTrace ?? null, this.sessionId);
       this.callbacks.onSyncStateChange('idle');
 
-      try {
-        this.vscode.postMessage(
-          createLogClientMessage('INFO', 'Init received (webview)', {
-            version: msg.version,
-            contentLength: msg.content.length,
-          })
-        );
-      } catch {
-        // ignore logging failures
-      }
+      this.emitHostLog('INFO', 'Init received (webview)', {
+        version: msg.version,
+        contentLength: msg.content.length,
+        seq: msg.openTrace?.seq ?? null,
+      });
 
       this.log('INFO', 'Initialized', {
         sessionId: this.sessionId,
@@ -989,6 +1007,10 @@ export class SyncClient {
   resetSession(): void {
     this.log('INFO', 'Reset session requested');
     // Clear all state and request fresh init
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
     this.awaitingDocChangedVersion = null;
@@ -1032,6 +1054,6 @@ export class SyncClient {
         break;
     }
 
-    this.vscode.postMessage(createLogClientMessage(level, message, details));
+    this.emitHostLog(level, message, details);
   }
 }

@@ -197,7 +197,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       return '';
     }
 
-    const selection = editor.state.selection;
+    const currentEditor = editor;
+    const selection = currentEditor.state.selection;
     if (selection.empty) {
       logClipboardInfo('Clipboard serialize skipped: empty selection', {
         durationMs: Date.now() - startedAt,
@@ -215,7 +216,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
       if (!typeName) {
         return false;
       }
-      const nodeType = editor.schema.nodes[typeName];
+      const nodeType = currentEditor.schema.nodes[typeName];
       return Boolean(nodeType?.isBlock);
     });
 
@@ -435,6 +436,8 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     },
   });
 
+  const initializedEditor = editor;
+
   setHostNotifier((level, code, message, remediation, details) => {
     syncClient.notifyHost(level, code, message, remediation, details);
   });
@@ -525,7 +528,7 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
   window.addEventListener('blur', onModifierBlur);
 
   function setContent(markdown: string): void {
-    editor.commands.setContent(markdown, { contentType: 'markdown' });
+    initializedEditor.commands.setContent(markdown, { contentType: 'markdown' });
   }
 
   function applyChanges(changes: Replace[]): void {
@@ -542,13 +545,13 @@ export function createEditor(options: CreateEditorOptions): EditorInstance {
     window.removeEventListener('keyup', onModifierKeyUp, true);
     window.removeEventListener('blur', onModifierBlur);
     editorContainer?.removeEventListener('scroll', onScroll);
-    editor.off('selectionUpdate', onSelectionUpdate);
+    initializedEditor.off('selectionUpdate', onSelectionUpdate);
     bubbleMenuElement.remove();
-    editor.destroy();
+    initializedEditor.destroy();
   }
 
   function getContent(): string {
-    return editor.getMarkdown();
+    return initializedEditor.getMarkdown();
   }
 
   return {

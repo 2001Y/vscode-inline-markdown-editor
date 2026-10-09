@@ -44,6 +44,54 @@ export interface Replace {
   text: string;
 }
 
+export interface PositionSnapshot {
+  line: number;
+  character: number;
+}
+
+export interface RangeSnapshot {
+  start: PositionSnapshot;
+  end: PositionSnapshot;
+}
+
+export interface SelectionSnapshot extends RangeSnapshot {
+  anchor: PositionSnapshot;
+  active: PositionSnapshot;
+  isEmpty: boolean;
+  isReversed: boolean;
+}
+
+export interface ActiveTextEditorSnapshot {
+  docUri: string;
+  viewColumn: number | null;
+  selection: SelectionSnapshot | null;
+  visibleRanges: RangeSnapshot[];
+}
+
+export interface TabInputSnapshot {
+  kind: 'text' | 'textDiff' | 'custom' | 'unknown';
+  uri?: string;
+  originalUri?: string;
+  modifiedUri?: string;
+  viewType?: string;
+}
+
+export interface InlineEditorOpenTrace {
+  seq: number;
+  reason: string;
+  sourceCommand: string | null;
+  requestedViewType: string;
+  targetUri: string;
+  targetRange: RangeSnapshot | null;
+  targetSelection: SelectionSnapshot | null;
+  targetVisibleRanges: RangeSnapshot[];
+  activeTextEditor: ActiveTextEditorSnapshot | null;
+  activeTab: TabInputSnapshot | null;
+  createdAt: string;
+  createdAtMs: number;
+  viewColumn: number | null;
+}
+
 export interface BaseMessage {
   v: number;
   type: string;
@@ -193,6 +241,7 @@ export interface InitMessage extends BaseMessage {
   locale: string;
   i18n: Record<string, string>;
   config: WebviewConfig;
+  openTrace?: InlineEditorOpenTrace | null;
 }
 
 export interface ConfigChangedMessage extends BaseMessage {
@@ -347,6 +396,27 @@ const VALID_WEBVIEW_MESSAGE_TYPES = [
   'findWidgetStateChange',
 ] as const;
 
+const isNonNegativeSafeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+/** Validate original-document UTF-16 offsets before VS Code can clamp them. */
+export function areValidReplaces(changes: unknown, documentLength?: number): changes is Replace[] {
+  if (!Array.isArray(changes)) {return false;}
+  if (documentLength !== undefined && !isNonNegativeSafeInteger(documentLength)) {return false;}
+  let previousStart = -1;
+  let previousEnd = 0;
+  for (const change of changes) {
+    if (typeof change !== 'object' || change === null) {return false;}
+    if (!isNonNegativeSafeInteger(change.start) || !isNonNegativeSafeInteger(change.end)) {return false;}
+    if (typeof change.text !== 'string') {return false;}
+    if (change.end < change.start || change.start < previousEnd || change.start <= previousStart) {return false;}
+    if (documentLength !== undefined && change.end > documentLength) {return false;}
+    previousStart = change.start;
+    previousEnd = change.end;
+  }
+  return true;
+}
+
 export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMessage {
   if (typeof msg !== 'object' || msg === null) {
     return false;
@@ -367,15 +437,9 @@ export function isValidWebviewMessage(msg: unknown): msg is WebviewToExtensionMe
   }
 
   if (m.type === 'edit') {
-    if (typeof m.txId !== 'number') {return false;}
-    if (typeof m.baseVersion !== 'number') {return false;}
-    if (!Array.isArray(m.changes)) {return false;}
-    for (const change of m.changes) {
-      if (typeof change !== 'object' || change === null) {return false;}
-      if (typeof change.start !== 'number') {return false;}
-      if (typeof change.end !== 'number') {return false;}
-      if (typeof change.text !== 'string') {return false;}
-    }
+    if (!isNonNegativeSafeInteger(m.txId)) {return false;}
+    if (!isNonNegativeSafeInteger(m.baseVersion)) {return false;}
+    if (!areValidReplaces(m.changes)) {return false;}
   }
 
   if (m.type === 'initAck') {
@@ -427,7 +491,8 @@ export function createInitMessage(
   clientId: string,
   locale: string,
   i18n: Record<string, string>,
-  config: WebviewConfig
+  config: WebviewConfig,
+  openTrace?: InlineEditorOpenTrace | null
 ): InitMessage {
   return {
     v: PROTOCOL_VERSION,
@@ -441,6 +506,7 @@ export function createInitMessage(
     locale,
     i18n,
     config,
+    openTrace: openTrace ?? null,
   };
 }
 

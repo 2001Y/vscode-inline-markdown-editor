@@ -2,7 +2,7 @@
   "name": "inlinemark",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "2001y",
   "repository": {
     "type": "git",
@@ -19,7 +19,10 @@
   "main": "./out/extension.js",
   "l10n": "./l10n",
   "files": [
-    "out/**",
+    "out/extension.js",
+    "out/editors/*.js",
+    "out/protocol/*.js",
+    "out/util/*.js",
     "media/webview/*.js",
     "media/webview/*.css",
     "media/webview/*.ttf",

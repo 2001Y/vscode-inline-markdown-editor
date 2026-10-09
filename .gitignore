@@ -100,3 +100,8 @@ coverage/
 *.pem
 .cert
 .serena/
+
+# Compiled dependency-light unit tests
+.test-out/
+
+.test-webview/

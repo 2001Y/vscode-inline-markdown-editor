@@ -226,7 +226,7 @@ export const NestedPage = Node.create<NestedPageOptions>({
 
   renderMarkdown: (node, _h, context) => {
     const indent = normalizeIndentAttr(node.attrs?.indent);
-    const isInListItem = context?.parentType?.name === 'listItem';
+    const isInListItem = context?.parentType === 'listItem';
     const marker = isInListItem ? '' : renderIndentMarker(indent);
     const content = markdownSpec.renderMarkdown(node);
     return `${marker}${content}`;

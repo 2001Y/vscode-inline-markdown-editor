@@ -45,6 +45,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import {
+  type InlineEditorOpenTrace,
   type WebviewToExtensionMessage,
   type WebviewConfig,
   createInitMessage,
@@ -58,11 +59,15 @@ import {
   createNestedPageCreateAckMessage,
   createNestedPageCreateFailedMessage,
   isValidWebviewMessage,
+  areValidReplaces,
 } from '../protocol/messages.js';
 import {
   replacesToWorkspaceEdit,
   contentChangeEventsToReplaces,
 } from '../util/textEdits.js';
+import {
+  captureInlineEditorOpenTrace,
+} from '../util/inlineEditorOpenTrace.js';
 import { logger } from '../util/log.js';
 
 interface WebviewPanel {
@@ -72,6 +77,8 @@ interface WebviewPanel {
   initAckReceived: boolean;
   initAckRetryCount: number;
   initAckTimer: ReturnType<typeof setTimeout> | null;
+  openTrace: InlineEditorOpenTrace | null;
+  resolveStartedAtMs: number;
 }
 
 interface DocumentState {
@@ -106,6 +113,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'inlineMark.editor';
 
   private documentStates = new Map<string, DocumentState>();
+  private pendingOpenTraces = new Map<string, InlineEditorOpenTrace[]>();
   private extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
   private currentConfig: WebviewConfig;
@@ -154,21 +162,101 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     return provider;
   }
 
+  public queueOpenTrace(openTrace: InlineEditorOpenTrace): void {
+    const queue = this.pendingOpenTraces.get(openTrace.targetUri) ?? [];
+    queue.push(openTrace);
+    this.pendingOpenTraces.set(openTrace.targetUri, queue);
+    logger.info('inlineEditor.open.traceQueued', {
+      docUri: openTrace.targetUri,
+      details: {
+        seq: openTrace.seq,
+        reason: openTrace.reason,
+        sourceCommand: openTrace.sourceCommand,
+        hasTargetSelection: Boolean(openTrace.targetSelection),
+      },
+    });
+  }
+
+  public async runWithOpenTrace<T>(openTrace: InlineEditorOpenTrace, open: () => PromiseLike<T>): Promise<T> {
+    this.queueOpenTrace(openTrace);
+    try {
+      return await open();
+    } finally {
+      this.dropQueuedOpenTrace(openTrace.targetUri, openTrace.seq, 'openCommandSettled');
+    }
+  }
+
+  public dropQueuedOpenTrace(docUri: vscode.Uri | string, seq: number, reason: string): void {
+    const docKey = typeof docUri === 'string' ? docUri : docUri.toString();
+    const queue = this.pendingOpenTraces.get(docKey);
+    if (!queue || queue.length === 0) {
+      return;
+    }
+    const nextQueue = queue.filter((trace) => trace.seq !== seq);
+    if (nextQueue.length === queue.length) {return;}
+    if (nextQueue.length > 0) {
+      this.pendingOpenTraces.set(docKey, nextQueue);
+    } else {
+      this.pendingOpenTraces.delete(docKey);
+    }
+    logger.debug('inlineEditor.open.traceDropped', {
+      docUri: docKey,
+      details: {
+        seq,
+        reason,
+        queuedBefore: queue.length,
+        queuedAfter: nextQueue.length,
+      },
+    });
+  }
+
+  private takeQueuedOpenTrace(docUri: vscode.Uri, viewColumn?: vscode.ViewColumn): InlineEditorOpenTrace | null {
+    const docKey = docUri.toString();
+    const queue = this.pendingOpenTraces.get(docKey);
+    if (!queue || queue.length === 0) {
+      return null;
+    }
+    const now = Date.now();
+    const active = queue.filter((trace) => now - trace.createdAtMs <= 30000);
+    const index = active.findIndex((trace) =>
+      viewColumn === undefined || trace.viewColumn === null || trace.viewColumn === viewColumn
+    );
+    const next = index >= 0 ? active.splice(index, 1)[0] : null;
+    queue.splice(0, queue.length, ...active);
+    if (queue.length > 0) {
+      this.pendingOpenTraces.set(docKey, queue);
+    } else {
+      this.pendingOpenTraces.delete(docKey);
+    }
+    return next;
+  }
+
   async resolveCustomTextEditor(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken
   ): Promise<void> {
     const docKey = document.uri.toString();
+    const resolveStartedAtMs = Date.now();
+    const openTrace = this.takeQueuedOpenTrace(document.uri, webviewPanel.viewColumn);
 
-    logger.info('resolveCustomTextEditor called', {
+    logger.info('inlineEditor.open.resolveCustomTextEditorCalled', {
       docUri: docKey,
       docVersion: document.version,
       details: {
         docLineCount: document.lineCount,
         isTrusted: vscode.workspace.isTrusted,
+        seq: openTrace?.seq ?? null,
+        reason: openTrace?.reason ?? null,
       },
     });
+    if (!openTrace) {
+      // Default/Explorer/restored opens do not pass through our reopen command.
+      logger.debug('inlineEditor.open.untracedResolve', {
+        docUri: docKey,
+        docVersion: document.version,
+      });
+    }
 
     if (!vscode.workspace.isTrusted) {
       logger.warn('Workspace not trusted - blocking editor', { docUri: docKey });
@@ -202,6 +290,15 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       logger.setupDocumentLog(document.uri);
     }
 
+    if (openTrace) {
+      // Replay capture context after the document log sink exists.
+      logger.info('inlineEditor.open.requestContext', {
+        sessionId: state.sessionId,
+        docUri: docKey,
+        details: { ...openTrace },
+      });
+    }
+
     const clientId = crypto.randomUUID();
     const panelState: WebviewPanel = {
       panel: webviewPanel,
@@ -210,6 +307,8 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       initAckReceived: false,
       initAckRetryCount: 0,
       initAckTimer: null,
+      openTrace,
+      resolveStartedAtMs,
     };
     state.panels.set(clientId, panelState);
 
@@ -219,9 +318,29 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage((msg) =>
       this.onDidReceiveMessage(document, state!, clientId, msg)
     );
+    const viewStateDisposable = webviewPanel.onDidChangeViewState(() => {
+      logger.info('inlineEditor.panel.viewStateChanged', {
+        sessionId: state?.sessionId,
+        clientId,
+        docUri: docKey,
+        docVersion: document.version,
+        details: {
+          seq: panelState.openTrace?.seq ?? null,
+          reason: panelState.openTrace?.reason ?? null,
+          active: webviewPanel.active,
+          visible: webviewPanel.visible,
+          viewColumn: webviewPanel.viewColumn ?? null,
+          elapsedSinceRequestMs: panelState.openTrace
+            ? Date.now() - panelState.openTrace.createdAtMs
+            : null,
+          elapsedSinceResolveMs: Date.now() - panelState.resolveStartedAtMs,
+        },
+      });
+    });
 
     webviewPanel.onDidDispose(() => {
       messageDisposable.dispose();
+      viewStateDisposable.dispose();
       if (panelState.initAckTimer) {
         clearTimeout(panelState.initAckTimer);
         panelState.initAckTimer = null;
@@ -235,11 +354,20 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       logger.debug('Webview disposed', { clientId, docUri: docKey });
     });
 
-    logger.info('Webview resolved', {
+    logger.info('inlineEditor.open.resolve', {
       sessionId: state.sessionId,
       clientId,
       docUri: docKey,
       docVersion: document.version,
+      durationMs: openTrace ? resolveStartedAtMs - openTrace.createdAtMs : undefined,
+      details: {
+        seq: openTrace?.seq ?? null,
+        reason: openTrace?.reason ?? null,
+        hasTargetSelection: Boolean(openTrace?.targetSelection),
+        active: webviewPanel.active,
+        visible: webviewPanel.visible,
+        viewColumn: webviewPanel.viewColumn ?? null,
+      },
     });
   }
 
@@ -434,6 +562,17 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
 
     switch (msg.type) {
       case 'ready':
+        logger.info('inlineEditor.open.readyReceived', {
+          sessionId: state.sessionId,
+          clientId,
+          docUri: document.uri.toString(),
+          durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
+          details: {
+            seq: panel.openTrace?.seq ?? null,
+            reason: panel.openTrace?.reason ?? null,
+            elapsedSinceResolveMs: Date.now() - panel.resolveStartedAtMs,
+          },
+        });
         await this.handleReady(document, state, panel);
         break;
       case 'initAck':
@@ -442,10 +581,12 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
           clearTimeout(panel.initAckTimer);
           panel.initAckTimer = null;
         }
-        logger.info('Init ack received', {
+        logger.info('inlineEditor.open.initAckReceived', {
           clientId,
           docUri: document.uri.toString(),
+          durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
           details: {
+            seq: panel.openTrace?.seq ?? null,
             sessionId: msg.sessionId,
             elapsedMs: msg.elapsedMs,
             contentLength: msg.contentLength,
@@ -542,7 +683,8 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       panel.clientId,
       locale,
       i18n,
-      config
+      config,
+      panel.openTrace
     );
 
     const MAX_INIT_RETRIES = 3;
@@ -559,12 +701,17 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
           return;
         }
         if (panel.initAckRetryCount >= MAX_INIT_ACK_RETRIES) {
-          logger.error('Init ack timeout', {
+          logger.error('inlineEditor.open.initAckTimeout', {
             sessionId: state.sessionId,
             clientId: panel.clientId,
             docUri: document.uri.toString(),
             docVersion: document.version,
-            details: { timeoutMs: INIT_ACK_TIMEOUT_MS, retryCount: panel.initAckRetryCount },
+            durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
+            details: {
+              seq: panel.openTrace?.seq ?? null,
+              timeoutMs: INIT_ACK_TIMEOUT_MS,
+              retryCount: panel.initAckRetryCount,
+            },
           });
           void vscode.window.showErrorMessage(
             vscode.l10n.t('inlineMark init did not complete. Please reopen the editor.')
@@ -572,12 +719,17 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
           return;
         }
         panel.initAckRetryCount += 1;
-        logger.warn('Init ack not received, retrying init', {
+        logger.warn('inlineEditor.open.initAckRetry', {
           sessionId: state.sessionId,
           clientId: panel.clientId,
           docUri: document.uri.toString(),
           docVersion: document.version,
-          details: { timeoutMs: INIT_ACK_TIMEOUT_MS, retryCount: panel.initAckRetryCount },
+          durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
+          details: {
+            seq: panel.openTrace?.seq ?? null,
+            timeoutMs: INIT_ACK_TIMEOUT_MS,
+            retryCount: panel.initAckRetryCount,
+          },
         });
         await sendInit(1, 'ack-timeout-retry');
       }, INIT_ACK_TIMEOUT_MS);
@@ -586,12 +738,19 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     const sendInit = async (attempt: number, reason: string): Promise<void> => {
       try {
         const ok = await panel.panel.webview.postMessage(initMessage);
-        logger.info('Init sent', {
+        logger.info('inlineEditor.open.initSent', {
           sessionId: state.sessionId,
           clientId: panel.clientId,
           docUri: document.uri.toString(),
           docVersion: document.version,
-          details: { delivered: ok, attempt, reason },
+          durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
+          details: {
+            seq: panel.openTrace?.seq ?? null,
+            delivered: ok,
+            attempt,
+            reason,
+            hasTargetSelection: Boolean(panel.openTrace?.targetSelection),
+          },
         });
 
         if (ok) {
@@ -600,31 +759,45 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         }
 
         if (attempt >= MAX_INIT_RETRIES) {
-          logger.error('Init delivery failed after retries', {
+          logger.error('inlineEditor.open.initDeliveryFailed', {
             sessionId: state.sessionId,
             clientId: panel.clientId,
             docUri: document.uri.toString(),
             docVersion: document.version,
+            durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
+            details: {
+              seq: panel.openTrace?.seq ?? null,
+              attempts: attempt,
+            },
           });
           return;
         }
 
-        logger.warn('Init delivery failed, retrying', {
+        logger.warn('inlineEditor.open.initDeliveryRetry', {
           sessionId: state.sessionId,
           clientId: panel.clientId,
           docUri: document.uri.toString(),
           docVersion: document.version,
-          details: { attempt, nextDelayMs: RETRY_DELAY_MS },
+          durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
+          details: {
+            seq: panel.openTrace?.seq ?? null,
+            attempt,
+            nextDelayMs: RETRY_DELAY_MS,
+          },
         });
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
         await sendInit(attempt + 1, 'delivery-retry');
       } catch (error) {
-        logger.error('Init send failed', {
+        logger.error('inlineEditor.open.initSendFailed', {
           sessionId: state.sessionId,
           clientId: panel.clientId,
           docUri: document.uri.toString(),
           docVersion: document.version,
+          durationMs: panel.openTrace ? Date.now() - panel.openTrace.createdAtMs : undefined,
           errorStack: String(error),
+          details: {
+            seq: panel.openTrace?.seq ?? null,
+          },
         });
       }
     };
@@ -666,6 +839,17 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         baseVersion,
         docVersion: document.version,
       });
+      return;
+    }
+
+    // positionAt clamps out-of-bounds offsets; reject instead of editing a
+    // different range than the Webview requested. This is protocol validation,
+    // independent of the intentionally disabled ChangeGuard below.
+    if (!areValidReplaces(changes, document.getText().length)) {
+      await panel.panel.webview.postMessage(
+        createNackMessage(txId, document.version, 'applyFailed', state.sessionId, 'Invalid edit ranges')
+      );
+      logger.warn('Edit rejected (invalid ranges)', { clientId, txId, docVersion: document.version });
       return;
     }
 
@@ -766,6 +950,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
     logger.log(msg.level, `[Webview] ${msg.message}`, {
       clientId,
       docUri,
+      sessionId: msg.sessionId,
       details: msg.details,
     });
   }
@@ -1438,13 +1623,25 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       );
 
       if (!delivered) {
+        let openTrace: InlineEditorOpenTrace | null = null;
         try {
           const viewColumn =
             panel.panel.viewColumn ??
             vscode.window.activeTextEditor?.viewColumn ??
             vscode.window.tabGroups.activeTabGroup.viewColumn;
           const options = viewColumn ? { viewColumn, preview: false } : { preview: false };
-          await vscode.commands.executeCommand('vscode.openWith', targetFileUri, InlineMarkProvider.viewType, options);
+          openTrace = captureInlineEditorOpenTrace({
+            targetUri: targetFileUri,
+            reason: 'nestedPageCreated',
+            sourceCommand: null,
+            requestedViewType: InlineMarkProvider.viewType,
+            viewColumn,
+            activeTab: vscode.window.tabGroups.activeTabGroup.activeTab,
+            activeTextEditor: vscode.window.activeTextEditor,
+          });
+          await this.runWithOpenTrace(openTrace, () =>
+            vscode.commands.executeCommand('vscode.openWith', targetFileUri, InlineMarkProvider.viewType, options)
+          );
           logger.info('Nested page opened by extension', {
             clientId,
             docUri,
@@ -1455,6 +1652,9 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
             },
           });
         } catch (error) {
+          if (openTrace) {
+            this.dropQueuedOpenTrace(targetFileUri, openTrace.seq, 'nestedPageCreatedOpenFailed');
+          }
           logger.error('Nested page open failed (extension)', {
             clientId,
             docUri,
@@ -1529,19 +1729,34 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
       return;
     }
 
+    let openTrace: InlineEditorOpenTrace | null = null;
     try {
       const viewColumn =
         vscode.window.activeTextEditor?.viewColumn ?? vscode.window.tabGroups.activeTabGroup.viewColumn;
-      await vscode.commands.executeCommand('vscode.openWith', targetUri, InlineMarkProvider.viewType, {
+      openTrace = captureInlineEditorOpenTrace({
+        targetUri,
+        reason: 'nestedPageOpen',
+        sourceCommand: null,
+        requestedViewType: InlineMarkProvider.viewType,
         viewColumn,
-        preview: false,
+        activeTab: vscode.window.tabGroups.activeTabGroup.activeTab,
+        activeTextEditor: vscode.window.activeTextEditor,
       });
+      await this.runWithOpenTrace(openTrace, () =>
+        vscode.commands.executeCommand('vscode.openWith', targetUri, InlineMarkProvider.viewType, {
+          viewColumn,
+          preview: false,
+        })
+      );
       logger.info('Nested page opened', {
         clientId,
         docUri,
         details: { targetPath },
       });
     } catch (error) {
+      if (openTrace) {
+        this.dropQueuedOpenTrace(targetUri, openTrace.seq, 'nestedPageOpenFailed');
+      }
       vscode.window.showErrorMessage(`Failed to open nested page: ${relativePath}`);
       logger.error('Nested page open failed', {
         clientId,
@@ -2039,7 +2254,8 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
         panel.clientId,
         locale,
         i18n,
-        config
+        config,
+        panel.openTrace
       );
 
       await panel.panel.webview.postMessage(initMessage);
@@ -2090,6 +2306,7 @@ export class InlineMarkProvider implements vscode.CustomTextEditorProvider {
   }
 
   dispose(): void {
+    this.pendingOpenTraces.clear();
     for (const disposable of this.disposables) {
       disposable.dispose();
     }

@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": ".",
+    "outDir": ".test-out",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true
+  },
+  "files": [
+    "packages/webview/src/editor/diffEngine.ts",
+    "packages/extension/src/protocol/messages.ts",
+    "packages/extension/src/editors/inlineMarkProvider.ts",
+    "packages/webview/src/observability.ts",
+    "packages/webview/src/editor/nodeViewPosition.ts",
+    "packages/extension/src/test/vscodeTestProcess.ts"
+  ]
+}
