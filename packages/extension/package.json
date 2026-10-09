@@ -2,7 +2,7 @@
   "name": "inlinemark",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "2001y",
   "repository": {
     "type": "git",

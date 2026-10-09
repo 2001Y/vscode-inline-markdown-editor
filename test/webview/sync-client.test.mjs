@@ -85,3 +85,24 @@ test('a fresh init cancels an edit left over from the previous session', async (
 
   assert.deepEqual(posts.map(message => message.type), ['initAck']);
 });
+
+test('repeated resets discard old producers and allow a fresh Unicode edit after init', async () => {
+  const { client, posts } = fixture();
+  client.handleMessage({ data: init(false) });
+  posts.length = 0;
+  let staleCalls = 0;
+  client.scheduleEdit(() => { staleCalls++; return [{ start: 0, end: 0, text: 'stale' }]; });
+  client.resetSession();
+  client.resetSession();
+  client.handleMessage({ data: { ...init(false), sessionId: 'fresh', version: 7, content: '本文😀' } });
+  const changes = [{ start: 4, end: 4, text: '日本語e\u0301' }];
+  client.scheduleEdit(() => changes);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const edits = posts.filter(message => message.type === 'edit');
+  assert.equal(staleCalls, 0);
+  assert.equal(edits.length, 1);
+  assert.equal(edits[0].baseVersion, 7);
+  assert.deepEqual(edits[0].changes, changes);
+  // End the in-flight transaction without leaving a timeout behind.
+  client.handleMessage({ data: { ...init(false), sessionId: 'complete', version: 8, content: '本文😀日本語e\u0301' } });
+});
