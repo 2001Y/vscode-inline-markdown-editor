@@ -54,3 +54,20 @@ test('TRACE logs preserve session identity while debug-disabled INFO is suppress
   assert.equal(posts[0].level, 'TRACE');
   assert.equal(posts[0].sessionId, 'synthetic-session');
 });
+
+test('resetSession cancels an edit that is still waiting for debounce', async () => {
+  const { client, posts } = fixture();
+  client.handleMessage({ data: init(false) });
+  posts.length = 0;
+
+  client.scheduleEdit(() => [{ start: 5, end: 5, text: 'stale' }]);
+  client.resetSession();
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  assert.deepEqual(posts.map(message => message.type), ['ready']);
+
+  // Complete the reset handshake so its watchdog does not outlive the test.
+  client.handleMessage({
+    data: { ...init(false), sessionId: 'reset-session', content: 'authoritative' },
+  });
+});

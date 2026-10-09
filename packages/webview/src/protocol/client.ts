@@ -1003,6 +1003,10 @@ export class SyncClient {
   resetSession(): void {
     this.log('INFO', 'Reset session requested');
     // Clear all state and request fresh init
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
     this.clearInFlightTimeout();
     this.inFlightTxId = null;
     this.awaitingDocChangedVersion = null;
